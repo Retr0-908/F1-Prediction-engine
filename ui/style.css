@@ -1,20 +1,37 @@
 :root {
-    --bg-dark: #020305;
-    --bg-panel: #0a0b10;
-    --border-dim: #1c202d;
+    --bg-dark: #030509;
+    --bg-panel: rgba(10, 16, 28, 0.92);
+    --bg-glass: rgba(10, 16, 28, 0.92);
+    --bg-glass-overlay: rgba(10, 16, 28, 0.68);
+    --border-dim: rgba(0, 240, 255, 0.22);
+    --glass-border: rgba(0, 240, 255, 0.22);
+    --glass-border-hover: rgba(204, 255, 0, 0.5);
+    
+    /* Telemetry Accents & High Contrast Colors */
+    --neon-cyan: #00F0FF;     /* 13.83:1 contrast on dark glass (PASS AAA) */
+    --neon-lime: #CCFF00;     /* 16.58:1 contrast on dark glass (PASS AAA) */
     --f1-red: #00F0FF;
     --f1-red-hover: #CCFF00;
+    --pit-red: #FF335C;       /* 4.86:1 contrast on dark cards (PASS AA) */
+    --color-red: #FF335C;
+    --color-green: #00F0FF;
+    --color-yellow: #CCFF00;
+    --color-sprint: #FF8000;
+    --color-grey: #94A3B8;    /* Slate-400: 6.70:1 contrast (PASS AA) */
+    
     --text-main: #f8f8f8;
-    --text-dim: #8a8a9e;
+    --text-primary: #f8f8f8;
+    --text-dim: #94A3B8;      /* Slate-400 */
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --text-on-accent: #030509; /* Dark text for bright Lime/Cyan buttons */
+    
     --font-heading: 'Space Grotesk', sans-serif;
     --font-body: 'Inter', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
     
-    --color-grey: #444;
-    --color-yellow: #f0c420;
-    --color-green: #00E5FF;
-    --color-red: #FF1E4D;
-    --color-sprint: #FF8000;
+    --radius-panel: 8px;
+    --shadow-floating: 0 20px 45px rgba(0, 240, 255, 0.08), 0 12px 25px rgba(0, 0, 0, 0.7);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,19 +45,47 @@ body {
     position: relative;
 }
 
-/* Glassmorphism Panels */
+/* Enforce Tabular Numerals for Telemetry Data */
+.telemetry-num, .lap-time, .delta-val, .metric-pill-val, .status-val {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/* Hardware-Accelerated Glassmorphism Panels */
 .panel {
-    background: var(--bg-panel);
-    border: 1px solid var(--border-dim);
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    padding: 24px;
+    position: relative;
+    background: var(--bg-glass) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: var(--radius-panel) !important;
+    padding: 16px !important;
     display: flex;
     flex-direction: column;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
     transform: translateZ(0);
-    will-change: transform, backdrop-filter;
+}
+
+/* Hardware Accelerated GPU Pseudo-Element Shadow */
+.panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-panel);
+    box-shadow: 0 20px 45px rgba(0, 240, 255, 0.15), 0 10px 25px rgba(0, 0, 0, 0.8);
+    opacity: 0;
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.panel:hover {
+    border-color: var(--glass-border-hover) !important;
+    transform: translateY(-3px) scale(1.002) !important;
+    will-change: transform;
+}
+
+.panel:hover::after {
+    opacity: 1;
 }
 
 .panel-header {
@@ -1832,5 +1877,123 @@ h1, h2, h3 { font-family: var(--font-heading); }
     background: rgba(232, 0, 45, 0.15);
     color: var(--f1-red);
     border: 1px solid rgba(232, 0, 45, 0.3);
+}
+
+/* ── Antigravity High-Contrast Button & Accessibility Rules ── */
+.btn-primary {
+    background-color: var(--neon-cyan) !important;
+    color: var(--text-on-accent) !important; /* Void black text for WCAG 13.83:1 contrast */
+    font-weight: 700 !important;
+    min-height: 44px; /* WCAG 2.1 SC 2.5.5 Touch Target minimum */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-primary:hover {
+    background-color: var(--neon-lime) !important;
+    color: var(--text-on-accent) !important; /* Void black text for WCAG 16.58:1 contrast */
+}
+
+/* ── Motion Accessibility (prefers-reduced-motion) ── */
+@media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .panel, .driver-card-3d, .hero-race-card {
+        transform: none !important;
+        perspective: none !important;
+        transform-style: flat !important;
+        will-change: auto !important;
+    }
+
+    .panel:hover, .driver-card-3d:hover {
+        transform: none !important;
+    }
+
+    .panel::after {
+        display: none !important;
+    }
+
+    .particle-field, .spinner, .spinning-tire {
+        animation: none !important;
+    }
+}
+
+/* ── Responsive Breakpoint Matrix ── */
+
+/* Mobile Viewports (<= 767px / 375px target) */
+@media (max-width: 767px) {
+    #main-nav {
+        height: auto;
+        padding: 8px 12px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .nav-links {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+        padding: 6px 0;
+        gap: 6px;
+    }
+
+    .nav-links a {
+        min-height: 44px; /* WCAG 2.1 Touch Target */
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 14px;
+    }
+
+    .main-layout {
+        top: 110px;
+        grid-template-columns: 1fr !important;
+        height: auto;
+        padding: 12px;
+        gap: 16px;
+    }
+
+    .col-left, .col-center, .col-right {
+        grid-column: 1 / -1 !important;
+        grid-row: auto !important;
+    }
+
+    .driver-card-3d {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
+
+/* Tablet Viewports (768px - 1199px) */
+@media (min-width: 768px) and (max-width: 1199px) {
+    .main-layout {
+        grid-template-columns: 1fr 1fr;
+        padding: 20px;
+        gap: 16px;
+    }
+
+    .col-left { grid-column: 1 / 3; }
+    .col-center { grid-column: 1 / 2; }
+    .col-right { grid-column: 2 / 3; }
+}
+
+/* Desktop Telemetry HUD (>= 1200px / 1440px target) */
+@media (min-width: 1200px) {
+    .main-layout {
+        grid-template-columns: 1.8fr 1fr 1.2fr;
+        gap: 24px;
+        padding: 24px;
+        height: calc(100vh - 70px);
+    }
+
+    .col-left { grid-column: 1 / 2; grid-row: 1 / 2; }
+    .col-center { grid-column: 2 / 3; grid-row: 1 / 2; }
+    .col-right { grid-column: 3 / 4; grid-row: 1 / 2; }
 }
 
