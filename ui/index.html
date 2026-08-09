@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Fantasy Predictor</title>
+    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Screen 1: Launch Screen -->
+    <div id="launch-screen" class="screen active">
+        <div class="particle-field"></div>
+        <div class="launch-content">
+            <h1 class="brand-title">F1 FANTASY PREDICTOR</h1>
+            <div class="spinner"></div>
+            <p id="launch-status">Waking up engine...</p>
+            <script>
+                const msgs = [
+                    "[0.001] INITIALIZING TELEMETRY ENGINE...",
+                    "[0.045] ESTABLISHING PIT WALL LINK...",
+                    "[0.120] LOADING RACING LINE DATA...",
+                    "[0.294] CALIBRATING PREDICTION ALGORITHMS...",
+                    "[0.471] SYNCHRONIZING SECURE TUNNEL...",
+                    "[0.890] ALL SYSTEMS GO."
+                ];
+                let step = 0;
+                const el = document.getElementById("launch-status");
+                const interval = setInterval(() => {
+                    if(step < msgs.length) {
+                        el.innerText = msgs[step];
+                        step++;
+                    } else {
+                        clearInterval(interval);
+                    }
+                }, 120);
+            </script>
+        </div>
+    </div>
+
+    <!-- Main Navigation -->
+    <nav id="main-nav" class="hidden">
+        <div class="nav-brand">F1 PREDICTOR</div>
+        <div class="nav-links">
+            <a href="#" data-target="dashboard-screen" class="nav-btn active">Dashboard</a>
+            <a href="#" data-target="team-screen" class="nav-btn">My Team</a>
+            <a href="#" data-target="prices-screen" class="nav-btn">Prices</a>
+            <a href="#" data-target="standings-screen" class="nav-btn" id="nav-standings">Standings</a>
+            <a href="#" data-target="past-races-screen" class="nav-btn" id="nav-past-races">Past Races</a>
+            <a href="#" data-target="past-predictions-screen" class="nav-btn" id="nav-past-predictions">Past Predictions</a>
+            <a href="#" data-target="analysis-screen" class="nav-btn" id="nav-analysis" style="display:none;">Analysis</a>
+            <a href="#" data-target="results-screen" class="nav-btn" style="display:none;" id="nav-results">Results</a>
+            <a href="#" data-target="pred-analysis-screen" class="nav-btn" id="nav-pred-analysis">Prediction Analysis</a>
+            <a href="#" data-target="settings-screen" class="nav-btn" id="nav-settings">Settings</a>
+        </div>
+        <div class="nav-actions">
+            <select id="mode-selector" class="mode-select" style="font-family: inherit; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 0.4rem 0.8rem; border-radius: 0; font-size: 0.85rem; margin-right: 10px; cursor: pointer; transition: all 0.2s;">
+                <option value="auto" style="color: black;">⚙ Auto Mode</option>
+                <option value="pre-quali" style="color: black;">Pre-Qualifying</option>
+                <option value="post-quali" style="color: black;">Post-Qualifying</option>
+            </select>
+            <a href="https://fantasy.formula1.com" target="_blank" class="btn btn-fantasy">&#8599; F1 Fantasy</a>
+            <button id="btn-run-analysis" class="btn btn-primary" onclick="startAnalysis()">&#9654; Run Analysis</button>
+        </div>
+    </nav>
+
+    <!-- Global Download Progress Bar -->
+    <div id="global-download-progress" class="hidden global-download-toast">
+        <div class="toast-header">
+            <span class="spinner-small" style="display:inline-block; margin-right:8px; width:14px; height:14px; border-width:2px; vertical-align:middle;"></span>
+            <strong>Cache Rebuild in Progress</strong>
+        </div>
+        <div id="global-download-status" class="toast-body">Starting...</div>
+    </div>
+
+    <!-- Screen 2: Dashboard Home -->
+    <div id="dashboard-screen" class="screen main-layout content-padding">
+        <!-- Left Panel: Hero Race Info -->
+        <div class="panel col-left hero-panel">
+            <div class="panel-header">WEEKEND HUB</div>
+            <div class="hero-race-card">
+                <div class="hero-top">
+                    <div class="hero-text">
+                        <h2 id="dash-race-name">Loading...</h2>
+                        <p id="dash-race-date" class="dim-text">...</p>
+                    </div>
+                    <div id="hero-weather-icon" class="hero-weather-large"></div>
+                </div>
+                <div class="track-map-container" id="dash-track-map">
+                    <div class="map-placeholder">
+                        <div class="spinner-small"></div>
+                        <span>Initializing Map...</span>
+                    </div>
+                </div>
+                <div class="hero-stats-row" id="dash-race-stats">
+                    <div class="hero-mini-stat" id="weather-temp">
+                        <div class="dim-text" style="font-size:0.8rem;">Temp</div>
+                        <div style="font-weight:700;">—°C</div>
+                    </div>
+                    <div class="hero-mini-stat" id="weather-precip">
+                        <div class="dim-text" style="font-size:0.8rem;">Rain Risk</div>
+                        <div style="font-weight:700;">—%</div>
+                    </div>
+                    <div class="hero-mini-stat" id="weather-humidity">
+                        <div class="dim-text" style="font-size:0.8rem;">Humidity</div>
+                        <div style="font-weight:700;">—%</div>
+                    </div>
+                    <div class="hero-mini-stat" id="weather-wind">
+                        <div class="dim-text" style="font-size:0.8rem;">Wind</div>
+                        <div style="font-weight:700;">—kph</div>
+                    </div>
+                </div>
+                <div id="mode-banner-post" class="mode-banner" style="display:none; margin-top: 15px; padding: 10px; border-radius: 0; background: rgba(0,255,0,0.1); border: 1px solid rgba(0,255,0,0.3); font-size: 0.85rem;">
+                    <div style="font-weight: bold; color: var(--color-green); margin-bottom: 4px;">🟢 QUALIFYING COMPLETE</div>
+                    <div style="opacity: 0.8;">Using actual grid positions. Race predictions locked to real qualifying order.</div>
+                </div>
+                <div id="mode-banner-pre" class="mode-banner" style="display:none; margin-top: 15px; padding: 10px; border-radius: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem;">
+                    <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">⏳ PRE-QUALIFYING</div>
+                    <div style="opacity: 0.8;">Predicted grid based on form & ML model. Grid will auto-update after qualifying.</div>
+                </div>
+            </div>
+
+            <!-- Session Times Panel -->
+            <div class="panel-header" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>SESSION TIMES</span>
+                <select id="timezone-selector" style="font-family: inherit; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 0.2rem 0.5rem; border-radius: 0; font-size: 0.85rem;">
+                    <!-- Dynamically populated via JS -->
+                </select>
+            </div>
+            <div class="hero-race-card" style="padding: 1rem;">
+                <div id="session-times-list" style="display: flex; flex-direction: column; gap: 0.8rem;">
+                    <div class="dim-text">Loading session times...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel -->
+        <div class="panel col-center">
+            <div class="panel-header">SYSTEM STATUS</div>
+            <div class="status-board">
+                <div class="status-row" id="status-race">
+                    <span class="status-indicator grey"></span>
+                    <span class="status-label">Next Race</span>
+                    <span class="status-val dim-text">...</span>
+                </div>
+                <div class="status-row" id="status-engine">
+                    <span class="status-indicator grey"></span>
+                    <span class="status-label">Predictive Engine</span>
+                    <span class="status-val dim-text">...</span>
+                </div>
+                <div class="status-row" id="status-cache">
+                    <span class="status-indicator grey"></span>
+                    <span class="status-label">Local Cache</span>
+                    <span class="status-val dim-text">...</span>
+                </div>
+                <div class="status-row" id="status-weather">
+                    <span class="status-indicator grey"></span>
+                    <span class="status-label">Weather Service</span>
+                    <span class="status-val dim-text">...</span>
+                </div>
+                <div class="status-row" id="status-team">
+                    <span class="status-indicator grey"></span>
+                    <span class="status-label">User Profile</span>
+                    <span class="status-val dim-text">Not set</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="panel col-right">
+            <div class="panel-header">AI INSIGHTS & TOP MOVE</div>
+            <div class="summary-content empty-state" id="quick-summary-content">
+                <div style="text-align: center; margin-top: 50px; padding: 0 20px;">
+                    <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">⚡</div>
+                    <p class="dim-text">Run analysis to view projections and chip recommendations.</p>
+                    <button class="btn btn-primary" style="margin-top: 16px; width: 100%;" onclick="startAnalysis()">Run Analysis</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 3: My Team -->
+    <div id="team-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>MANAGE YOUR TEAM</h2>
+            <div class="team-controls">
+                <label title="Spare cash left in your F1 Fantasy account after buying your current team">Budget Left ($M): <input type="number" id="team-budget" value="100.0" step="0.1" class="input-field"></label>
+                <label>Points: <input type="number" id="team-points" value="0.0" step="1" class="input-field"></label>
+                <label>Transfers: <input type="number" id="team-transfers" value="1" min="0" max="10" class="input-field"></label>
+                <button class="btn btn-primary" onclick="saveTeam()">Save Team</button>
+            </div>
+        </div>
+        <div class="picker-container">
+            <div class="panel">
+                <div class="panel-header">DRIVERS (Select 5) <span id="driver-count" style="float:right;">0/5</span></div>
+                <div class="grid-picker" id="driver-grid">Loading...</div>
+            </div>
+            <div class="panel" style="margin-top:20px;">
+                <div class="panel-header">CONSTRUCTORS (Select 2) <span id="ctor-count" style="float:right;">0/2</span></div>
+                <div class="grid-picker" id="ctor-grid">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 4: Prices -->
+    <div id="prices-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>MARKET PRICES</h2>
+            <p class="dim-text">Click any price value to manually override it.</p>
+        </div>
+        <div class="prices-container">
+            <div class="panel">
+                <div class="panel-header">DRIVERS</div>
+                <div id="prices-driver-list" class="price-list">Loading...</div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">CONSTRUCTORS</div>
+                <div id="prices-ctor-list" class="price-list">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 5: Live Analysis View -->
+    <div id="analysis-screen" class="screen content-padding">
+        <div class="panel analysis-container" style="height: 100%;">
+            <div class="panel-header">RUNNING PIPELINE...</div>
+            
+            <div class="analysis-split-layout">
+                <div class="analysis-left">
+                    <div id="analysis-animation-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 0;">
+                        <!-- SVG F1 analysis loader -->
+                        <svg class="f1-svg-loader" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Track -->
+                            <line x1="0" y1="48" x2="200" y2="48" stroke="#333" stroke-width="2" stroke-dasharray="8 6"/>
+                            <!-- Car body -->
+                            <g id="f1-car-svg">
+                                <!-- Rear exhaust flame/glow -->
+                                <path id="exhaust-glow" d="M -8,38 L 4,37 L 4,40 L -8,39 Z" fill="url(#exhaustGrad)" opacity="0.9"/>
+                                <!-- Rear Wing -->
+                                <rect x="6" y="16" width="3" height="24" rx="0.5" fill="#111"/>
+                                <path d="M 9,18 L 20,18 L 18,24 L 9,22 Z" fill="#00F0FF"/>
+                                <!-- Underfloor -->
+                                <path d="M 28,44 L 70,44 L 70,46 L 28,46 Z" fill="#111"/>
+                                <!-- Engine Cover & Sidepods (sleek curve) -->
+                                <path d="M 18,34 C 18,34 26,20 40,20 C 50,20 54,26 56,28 C 62,31 68,34 76,36 L 86,39 C 89,39.5 91,40.5 92,41.5 L 92,44 L 18,44 Z" fill="#00F0FF"/>
+                                <!-- Sidepod air intake -->
+                                <path d="M 58,30 L 61,26 L 66,26 L 63,30 Z" fill="#111"/>
+                                <!-- Nose & Front Wing -->
+                                <path d="M 86,39 L 91,40 C 93,40.5 94,42 94,44 L 86,44 Z" fill="#00F0FF"/>
+                                <rect x="94" y="38" width="2" height="7" rx="0.5" fill="#111"/>
+                                <path d="M 88,43 L 95,43 L 95,45 L 88,45 Z" fill="#111"/>
+                                <!-- Cockpit & Driver -->
+                                <circle cx="50" cy="25" r="3.5" fill="#EEEEEE"/>
+                                <path d="M 50.5,23.5 L 53.5,24.2 L 53,25.8 L 50,25.2 Z" fill="#111"/>
+                                <path d="M 45,28 C 47,23 54,23 56,28" stroke="#111" stroke-width="1.5" fill="none"/>
+                                <rect x="40" y="17" width="3" height="3" fill="#CCFF00"/>
+                                <!-- Rear wheel -->
+                                <g class="wheel-group">
+                                    <circle cx="24" cy="40" r="8" fill="#151515" stroke="#333" stroke-width="1"/>
+                                    <circle cx="24" cy="40" r="4.5" fill="#050505"/>
+                                    <circle cx="24" cy="40" r="6" stroke="#CCFF00" stroke-width="0.8" stroke-dasharray="3 2" fill="none" class="spinning-tire"/>
+                                </g>
+                                <!-- Front wheel -->
+                                <g class="wheel-group">
+                                    <circle cx="74" cy="40" r="8" fill="#151515" stroke="#333" stroke-width="1"/>
+                                    <circle cx="74" cy="40" r="4.5" fill="#050505"/>
+                                    <circle cx="74" cy="40" r="6" stroke="#CCFF00" stroke-width="0.8" stroke-dasharray="3 2" fill="none" class="spinning-tire"/>
+                                </g>
+                            </g>
+                            <!-- Gradient for exhaust & Filters -->
+                            <defs>
+                                <linearGradient id="exhaustGrad" x1="100%" y1="0%" x2="0%" y2="0%">
+                                    <stop offset="0%" stop-color="#ff0055"/>
+                                    <stop offset="50%" stop-color="#ffaa00" stop-opacity="0.8"/>
+                                    <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+                                </linearGradient>
+                            </defs>
+                            <!-- Speed Lines Group -->
+                            <g id="speed-lines">
+                                <line class="speed-line sl-1" x1="190" y1="15" x2="210" y2="15" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+                                <line class="speed-line sl-2" x1="170" y1="28" x2="195" y2="28" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
+                                <line class="speed-line sl-3" x1="180" y1="42" x2="200" y2="42" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+                            </g>
+                        </svg>
+                        <h3 style="margin-top: 16px; font-weight: 700; color: #00F0FF; letter-spacing: 3px; font-size: 0.9rem;" id="animation-status-text" class="pulse-text">INITIALIZING ENGINE...</h3>
+                        <p style="color: #666; font-size: 0.75rem; margin-top: 6px;">This may take 1-2 minutes on the first run</p>
+                    </div>
+                    
+                    <!-- Diagnostics HUD -->
+                    <div class="hud-panel">
+                        <div class="hud-header">MODEL CALCULATION PARAMETERS</div>
+                        <div class="hud-grid">
+                            <div class="hud-item">
+                                <div class="hud-label">WEEKEND ROUND</div>
+                                <div class="hud-val" id="hud-round">Round — <span class="hud-unit">—</span></div>
+                            </div>
+                            <div class="hud-item">
+                                <div class="hud-label">CIRCUIT LAYOUT</div>
+                                <div class="hud-val" id="hud-circuit">Detecting... <span class="hud-unit">—</span></div>
+                            </div>
+                            <div class="hud-item">
+                                <div class="hud-label">WEATHER CONDITIONS</div>
+                                <div class="hud-val" id="hud-weather">— <span class="hud-unit">—</span></div>
+                            </div>
+                            <div class="hud-item">
+                                <div class="hud-label">TRACK CHARACTERISTICS</div>
+                                <div class="hud-val" id="hud-track">— <span class="hud-unit">—</span></div>
+                            </div>
+                            <div class="hud-item">
+                                <div class="hud-label">ENSEMBLE MODEL WEIGHTS</div>
+                                <div class="hud-val" id="hud-ensemble">Fitting... <span class="hud-unit">—</span></div>
+                            </div>
+                            <div class="hud-item">
+                                <div class="hud-label">MONTE CARLO PROJECTION</div>
+                                <div class="hud-val" id="hud-sims">Pending... <span class="hud-unit">—</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="analysis-right">
+                    <div class="progress-track" id="analysis-progress">
+                        <!-- Filled dynamically via JS -->
+                    </div>
+                    <div class="terminal-log" id="analysis-log">
+                        <!-- SSE logs go here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 6: Results -->
+    <div id="results-screen" class="screen content-padding scrollable">
+        <div class="results-header panel">
+            <h2>ANALYSIS COMPLETE</h2>
+            <div class="proj-score">Projected Base Score: <span id="res-score" class="highlight-text">0.0</span></div>
+        </div>
+
+        <div class="results-tabs">
+            <button class="tab-btn active" data-tab="res-tab-summary">PROJECTIONS</button>
+            <button class="tab-btn" data-tab="res-tab-qualifying">QUALIFYING</button>
+            <button class="tab-btn" data-tab="res-tab-telemetry">TELEMETRY</button>
+            <button class="tab-btn" data-tab="res-tab-analytics">ANALYTICS</button>
+        </div>
+        
+        <div id="res-tab-summary" class="tab-content active">
+            <!-- Sprint Weekend Timeline Banner (shown dynamically on sprint weekends) -->
+            <div id="sprint-weekend-banner" class="sprint-weekend-banner" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-family:var(--font-heading); font-size:1.2rem; font-weight:800; color:var(--color-sprint); letter-spacing:0.5px;">
+                        ⚡ SPRINT WEEKEND EVENT
+                    </div>
+                    <span class="sprint-weekend-badge">SPRINT FORMAT</span>
+                </div>
+                <div id="sprint-weekend-timeline" class="weekend-timeline">
+                    <!-- Dynamic timeline steps will be injected here -->
+                </div>
+            </div>
+
+            <div class="results-layout">
+                <div class="panel" id="res-race-weekend-panel" style="grid-column: 1 / -1;">
+                    <!-- Normal race weekend view -->
+                    <div id="normal-race-view">
+                        <div class="panel-header">PREDICTED RACE FINISHING ORDER</div>
+                        <p class="dim-text" style="font-size:0.85rem;margin-bottom:14px;">
+                            Predicted finishing positions with confidence levels. Practice session pace data is factored into these predictions.
+                        </p>
+                        <!-- Collapsible Symbol Legend -->
+                        <div id="race-order-legend" class="legend-panel collapsed">
+                            <button id="legend-toggle-btn" class="legend-toggle" onclick="toggleResultsLegend()">
+                                <span>ℹ️ Prediction Symbols & Color Legend</span>
+                                <span class="toggle-icon">▼</span>
+                            </button>
+                            <div class="legend-grid">
+                                <div class="legend-item">
+                                    <span class="legend-swatch" style="color: var(--color-green); font-weight: bold;">▲</span>
+                                    <span class="legend-text">Positive momentum (EWMA trend improving over last 5 races)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-swatch" style="color: var(--f1-red); font-weight: bold;">▼</span>
+                                    <span class="legend-text">Negative momentum (EWMA trend declining over last 5 races)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-swatch" style="color: var(--text-dim);">—</span>
+                                    <span class="legend-text">Neutral momentum</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-badge badge-rookie">ROOKIE</span>
+                                    <span class="legend-text">Driver has &lt; 4 races of current-season data</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-badge badge-dnf" style="color: var(--color-yellow);">⚠ XX%</span>
+                                    <span class="legend-text">DNF risk &ge; 15% (estimated retirement probability)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-bar bar-green" style="background-color: var(--color-green);"></div>
+                                    <span class="legend-text">High Confidence (&ge; 70% model confidence)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-bar bar-yellow" style="background-color: var(--color-yellow);"></div>
+                                    <span class="legend-text">Medium Confidence (45–69% model confidence)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-bar bar-red" style="background-color: var(--f1-red);"></div>
+                                    <span class="legend-text">Low Confidence (&lt; 45% model confidence)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-badge badge-podium" style="background: rgba(255,215,0,0.15); color: gold; border: 1px solid gold;">P1–P3</span>
+                                    <span class="legend-text">Podium positions (Gold highlighted)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-badge badge-points" style="background: rgba(0,208,132,0.15); color: var(--color-green); border: 1px solid var(--color-green);">P4–P10</span>
+                                    <span class="legend-text">Points-paying positions (Teal highlighted)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="race-columns">
+                            <div class="race-col">
+                                <div id="res-race-order-left" class="race-order-table"></div>
+                            </div>
+                            <div class="race-col">
+                                <div id="res-race-order-right" class="race-order-table"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Redesigned Sprint weekend view -->
+                    <div id="sprint-race-view" style="display:none;">
+                        <div class="race-columns">
+                            <!-- Sprint Column (left) -->
+                            <div class="sprint-col">
+                                <div class="sprint-col-header">
+                                    <span>⚡ SPRINT RACE PREDICTIONS</span>
+                                    <span style="font-size:0.75rem; color:var(--color-sprint); opacity:0.8;">1/3 POINTS SCALE</span>
+                                </div>
+                                <div id="res-sprint-cards" class="compact-cards-list"></div>
+                            </div>
+                            
+                            <!-- Grand Prix Column (right) -->
+                            <div class="race-col">
+                                <div class="sprint-col-header">
+                                    <span>🏁 GRAND PRIX PREDICTIONS</span>
+                                    <span style="font-size:0.75rem; color:var(--f1-red); opacity:0.8;">FULL POINTS SCALE</span>
+                                </div>
+                                <div id="res-race-cards" class="compact-cards-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">TRANSFER RECOMMENDATIONS</div>
+                    <div id="res-transfers" class="cards-list"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">CHIP STRATEGY</div>
+                    <div id="res-chips" class="cards-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="res-tab-qualifying" class="tab-content" style="display:none;">
+            <div class="panel">
+                <div class="panel-header">QUALIFYING ORDER</div>
+                <p class="dim-text" style="font-size:0.85rem;margin-bottom:14px;">
+                    Predicted grid positions or actual locked qualifying results. Drag and drop drivers to simulate custom grids.
+                </p>
+                <div id="quali-order-status" style="margin-bottom: 10px;"></div>
+                <div class="race-columns">
+                    <div class="race-col">
+                        <div id="res-quali-order-left" class="race-order-table" ondrop="dropQuali(event)" ondragover="allowDrop(event)"></div>
+                    </div>
+                    <div class="race-col">
+                        <div id="res-quali-order-right" class="race-order-table" ondrop="dropQuali(event)" ondragover="allowDrop(event)"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="res-tab-telemetry" class="tab-content">
+            <div class="panel" id="res-practice-panel">
+                <div class="panel-header">PRACTICE SESSION DATA</div>
+                <p id="res-practice-label" class="dim-text" style="font-size:0.85rem;margin-bottom:14px;"></p>
+                <div id="res-practice-deltas" class="practice-list"></div>
+                <div class="chart-container">
+                    <canvas id="chart-practice-pace"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div id="res-tab-analytics" class="tab-content">
+            <div class="results-layout">
+                <div class="panel">
+                    <div class="panel-header">DRIVER ATTRIBUTE ANALYSIS</div>
+                    <div class="radar-wrapper">
+                        <canvas id="chart-driver-radar"></canvas>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>OPTIMAL DREAM TEAM</span>
+                        <span style="font-size:0.82rem; color:var(--color-green); font-family:var(--font-heading);">
+                            Budget: $<span id="dt-budget">0.0</span>M | Projected: <span id="dt-pts">0.0</span> pts
+                        </span>
+                    </div>
+                    <p class="dim-text" style="font-size:0.82rem; margin-bottom:15px;">
+                        Mathematically optimal 5-driver, 2-constructor combination for this race.
+                    </p>
+                    <div id="res-dream-team" class="dream-team-grid"></div>
+                </div>
+
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">DRIVER COMPARISON TOOL</div>
+                    <div class="comparison-controls">
+                        <select id="comp-driver-1" class="input-field select-large" onchange="updateComparison()"></select>
+                        <span class="vs-badge">VS</span>
+                        <select id="comp-driver-2" class="input-field select-large" onchange="updateComparison()"></select>
+                    </div>
+                    <div class="comparison-results">
+                        <div class="radar-wrapper-large">
+                            <canvas id="chart-comparison-radar"></canvas>
+                        </div>
+                        <div id="comparison-stats" class="comparison-stats-grid">
+                            <!-- Filled via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 7: Settings -->
+    <div id="settings-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>SETTINGS</h2>
+            <p class="dim-text">Manage cached data, reset memory, and configure chip state.</p>
+        </div>
+        <div class="settings-grid">
+
+            <!-- Cache Management -->
+            <div class="panel">
+                <div class="panel-header">CACHE MANAGEMENT</div>
+                <p class="dim-text" style="margin-bottom:16px;font-size:0.88rem;">Clearing a cache forces a fresh download on the next run. Clear the model cache to force retraining.</p>
+                <div class="settings-cache-list">
+                    <div class="settings-cache-row">
+                        <div>
+                            <div class="settings-cache-name">API Data</div>
+                            <div class="dim-text" style="font-size:0.8rem;">Race results, standings, form (Jolpica API)</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="clearCache('api')">Clear</button>
+                    </div>
+                    <div class="settings-cache-row">
+                        <div>
+                            <div class="settings-cache-name">ML Model</div>
+                            <div class="dim-text" style="font-size:0.8rem;">Trained ensemble — forces full retrain (~60s)</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="clearCache('models')">Clear</button>
+                    </div>
+                    <div class="settings-cache-row">
+                        <div>
+                            <div class="settings-cache-name">Weather</div>
+                            <div class="dim-text" style="font-size:0.8rem;">Race weekend forecasts</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="clearCache('weather')">Clear</button>
+                    </div>
+                    <div class="settings-cache-row">
+                        <div>
+                            <div class="settings-cache-name">FastF1 / Practice</div>
+                            <div class="dim-text" style="font-size:0.8rem;">FP2 long-run pace telemetry</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="clearCache('fastf1')">Clear</button>
+                    </div>
+                    <div class="settings-cache-row">
+                        <div>
+                            <div class="settings-cache-name">Glicko-2 / Elo Ratings</div>
+                            <div class="dim-text" style="font-size:0.8rem;">Driver rating history cache</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="clearCache('elo')">Clear</button>
+                    </div>
+                    <div class="settings-cache-row">
+                        <div>
+                            <div class="settings-cache-name">Past Predictions</div>
+                            <div class="dim-text" style="font-size:0.8rem;">Saved prediction runs (JSON files)</div>
+                        </div>
+                        <button class="btn btn-danger" onclick="clearCache('predictions')">Clear</button>
+                    </div>
+                </div>
+                <button class="btn btn-primary" style="width:100%;margin-top:16px;" onclick="rebuildCache()">🔄 Rebuild Cache (Delete Old & Download New)</button>
+                <button class="btn btn-danger" style="width:100%;margin-top:16px;" onclick="clearCache('all')">⚠️ Clear ALL Caches</button>
+                <div id="settings-cache-status" class="settings-status"></div>
+            </div>
+
+            <!-- Chip State -->
+            <div class="panel">
+                <div class="panel-header">CHIP STATE</div>
+                <p class="dim-text" style="margin-bottom:16px;font-size:0.88rem;">Mark chips as used or reset all chips for a new season.</p>
+                <div id="settings-chip-list" class="settings-chip-list">Loading...</div>
+                <button class="btn btn-danger" style="width:100%;margin-top:16px;" onclick="resetChips()">↺ Reset All Chips (New Season)</button>
+                <div id="settings-chip-status" class="settings-status"></div>
+            </div>
+
+            <!-- Memory Reset -->
+            <div class="panel settings-danger-zone">
+                <div class="panel-header" style="color:var(--accent-danger);">MEMORY RESET</div>
+                <p class="dim-text" style="margin-bottom:16px;font-size:0.88rem;">Wipes your saved team, chip history, and price logs. Does NOT delete downloaded API data or trained models.</p>
+                <button class="btn btn-danger" style="width:100%;" onclick="resetMemory()">⚠️ Reset All Memory</button>
+                <div id="settings-memory-status" class="settings-status"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Screen 8: Standings -->
+    <div id="standings-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>CURRENT STANDINGS</h2>
+            <p class="dim-text">Latest points updated week-by-week after each race.</p>
+        </div>
+        <div class="prices-container">
+            <div class="panel">
+                <div class="panel-header">DRIVER STANDINGS</div>
+                <div id="standings-driver-list" class="standings-list">Loading standings...</div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">CONSTRUCTOR STANDINGS</div>
+                <div id="standings-ctor-list" class="standings-list">Loading standings...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 9: Past Races -->
+    <div id="past-races-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>PAST RACES & TELEMETRY</h2>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <label for="past-year-selector">Year:</label>
+                <select id="past-year-selector" class="input-field" onchange="onYearChange()" style="width: 100px;">
+                    <!-- Populated dynamically via JS -->
+                </select>
+                <label for="past-race-selector">Select Race:</label>
+                <select id="past-race-selector" class="input-field select-large" onchange="loadPastRaceDetails()" style="width: 250px;">
+                    <option value="">Select a race...</option>
+                </select>
+            </div>
+        </div>
+        <div id="past-race-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
+            <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">🏁</div>
+            <p class="dim-text">Select a completed race from the dropdown above to view results and telemetry.</p>
+        </div>
+        <div id="past-race-content" class="results-layout" style="display: none;">
+            <div class="panel" style="grid-column: 1 / -1;">
+                <div class="panel-header">RACE RESULTS</div>
+                <div id="past-race-results" class="race-order-table"></div>
+            </div>
+            <div class="panel" style="grid-column: 1 / -1;">
+                <div class="panel-header">TIRE STINTS & PACE DEGRADATION</div>
+                <div class="chart-container" style="height: 350px;">
+                    <canvas id="past-race-telemetry-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 10: Prediction Analysis -->
+    <div id="pred-analysis-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>PREDICTION ANALYSIS & SELF-IMPROVEMENT</h2>
+            <p class="dim-text">Monitor model accuracy, run post-race verification, and view active bias corrections.</p>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">RUN POST-RACE VERIFICATION</div>
+            <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 12px;">Compare model predictions against the actual grand prix results once a race is complete. This calculates accuracy metrics and updates the self-improvement biases.</p>
+            <div style="display: flex; gap: 15px; align-items: center; padding: 15px 0; flex-wrap: wrap;">
+                <label for="post-race-round-selector">Select Round:</label>
+                <select id="post-race-round-selector" class="input-field" style="width: 200px;">
+                    <option value="">Select a round...</option>
+                    <!-- Populated dynamically via JS -->
+                </select>
+                <button id="btn-run-post-race" class="btn btn-primary" onclick="triggerPostRaceCheck()">📊 Compare predicted vs actual results</button>
+            </div>
+            <!-- SSE progress feedback for post-race comparison -->
+            <div id="post-race-progress-panel" class="panel progress-panel hidden" style="margin-top: 15px;">
+                <div class="progress-header">
+                    <span id="post-race-progress-stage">INITIALIZING</span>
+                    <span id="post-race-progress-status" class="status-badge loading">RUNNING</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="post-race-progress-bar" class="progress-bar" style="width: 0%;"></div>
+                </div>
+                <p id="post-race-progress-message">Setting up comparison pipeline...</p>
+            </div>
+        </div>
+
+        <div id="post-race-results-container" style="display: none; margin-top: 20px;">
+            <div class="prices-container" style="margin-bottom: 20px;">
+                <div class="panel" style="flex: 2; min-width: 300px;">
+                    <div class="panel-header">PREDICTION VS ACTUAL COMPARISON</div>
+                    <div id="comparison-table-wrapper" class="race-order-table">
+                        <!-- Table dynamically loaded -->
+                    </div>
+                </div>
+                <div class="panel" style="flex: 1; min-width: 250px;">
+                    <div class="panel-header">RACE ACCURACY METRICS</div>
+                    <div id="accuracy-metrics-pills" class="metrics-container" style="display: flex; flex-direction: column; gap: 10px; padding: 15px 0;">
+                        <!-- Metrics dynamically loaded -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top: 20px;">
+            <div class="panel-header">SEASON ACCURACY TREND</div>
+            <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Historical Mean Absolute Error (MAE) and Spearman Rank Correlation (&rho;) trend across the season.</p>
+            <div class="chart-container" style="height: 350px; position: relative;">
+                <canvas id="accuracy-trend-chart"></canvas>
+            </div>
+        </div>
+
+        <div class="pred-analysis-panels" style="margin-top: 20px;">
+            <div class="panel" style="flex: 2; min-width: 300px;">
+                <div class="panel-header">ACTIVE DRIVER BIAS CORRECTIONS (EWMA, cap: ±2)</div>
+                <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Calculated from past race errors. Subtracted from raw ML position predictions to correct systematic biases.</p>
+                <div id="bias-table-wrapper" class="race-order-table">
+                    <!-- Bias table dynamically loaded -->
+                </div>
+            </div>
+            <div class="panel" style="flex: 1; min-width: 250px;">
+                <div class="panel-header">CIRCUIT-TYPE FEATURE BLEND NUDGES</div>
+                <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Adjustments to feature weights based on circuit predictability (MAE vs overall MAE).</p>
+                <div id="weight-adjustments-wrapper" style="padding: 15px 0;">
+                    <!-- Weight adjustments list dynamically loaded -->
+                </div>
+                <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; text-align: center;">
+                    <button id="btn-reset-corrections" class="btn" style="background-color: #5c181e; color: #f8d7da; border: 1px solid #721c24;" onclick="resetModelCorrections()">🔄 Reset All Corrections</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 11: Past Predictions -->
+    <div id="past-predictions-screen" class="screen content-padding scrollable">
+        <div class="header-row">
+            <h2>PAST PREDICTIONS</h2>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <label for="past-pred-selector">Select Prediction:</label>
+                <select id="past-pred-selector" class="input-field select-large" onchange="loadPastPrediction()" style="width: 350px;">
+                    <option value="">Loading predictions...</option>
+                </select>
+                <button id="btn-compare-pred" class="btn btn-primary hidden" onclick="compareSelectedPrediction()">📊 Compare to Actual Race Data</button>
+            </div>
+        </div>
+        <div id="past-pred-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
+            <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">📁</div>
+            <p class="dim-text">Select a past prediction from the dropdown above to view its details.</p>
+        </div>
+        <div id="past-pred-content" class="results-layout hidden">
+            <!-- Details rendered by JS -->
+            <div class="panel" style="grid-column: 1 / -1;">
+                <div class="panel-header">PREDICTION DETAILS</div>
+                <div id="past-pred-details-container"></div>
+            </div>
+            <!-- Comparison results container -->
+            <div class="panel hidden" id="past-pred-compare-panel" style="grid-column: 1 / -1;">
+                <div class="panel-header">COMPARISON METRICS</div>
+                <div id="past-pred-compare-metrics" class="metrics-container" style="display: flex; flex-direction: row; gap: 10px; padding: 15px 0;"></div>
+                <div class="panel-header" style="margin-top:20px;">COMPARISON VS ACTUAL</div>
+                <div id="past-pred-compare-table" class="race-order-table"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=7"></script>
+</body>
+</html>

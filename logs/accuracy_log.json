@@ -1,0 +1,634 @@
+[
+  {
+    "round": 3,
+    "season": 2026,
+    "race": "Japanese Grand Prix",
+    "circuit_type": "hybrid",
+    "mae": 3.8,
+    "rmse": 6.017,
+    "spearman_rho": 0.5053,
+    "winner_correct": false,
+    "predicted_winner": "George Russell",
+    "actual_winner": "Kimi Antonelli",
+    "top3_hits": 1,
+    "top5_hits": 3,
+    "n_drivers": 20,
+    "validated_at": "2026-05-29T16:42:01.939663",
+    "driver_comparisons": [
+      {
+        "driver": "Kimi Antonelli",
+        "team": "Mercedes",
+        "predicted": 5,
+        "actual": 1,
+        "delta": -4
+      },
+      {
+        "driver": "Oscar Piastri",
+        "team": "McLaren",
+        "predicted": 17,
+        "actual": 2,
+        "delta": -15
+      },
+      {
+        "driver": "Charles Leclerc",
+        "team": "Ferrari",
+        "predicted": 2,
+        "actual": 3,
+        "delta": 1
+      },
+      {
+        "driver": "George Russell",
+        "team": "Mercedes",
+        "predicted": 1,
+        "actual": 4,
+        "delta": 3
+      },
+      {
+        "driver": "Lando Norris",
+        "team": "McLaren",
+        "predicted": 6,
+        "actual": 5,
+        "delta": -1
+      },
+      {
+        "driver": "Lewis Hamilton",
+        "team": "Ferrari",
+        "predicted": 3,
+        "actual": 6,
+        "delta": 3
+      },
+      {
+        "driver": "Pierre Gasly",
+        "team": "Alpine",
+        "predicted": 7,
+        "actual": 7,
+        "delta": 0
+      },
+      {
+        "driver": "Max Verstappen",
+        "team": "Red Bull",
+        "predicted": 8,
+        "actual": 8,
+        "delta": 0
+      },
+      {
+        "driver": "Liam Lawson",
+        "team": "Racing Bulls",
+        "predicted": 12,
+        "actual": 9,
+        "delta": -3
+      },
+      {
+        "driver": "Esteban Ocon",
+        "team": "Haas",
+        "predicted": 14,
+        "actual": 10,
+        "delta": -4
+      },
+      {
+        "driver": "Nico Hulkenberg",
+        "team": "Audi",
+        "predicted": 10,
+        "actual": 11,
+        "delta": 1
+      },
+      {
+        "driver": "Isack Hadjar",
+        "team": "Red Bull",
+        "predicted": 15,
+        "actual": 12,
+        "delta": -3
+      },
+      {
+        "driver": "Gabriel Bortoleto",
+        "team": "Audi",
+        "predicted": 18,
+        "actual": 13,
+        "delta": -5
+      },
+      {
+        "driver": "Arvid Lindblad",
+        "team": "Racing Bulls",
+        "predicted": 11,
+        "actual": 14,
+        "delta": 3
+      },
+      {
+        "driver": "Carlos Sainz",
+        "team": "Williams",
+        "predicted": 13,
+        "actual": 15,
+        "delta": 2
+      },
+      {
+        "driver": "Franco Colapinto",
+        "team": "Alpine",
+        "predicted": 16,
+        "actual": 16,
+        "delta": 0
+      },
+      {
+        "driver": "Sergio Perez",
+        "team": "Cadillac",
+        "predicted": 9,
+        "actual": 17,
+        "delta": 8
+      },
+      {
+        "driver": "Valtteri Bottas",
+        "team": "Cadillac",
+        "predicted": 20,
+        "actual": 19,
+        "delta": -1
+      },
+      {
+        "driver": "Alexander Albon",
+        "team": "Williams",
+        "predicted": 19,
+        "actual": 20,
+        "delta": 1
+      },
+      {
+        "driver": "Oliver Bearman",
+        "team": "Haas",
+        "predicted": 4,
+        "actual": 22,
+        "delta": 18
+      }
+    ]
+  },
+  {
+    "round": 4,
+    "season": 2026,
+    "race": "Miami Grand Prix",
+    "circuit_type": "hybrid",
+    "mae": 5.65,
+    "rmse": 7.046,
+    "spearman_rho": 0.3669,
+    "winner_correct": false,
+    "predicted_winner": "George Russell",
+    "actual_winner": "Kimi Antonelli",
+    "top3_hits": 0,
+    "top5_hits": 3,
+    "n_drivers": 20,
+    "validated_at": "2026-06-06T13:09:41.004408",
+    "driver_comparisons": [
+      {
+        "driver": "Kimi Antonelli",
+        "team": "Mercedes",
+        "predicted": 10,
+        "actual": 1,
+        "delta": -9
+      },
+      {
+        "driver": "Lando Norris",
+        "team": "McLaren",
+        "predicted": 4,
+        "actual": 2,
+        "delta": -2
+      },
+      {
+        "driver": "Oscar Piastri",
+        "team": "McLaren",
+        "predicted": 5,
+        "actual": 3,
+        "delta": -2
+      },
+      {
+        "driver": "George Russell",
+        "team": "Mercedes",
+        "predicted": 1,
+        "actual": 4,
+        "delta": 3
+      },
+      {
+        "driver": "Max Verstappen",
+        "team": "Red Bull Racing",
+        "predicted": 9,
+        "actual": 5,
+        "delta": -4
+      },
+      {
+        "driver": "Lewis Hamilton",
+        "team": "Ferrari",
+        "predicted": 3,
+        "actual": 6,
+        "delta": 3
+      },
+      {
+        "driver": "Franco Colapinto",
+        "team": "Alpine",
+        "predicted": 20,
+        "actual": 7,
+        "delta": -13
+      },
+      {
+        "driver": "Charles Leclerc",
+        "team": "Ferrari",
+        "predicted": 2,
+        "actual": 8,
+        "delta": 6
+      },
+      {
+        "driver": "Carlos Sainz",
+        "team": "Williams",
+        "predicted": 16,
+        "actual": 9,
+        "delta": -7
+      },
+      {
+        "driver": "Alexander Albon",
+        "team": "Williams",
+        "predicted": 19,
+        "actual": 10,
+        "delta": -9
+      },
+      {
+        "driver": "Oliver Bearman",
+        "team": "Haas F1 Team",
+        "predicted": 7,
+        "actual": 11,
+        "delta": 4
+      },
+      {
+        "driver": "Esteban Ocon",
+        "team": "Haas F1 Team",
+        "predicted": 14,
+        "actual": 13,
+        "delta": -1
+      },
+      {
+        "driver": "Arvid Lindblad",
+        "team": "Racing Bulls",
+        "predicted": 15,
+        "actual": 14,
+        "delta": -1
+      },
+      {
+        "driver": "Fernando Alonso",
+        "team": "Aston Martin",
+        "predicted": 11,
+        "actual": 15,
+        "delta": 4
+      },
+      {
+        "driver": "Sergio Perez",
+        "team": "Cadillac",
+        "predicted": 17,
+        "actual": 16,
+        "delta": -1
+      },
+      {
+        "driver": "Lance Stroll",
+        "team": "Aston Martin",
+        "predicted": 18,
+        "actual": 17,
+        "delta": -1
+      },
+      {
+        "driver": "Nico Hulkenberg",
+        "team": "Audi",
+        "predicted": 12,
+        "actual": 19,
+        "delta": 7
+      },
+      {
+        "driver": "Liam Lawson",
+        "team": "Racing Bulls",
+        "predicted": 8,
+        "actual": 20,
+        "delta": 12
+      },
+      {
+        "driver": "Pierre Gasly",
+        "team": "Alpine",
+        "predicted": 6,
+        "actual": 21,
+        "delta": 15
+      },
+      {
+        "driver": "Isack Hadjar",
+        "team": "Red Bull Racing",
+        "predicted": 13,
+        "actual": 22,
+        "delta": 9
+      }
+    ]
+  },
+  {
+    "round": 6,
+    "season": 2026,
+    "race": "Monaco Grand Prix",
+    "circuit_type": "street",
+    "mae": 6.45,
+    "rmse": 8.358,
+    "spearman_rho": 0.1143,
+    "winner_correct": true,
+    "predicted_winner": "Kimi Antonelli",
+    "actual_winner": "Kimi Antonelli",
+    "top3_hits": 1,
+    "top5_hits": 3,
+    "n_drivers": 20,
+    "validated_at": "2026-06-13T14:37:39.751086",
+    "driver_comparisons": [
+      {
+        "driver": "Kimi Antonelli",
+        "team": "Mercedes",
+        "predicted": 1,
+        "actual": 1,
+        "delta": 0
+      },
+      {
+        "driver": "Lewis Hamilton",
+        "team": "Ferrari",
+        "predicted": 5,
+        "actual": 2,
+        "delta": -3
+      },
+      {
+        "driver": "Isack Hadjar",
+        "team": "Red Bull Racing",
+        "predicted": 13,
+        "actual": 3,
+        "delta": -10
+      },
+      {
+        "driver": "Oscar Piastri",
+        "team": "McLaren",
+        "predicted": 4,
+        "actual": 4,
+        "delta": 0
+      },
+      {
+        "driver": "Liam Lawson",
+        "team": "Racing Bulls",
+        "predicted": 14,
+        "actual": 5,
+        "delta": -9
+      },
+      {
+        "driver": "Arvid Lindblad",
+        "team": "Racing Bulls",
+        "predicted": 20,
+        "actual": 6,
+        "delta": -14
+      },
+      {
+        "driver": "Pierre Gasly",
+        "team": "Alpine",
+        "predicted": 16,
+        "actual": 7,
+        "delta": -9
+      },
+      {
+        "driver": "Alexander Albon",
+        "team": "Williams",
+        "predicted": 11,
+        "actual": 8,
+        "delta": -3
+      },
+      {
+        "driver": "Esteban Ocon",
+        "team": "Haas F1 Team",
+        "predicted": 8,
+        "actual": 9,
+        "delta": 1
+      },
+      {
+        "driver": "Fernando Alonso",
+        "team": "Aston Martin",
+        "predicted": 19,
+        "actual": 10,
+        "delta": -9
+      },
+      {
+        "driver": "Gabriel Bortoleto",
+        "team": "Audi",
+        "predicted": 9,
+        "actual": 11,
+        "delta": 2
+      },
+      {
+        "driver": "George Russell",
+        "team": "Mercedes",
+        "predicted": 7,
+        "actual": 12,
+        "delta": 5
+      },
+      {
+        "driver": "Franco Colapinto",
+        "team": "Alpine",
+        "predicted": 10,
+        "actual": 14,
+        "delta": 4
+      },
+      {
+        "driver": "Carlos Sainz",
+        "team": "Williams",
+        "predicted": 12,
+        "actual": 16,
+        "delta": 4
+      },
+      {
+        "driver": "Charles Leclerc",
+        "team": "Ferrari",
+        "predicted": 2,
+        "actual": 17,
+        "delta": 15
+      },
+      {
+        "driver": "Lance Stroll",
+        "team": "Aston Martin",
+        "predicted": 17,
+        "actual": 18,
+        "delta": 1
+      },
+      {
+        "driver": "Lando Norris",
+        "team": "McLaren",
+        "predicted": 3,
+        "actual": 19,
+        "delta": 16
+      },
+      {
+        "driver": "Oliver Bearman",
+        "team": "Haas F1 Team",
+        "predicted": 18,
+        "actual": 20,
+        "delta": 2
+      },
+      {
+        "driver": "Valtteri Bottas",
+        "team": "Cadillac",
+        "predicted": 15,
+        "actual": 21,
+        "delta": 6
+      },
+      {
+        "driver": "Max Verstappen",
+        "team": "Red Bull Racing",
+        "predicted": 6,
+        "actual": 22,
+        "delta": 16
+      }
+    ]
+  },
+  {
+    "round": 7,
+    "season": 2026,
+    "race": "Barcelona Grand Prix",
+    "circuit_type": "permanent",
+    "mae": 4.15,
+    "rmse": 5.688,
+    "spearman_rho": 0.5654,
+    "winner_correct": false,
+    "predicted_winner": "Kimi Antonelli",
+    "actual_winner": "Lewis Hamilton",
+    "top3_hits": 1,
+    "top5_hits": 2,
+    "n_drivers": 20,
+    "validated_at": "2026-06-15T23:40:14.099955",
+    "driver_comparisons": [
+      {
+        "driver": "Lewis Hamilton",
+        "team": "Ferrari",
+        "predicted": 3,
+        "actual": 1,
+        "delta": -2
+      },
+      {
+        "driver": "George Russell",
+        "team": "Mercedes",
+        "predicted": 6,
+        "actual": 2,
+        "delta": -4
+      },
+      {
+        "driver": "Lando Norris",
+        "team": "McLaren",
+        "predicted": 9,
+        "actual": 3,
+        "delta": -6
+      },
+      {
+        "driver": "Max Verstappen",
+        "team": "Red Bull Racing",
+        "predicted": 15,
+        "actual": 4,
+        "delta": -11
+      },
+      {
+        "driver": "Oscar Piastri",
+        "team": "McLaren",
+        "predicted": 2,
+        "actual": 5,
+        "delta": 3
+      },
+      {
+        "driver": "Isack Hadjar",
+        "team": "Red Bull Racing",
+        "predicted": 4,
+        "actual": 6,
+        "delta": 2
+      },
+      {
+        "driver": "Pierre Gasly",
+        "team": "Alpine",
+        "predicted": 14,
+        "actual": 7,
+        "delta": -7
+      },
+      {
+        "driver": "Liam Lawson",
+        "team": "Racing Bulls",
+        "predicted": 7,
+        "actual": 8,
+        "delta": 1
+      },
+      {
+        "driver": "Arvid Lindblad",
+        "team": "Racing Bulls",
+        "predicted": 10,
+        "actual": 9,
+        "delta": -1
+      },
+      {
+        "driver": "Franco Colapinto",
+        "team": "Alpine",
+        "predicted": 8,
+        "actual": 10,
+        "delta": 2
+      },
+      {
+        "driver": "Gabriel Bortoleto",
+        "team": "Audi",
+        "predicted": 11,
+        "actual": 11,
+        "delta": 0
+      },
+      {
+        "driver": "Carlos Sainz",
+        "team": "Williams",
+        "predicted": 16,
+        "actual": 12,
+        "delta": -4
+      },
+      {
+        "driver": "Esteban Ocon",
+        "team": "Haas F1 Team",
+        "predicted": 13,
+        "actual": 13,
+        "delta": 0
+      },
+      {
+        "driver": "Charles Leclerc",
+        "team": "Ferrari",
+        "predicted": 5,
+        "actual": 15,
+        "delta": 10
+      },
+      {
+        "driver": "Kimi Antonelli",
+        "team": "Mercedes",
+        "predicted": 1,
+        "actual": 16,
+        "delta": 15
+      },
+      {
+        "driver": "Oliver Bearman",
+        "team": "Haas F1 Team",
+        "predicted": 19,
+        "actual": 17,
+        "delta": -2
+      },
+      {
+        "driver": "Alexander Albon",
+        "team": "Williams",
+        "predicted": 12,
+        "actual": 18,
+        "delta": 6
+      },
+      {
+        "driver": "Fernando Alonso",
+        "team": "Aston Martin",
+        "predicted": 17,
+        "actual": 19,
+        "delta": 2
+      },
+      {
+        "driver": "Valtteri Bottas",
+        "team": "Cadillac",
+        "predicted": 20,
+        "actual": 21,
+        "delta": 1
+      },
+      {
+        "driver": "Lance Stroll",
+        "team": "Aston Martin",
+        "predicted": 18,
+        "actual": 22,
+        "delta": 4
+      }
+    ]
+  }
+]

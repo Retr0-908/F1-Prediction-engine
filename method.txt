@@ -1,0 +1,241 @@
+F1 FANTASY PREDICTOR: DETAILED PREDICTION METHODOLOGY & PROCESS
+
+This document provides a comprehensive, step-by-step breakdown of how the F1 Fantasy Predictor analyzes data, models performance, and generates fantasy point predictions.
+
+================================================================================
+STEP 1: CONTEXT DETECTION, ENVIRONMENT, & INITIAL DATA FETCHING (data_fetcher.py & weather.py)
+================================================================================
+
+1. Target Grand Prix Identification:
+   - The pipeline identifies the upcoming Grand Prix round and year using system date tracking or a user-selected round parameter.
+   - It retrieves circuit features (length, track type: street/hybrid/permanent, downforce requirements, overtaking difficulty, power unit sensitivity) using fuzzy name matching against a static circuits database.
+
+2. Environmental/Weather Analysis:
+   - Fetches hourly and daily forecasts for the circuit coordinates from the Open-Meteo API.
+   - If the race weekend is beyond the 16-day live forecast window, it queries the Open-Meteo Historical Archive API to download historical weather observations for the same calendar dates over the past 3 years. This builds a climatological baseline.
+   - Maps weather parameters (WMO weather codes, precipitation sum) to standard weather conditions: "dry", "overcast", "mixed", or "wet".
+   - Computes a "rain risk" category ("high", "medium", "low") and numeric "condition_enc" (0 to 3), which are later used as feature variables and simulation modifiers.
+
+3. Roster & Price Fetching:
+   - Scrapes current driver and constructor prices and team lineups from the F1 Fantasy platform (using fantasy_scraper.py), caching the results to avoid unnecessary web requests.
+
+================================================================================
+STEP 2: GLICKO-2 PERFORMANCE RATINGS MODEL (elo_ratings.py)
+================================================================================
+
+Unlike basic Elo, the predictor implements the Glicko-2 rating system (Glickman 1999, 2012) to model driver strength while accounting for rating uncertainty and performance consistency.
+
+1. Rating Period & Comparisons:
+   - Every completed F1 race is treated as a single rating period.
+   - In each race, every pair of finishers generates a pairwise comparison. A driver receives a "win" (value = 1.0) against every driver they finish ahead of, and a "loss" (value = 0.0) against every driver they finish behind.
+
+2. Parameter Calculations (Internal Scale):
+   - Driver Glicko-2 state consists of:
+     * Displayed rating (μ, default = 1500)
+     * Rating deviation (RD / φ, default = 350)
+     * Volatility (σ, default = 0.06)
+   - These are converted to internal Glicko-2 scale parameters:
+     * μ_internal = (μ - 1500) / 173.7178
+     * φ_internal = φ / 173.7178
+   - For a driver competing against opponents (each with internal parameters μ_j and φ_j):
+     * The rating uncertainty factor is:
+       g(φ_j) = 1 / sqrt(1 + 3 * (φ_j^2) / (pi^2))
+     * The expected score is:
+       E(μ, μ_j, φ_j) = 1 / (1 + exp(-g(φ_j) * (μ - μ_j)))
+     * The rating variance v is calculated as:
+       v = 1 / [ sum( g(φ_j)^2 * E * (1 - E) ) ]
+     * The rating difference indicator Δ is calculated as:
+       Δ = v * sum( g(φ_j) * (s_ij - E) )
+       where s_ij = 1.0 (win) or 0.0 (loss) based on the race result.
+
+3. Volatility & Rating Updates:
+   - A new volatility parameter σ_new is solved using the Illinois root-finding algorithm to find the root of Glicko-2's volatility change equation.
+   - The pre-rating-period RD is updated: φ_star = sqrt(φ_internal^2 + σ_new^2)
+   - The post-rating-period RD is updated: φ_new = 1 / sqrt(1 / (φ_star^2) + 1 / v)
+   - The internal rating is updated: μ_new = μ_internal + (φ_new^2) * sum( g(φ_j) * (s_ij - E) )
+   - Internal parameters are converted back to display scale: μ_display = μ_new * 173.7178 + 1500; φ_display = φ_new * 173.7178
+   - The displayed φ is clamped between a stable veteran floor (80.0) and rookie ceiling (350.0).
+
+4. Off-season Inflation:
+   - Between consecutive years, rating deviation φ is inflated to model off-season rust:
+     φ_inflated = sqrt(φ^2 + 50.0^2)
+
+5. Constructor Rating:
+   - Computed as an inverse-RD weighted average of its two active drivers. A driver with lower rating deviation (more certainty) contributes more weight:
+     ctor_rating = sum( μ_j / max(φ_j, 1.0) ) / sum( 1.0 / max(φ_j, 1.0) )
+
+================================================================================
+STEP 3: DRIVER FORM & CIRCUIT HISTORY ANALYSIS (data_fetcher.py)
+================================================================================
+
+1. Exponentially Weighted Moving Average (EWMA) Form:
+   - Computes rolling performance profiles (average finishing position, average fantasy points, DNF rate) over the last 5 races.
+   - Evaluates a momentum trend variable based on the EWMA slope (improving form vs. declining form).
+
+2. Recency-Weighted Circuit History:
+   - Calculates driver finishing position and DNF rates at the upcoming circuit.
+   - Weighs historical results based on regulation eras:
+     * Ground effect era (>= 2022): Full weight (1.0)
+     * V6 hybrid stable era (2020 - 2021): Partial weight (0.4)
+     * Early hybrid/V8 eras (< 2020): Minimal weight (0.15)
+   - Capping: If rolling driver form is significantly better than circuit history, the historical average position drag is capped to prevent outdated results from skewing predictions.
+
+================================================================================
+STEP 4: SEQUENTIAL NEURAL NETWORKS (Phase 3 Models)
+================================================================================
+
+The predictor integrates deep learning models to capture complex sequence trends and physical parameters.
+
+1. LSTM + Multi-Head Attention Temporal Form Model (temporal_model.py):
+   - Captures driver momentum using a dual-branch neural network fused at the output.
+   - Branch 1: Historical sequence of the last 5 races per driver.
+     * Features: [finishing position, DNF flag, points, starting grid, position gain, average tire degradation slope].
+     * Layers: LSTM (64 units, return_sequences=True) -> Multi-Head Attention (4 heads, key_dim=64 self-attention) -> Global Average Pooling -> Dense (32, relu) -> Dropout (0.3).
+     * Output: A 32-dimensional driver momentum representation.
+   - Branch 2: Race-Day Context.
+     * Features: [starting grid, track temperature, rain encoding, SC probability, constructor Elo z-score].
+     * Layers: Dense (16, relu) -> Dropout (0.2).
+     * Output: A 16-dimensional context representation.
+   - Fusion Layer:
+     * Concatenates Branch 1 and Branch 2 -> Dense (64, relu) -> Dropout (0.2) -> Dense (32, relu) -> Dense (1, linear) output.
+     * Output: Predicted finishing position delta vs. field median (lstm_momentum_pos).
+
+2. Multi-Task Tire Degradation & Strategy Model (tire_model.py):
+   - Couples tire degradation physics and pitstop strategy.
+   - Input Features: [compound encoding, stint length, track temp, air temp, stint starting lap, track type encoding, rain encoding, session-normalized lap time].
+   - Shared Encoder: Dense (64, relu) -> BatchNorm -> Dropout(0.2) -> Dense (32, relu) -> BatchNorm -> Dropout(0.2).
+   - Task A Head (Regression): Dense (16, relu) -> Dense (1, linear) -> Predicts pace degradation rate (seconds per lap, e.g., 0.045s/lap).
+   - Task B Head (Classification): Dense (16, relu) -> Dense (7, softmax) -> Predicts optimal pit strategy index (e.g. MEDIUM->HARD).
+   - Output Score: Generates a driver tire efficiency score based on the predicted degradation rate delta relative to the field median.
+
+================================================================================
+STEP 5: MACHINE LEARNING ENSEMBLE STACKING (predictor.py)
+================================================================================
+
+1. Feature Vector Assembly:
+   - For every driver, the system builds a 37-variable feature vector. This vector includes:
+     * Standings & Glicko-2 ratings/uncertainties
+     * EWMA form & momentum trend
+     * Weighted circuit history
+     * Track specifications & weather conditions
+     * Safety car rates & grid penalties
+     * Teammate deltas & wins this season
+     * Phase 3 deep learning features: lstm_momentum_pos, driver_tire_efficiency_score
+     * Phase 4 features: lap_1_risk (heuristic risk based on track and starting slot), fresh_tires_avail
+
+2. Normalization:
+   - Feature vectors are normalized using scikit-learn's RobustScaler, which scales features according to quantile ranges to make the model resilient to outliers (e.g. wet-race anomalies).
+
+3. Multi-Model Inference:
+   - Predictions are fed into three models:
+     * Random Forest Regressor (500 estimators, max depth 10): captures complex non-linear interactions.
+     * XGBoost Ranker (400 estimators, learning rate 0.03): gradient-boosted trees.
+     * LightGBM Ranker (400 estimators, num_leaves 31): leaf-wise gradient boosting.
+   - The target position is inverted (25.0 - position) for the rankers.
+
+4. Meta-Learner Stacking:
+   - Out-of-fold predictions obtained via a 5-fold TimeSeriesSplit are used to train a Ridge regression meta-learner (alpha = 1.0).
+   - The Ridge meta-learner computes a weighted blend of the three models:
+     predicted_pos = Ridge.predict([[y_rf, 25.0 - y_xgb, 25.0 - y_lgb]])
+   - If not trained, it defaults to a simple average.
+
+5. Adjustments & Sensibility Cap Guards:
+   - Practice Pace: The predicted position is adjusted by adding (practice pace delta * 2.0).
+   - Qualifying Sector Times: Adjusted by adding (qualifying lap delta * 1.5).
+   - Cap 1: Top constructors in excellent form are guaranteed a predicted position cap of P10.
+   - Cap 2: Backmarker constructors are capped at P10+ unless the driver has top-9 form.
+   - Self-Improvement Bias Correction: Evaluates prediction errors on past races and subtracts driver-specific, track-type-specific biases loaded from logs/bias_corrections.json.
+
+================================================================================
+STEP 6: BAYESIAN POINT PROJECTION REFINEMENT (bayesian_model.py)
+================================================================================
+
+A Zero-Inflated Negative Binomial (ZINB) distribution is fitted via analytical approximation to adjust the deterministic points projection:
+
+1. DNF (Zero Points) Probability:
+   - Modeled using a Beta-Binomial conjugate update:
+     psi_dnf_post = (2.0 + zero_count) / (10.0 + total_races)
+     where zero_count represents historical races where the driver scored <= 0 points.
+
+2. Finishing Points Mean (μ):
+   - Modeled using a Normal conjugate prior centered on the deterministic ensemble points prediction:
+     * Prior variance = 100
+     * weight_prior = 1 / 100
+     * weight_data = non_zero_races / 100
+     * mu_post = (ensemble_pred_pts * weight_prior + empirical_mu * weight_data) / (weight_prior + weight_data)
+     where empirical_mu is the driver's mean points when finishing (> 0).
+
+3. Robust Expected Value (EV):
+   - The final refined point prediction is computed as:
+     robust_ev = (1.0 - psi_dnf_post) * mu_post
+
+================================================================================
+STEP 7: MONTE CARLO RACE SIMULATION (monte_carlo.py & monte_carlo_engine.jl)
+================================================================================
+
+To model the stochastic nature of F1 (safety cars, weather changes, crashes), the predictor runs 1,000+ simulations of the race weekend. If 5,000+ runs are requested, it utilizes a parallelized, multi-threaded Julia engine (monte_carlo_engine.jl).
+
+1. Simulation Loop Inputs:
+   - Predicted starting grid (from qualifying predictions).
+   - Expected pace (derived from the ML finishing order).
+   - Glicko-2 ratings (for overtaking probabilities).
+   - DNF probabilities, safety car probabilities, and weather risk.
+
+2. Physics & Strategy Step (per lap, Julia Engine):
+   - Lap times are calculated dynamically:
+     t_lap = base_lap_time + (tire_age * δ_compound) + γ_compound - (lap * λ_fuel) + noise
+     * δ_compound: Tire degradation pace loss per lap (from the tire model).
+     * γ_compound: Starting compound offset.
+     * λ_fuel: Fuel burning pace benefit (~0.035s per lap).
+     * noise: Random Gaussian variance (std = 0.12s).
+   - Pitstops: If tire age exceeds a predefined threshold (e.g. 18 laps for Soft, 25 for Medium), the driver switches to Hard tires, adding a 22.5-second pit lane loss. The physics engine maps precise uppercase strings (`SOFT`, `MEDIUM`, `HARD`) to ensure correct pit stop thresholds and compound-specific degradation rates are applied cleanly.
+
+3. DRS and Overtaking:
+   - If a chaser is within 1.0s of a lead car, overtaking is simulated.
+   - Probability of a successful pass is proportional to the Glicko-2 rating ratio:
+     P(pass) = α_overtake * [ Glicko_chaser / (Glicko_chaser + Glicko_leader) ]
+   - A successful pass reduces the chaser's time by 0.25 seconds.
+
+4. Safety Cars (SC) & Virtual Safety Cars (VSC):
+   - Safety cars are triggered probabilistically based on circuit characteristics.
+   - An SC deployment compresses the field: cars are queued with 0.6-second intervals behind the leader.
+   - Pit Stop Benefit: Drivers situated between P6 and P15 have a strategic opportunity for a "free" pitstop under SC, gaining a random position boost (0 to 2.5 places). Front-runners who have already pitted may lose slightly.
+
+5. Weather & DNF Modifiers:
+   - DNF Check: For each driver on each lap, a random probability check determines retirement.
+   - High safety car circuits add a 12% probability of a correlated multi-car crash, retiring 1-2 backmarkers.
+   - High/medium rain risks add extra Gaussian noise (std = 3.5s/1.5s) to lap times, introducing significant position shuffling.
+
+6. Score Tallying:
+   - Drivers are ranked by total cumulative time (DNFs are pushed to the back with a 1,000,000,000-second penalty).
+   - Fantasy points are calculated for each driver in each simulation run:
+     * Qualifying grid position points (P1-10 points, Q2/Q3 bonuses).
+     * Race position points (P1-20 points).
+     * Positions gained/lost points (from starting grid, after adding penalties). This employs an asymmetric position scoring model where gained places and lost places use different coefficients (`POSITIONS_LOST_PER` != positions gained), replacing naive symmetric logic.
+     * DNF penalties (-20 points).
+     * Fastest lap & Driver of the Day bonuses (modeled probabilistically).
+     * Sprint points (if a sprint weekend).
+   - DNF Post-Processing Wrapper: After evaluating points per run, the module properly handles DNF runs by separating them, calculating the points without double-penalizing, and reconstructing the distribution stats. This prevents variance compression that occurs when frequency arrays (e.g., `dnf_counts`) are scaled improperly.
+   - Results are converted into DistributionStats, providing mean expected value (EV) points, standard deviations, and probabilities (top-3, points finish, DNF).
+
+================================================================================
+STEP 8: MULTI-RACE LOOKAHEAD & LINEAR PROGRAMMING OPTIMIZATION (main_logic.py)
+================================================================================
+
+1. 3-Race Lookahead:
+   - The system projects future race locations, circuit profiles, and climates for the next 3 rounds.
+   - It runs the prediction and Monte Carlo simulation layers for all 3 rounds and sums the Expected Value (EV) points.
+
+2. Constructor EV Aggregation (main_logic.py):
+   - Aggregates the projected Expected Values (EVs) of the two drivers to form the overarching Constructor EV.
+   - To strictly comply with F1 Fantasy rules, it dynamically subtracts probabilistically-awarded "Driver of the Day" (DOTD) points from the individual drivers' expected values before aggregation, ensuring constructor totals are not artificially inflated.
+
+3. LP Knapsack Optimization (fantasy_optimizer.py):
+   - Employs the PuLP library to solve a constrained optimization problem.
+   - Objective: Maximize combined points of 5 drivers and 2 constructors.
+   - Constraints:
+     * sum(Driver_Prices) + sum(Constructor_Prices) <= Budget
+     * Total Drivers = 5
+     * Total Constructors = 2
+     * Max 3 assets from a single F1 team (roster constraints).
+   - Outputs: Global optimal team, suggested transfers, differential picks, and turbo driver selections.
