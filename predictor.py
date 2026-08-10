@@ -188,6 +188,9 @@ FEATURE_NAMES = [
     # Phase 5: Derived track features
     "overtake_mode_efficiency",        # how effective Straight Mode is at this circuit (0-1)
     "track_power_sensitivity",         # derived: (1/downforce) * power_unit importance
+    # Fantasy features
+    "driver_overtake_delta",           # net overtake position delta
+    "driver_dnf_risk",                 # combined driver and constructor DNF risk
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
@@ -507,11 +510,13 @@ class F1Predictor:
         form_dnf_rate   = form.get("dnf_rate",        0.08)
         form_score      = form.get("form_score",      0.0)
         momentum_trend  = form.get("momentum_trend",  0.0)   # NEW
+        overtake_delta  = form.get("overtake_delta",  0.0)
 
         # — Constructor reliability —
         ctor_rel  = ctor_reliability.get(ctor_name, {})
         ctor_dnf  = ctor_rel.get("dnf_rate",   0.08)
         ctor_trend = ctor_rel.get("pts_trend",  0.0)
+        driver_dnf_risk = (form_dnf_rate * 0.6) + (ctor_dnf * 0.4)
 
         # — Circuit history (recency-weighted) —
         # post-2022 regulation era = full weight; 2020-21 = 0.4; pre-2020 = 0.15
@@ -754,6 +759,8 @@ class F1Predictor:
             float(deg_compound_delta),       # deg_compound_delta
             float(overtake_mode_eff),        # overtake_mode_efficiency
             float(track_power_sensitivity),  # track_power_sensitivity
+            float(overtake_delta),           # driver_overtake_delta
+            float(driver_dnf_risk),          # driver_dnf_risk
         ], dtype=float)
 
     # ─────────────────────────────────────────
@@ -1206,7 +1213,14 @@ class F1Predictor:
                 circuit_type = self._circuit_config.get("track_type", "permanent")
                 biases = self._bias_corrections.get("driver_biases", {}).get(drv, {})
                 bias = biases.get(circuit_type, biases.get("overall", 0.0))
-                clamped_bias = max(-1.0, min(1.0, bias))
+
+                # Phase 6: Per-circuit bias override
+                circuit_key = self._circuit_config.get("key", "")
+                circuit_biases = self._bias_corrections.get("driver_circuit_biases", {}).get(drv, {})
+                if circuit_key and circuit_key in circuit_biases:
+                    bias = circuit_biases[circuit_key]
+
+                clamped_bias = max(-1.5, min(1.5, bias))
                 pred = pred - clamped_bias
                 pred = max(1.0, min(22.0, pred))
 

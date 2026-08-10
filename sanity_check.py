@@ -6,7 +6,7 @@ errors = []
 # ── 1. PREDICTOR FEATURES ────────────────────────────────────────────────────
 try:
     from predictor import F1Predictor, FEATURE_NAMES, N_FEATURES
-    assert N_FEATURES == 54, f"Expected 54 features, got {N_FEATURES}"
+    assert N_FEATURES == 56, f"Expected 56 features, got {N_FEATURES}"
     assert "elo_rd" in FEATURE_NAMES, "elo_rd missing"
     assert "elo_volatility" in FEATURE_NAMES, "elo_volatility missing"
     assert "sc_prob" in FEATURE_NAMES, "sc_prob missing"
@@ -18,6 +18,9 @@ try:
     # Phase 4 features
     assert "lap_1_risk" in FEATURE_NAMES, "lap_1_risk missing (Phase 4)"
     assert "fresh_tires_avail" in FEATURE_NAMES, "fresh_tires_avail missing (Phase 4)"
+    # Fantasy features
+    assert "driver_overtake_delta" in FEATURE_NAMES
+    assert "driver_dnf_risk" in FEATURE_NAMES
     print(f"[PASS] predictor.py — {N_FEATURES} features verified (Phases 1-4 complete)")
 except Exception as e:
     errors.append(f"[FAIL] predictor.py: {e}")
