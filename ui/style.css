@@ -2333,3 +2333,55 @@ button, a, [role="button"], select, input, .card, .driver-compact-card,
     overflow: hidden;
     background: var(--bg-dark);
 }
+
+/* ── Phase 11: Tables and iOS Toggles ── */
+table, tbody tr {
+    background: none !important; /* Remove zebra striping */
+}
+tr {
+    border-bottom: 1px solid var(--border-subtle);
+}
+td.number, td.numeric, td[class*="num"] {
+    font-family: var(--font-mono);
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 24px;
+}
+.toggle-switch input[type="checkbox"] {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.toggle-switch input[type="checkbox"] + span {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-dim);
+    transition: .4s;
+    border-radius: 24px;
+}
+.toggle-switch input[type="checkbox"] + span:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+.toggle-switch input[type="checkbox"]:checked + span {
+    background-color: #34C759;
+}
+.toggle-switch input[type="checkbox"]:checked + span:before {
+    transform: translateX(16px);
+}
+

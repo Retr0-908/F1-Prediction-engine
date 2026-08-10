@@ -203,7 +203,7 @@
         // Intercept: animate out old, animate in new
         if (prevContent) {
           gsap.to(prevContent, {
-            opacity: 0, x: dir * -20, duration: 0.09, ease: 'power2.in',
+            opacity: 0, x: dir * -20, duration: 0.3, ease: 'power3.out',
             onComplete: () => {
               prevContent.classList.remove('active');
               prevContent.style.display = 'none';
@@ -213,7 +213,7 @@
               nextContent.classList.add('active');
               gsap.fromTo(nextContent,
                 { opacity: 0, x: dir * 20 },
-                { opacity: 1, x: 0, duration: 0.14, ease: 'power2.out',
+                { opacity: 1, x: 0, duration: 0.3, ease: 'power3.out',
                   onComplete: () => gsap.set(nextContent, { clearProps: 'all' }) }
               );
             }
