@@ -1429,10 +1429,13 @@ def compute_multiseason_driver_form(
             for drv, grp in df.groupby("name"):
                 if drv not in all_season_data:
                     all_season_data[drv] = {}
+                valid_grid = grp[grp["grid"] > 0]
+                overtake_delta = float((valid_grid["grid"] - valid_grid["position"]).mean()) if not valid_grid.empty else 0.0
                 all_season_data[drv][year] = {
                     "avg_position": float(grp["position"].mean()),
                     "avg_points":   float(grp["points"].mean()),
                     "dnf_rate":     float(grp["dnf"].mean()),
+                    "overtake_delta": overtake_delta,
                     "form_score":   float(grp["points"].mean() * 2 - grp["position"].mean() * 0.5 - grp["dnf"].mean() * 20),
                     "momentum_trend": 0.0,
                     "weight":       weight,
@@ -1454,6 +1457,7 @@ def compute_multiseason_driver_form(
             "avg_position":    round(wavg("avg_position"), 2),
             "avg_points":      round(wavg("avg_points"), 2),
             "dnf_rate":        round(wavg("dnf_rate"), 3),
+            "overtake_delta":  round(wavg("overtake_delta"), 2),
             "form_score":      round(wavg("form_score"), 2),
             "momentum_trend":  0.0,
             "seasons_counted": len(season_data),
