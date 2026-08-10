@@ -1,4 +1,14 @@
 :root {
+    --bg-dark: #09090B;
+    --bg-sidebar: rgba(18, 18, 20, 0.7);
+    --bg-card: #18181B;
+    --bg-card-hover: #27272A;
+    --text-primary: #FFFFFF;
+    --text-muted: #A1A1AA;
+    --accent-primary: #E10600;
+    --border-subtle: rgba(255,255,255,0.05);
+    --font-main: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
     --bg-dark: #030509;
     --bg-panel: rgba(10, 16, 28, 0.88);
     --bg-glass: rgba(12, 18, 32, 0.80);       /* Phase 6: true glass — semi-transparent */
@@ -85,10 +95,9 @@ input:focus-visible,
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-    background-color: var(--bg-dark);
-    color: var(--text-main);
-    /* Phase 5: Inter for UI prose — mono only for telemetry data */
-    font-family: var(--font-body);
+    font-family: var(--font-main);
+    background: var(--bg-dark);
+    color: var(--text-primary);
     font-size: 15px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -97,7 +106,6 @@ body {
     height: 100vh;
     overflow: hidden;
     position: relative;
-    /* Phase 1: Kill 300ms tap delay universally */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
 }
@@ -274,21 +282,7 @@ h1, h2, h3 { font-family: var(--font-heading); }
 @keyframes spin { 100% { transform: rotate(360deg); } }
 
 /* Phase 6: Nav — Apple vibrancy material */
-#main-nav {
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 70px;
-    /* Phase 6: Real glassmorphism — blur + saturate like macOS menu bar */
-    background: rgba(8, 12, 22, 0.72);
-    backdrop-filter: blur(20px) saturate(200%) brightness(0.9);
-    -webkit-backdrop-filter: blur(20px) saturate(200%) brightness(0.9);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 20px;
-    z-index: 50;
-}
+#main-nav { }
 #main-nav.hidden { display: none; }
 
 .nav-brand {
@@ -300,12 +294,7 @@ h1, h2, h3 { font-family: var(--font-heading); }
     flex-shrink: 0;
 }
 
-.nav-links {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin: 0 10px;
-}
+.nav-links { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 
 .nav-links a {
     color: var(--text-dim);
@@ -1095,9 +1084,7 @@ h1, h2, h3 { font-family: var(--font-heading); }
         height: auto;
         overflow-y: auto;
     }
-    .nav-links {
-        display: none; /* Mobile menu needed but out of scope for MVP */
-    }
+    .nav-links { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
     .comparison-results {
         grid-template-columns: 1fr;
     }
@@ -2176,20 +2163,9 @@ h1, h2, h3 { font-family: var(--font-heading); }
 
 /* Mobile Viewports (<= 767px / 375px target) */
 @media (max-width: 767px) {
-    #main-nav {
-        height: auto;
-        padding: 8px 12px;
-        flex-direction: column;
-        align-items: stretch;
-    }
+    #main-nav { }
 
-    .nav-links {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        white-space: nowrap;
-        padding: 6px 0;
-        gap: 6px;
-    }
+    .nav-links { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 
     .nav-links a {
         min-height: 44px; /* WCAG 2.1 Touch Target */
@@ -2326,3 +2302,28 @@ button, a, [role="button"], select, input, .card, .driver-compact-card,
 }
 
 
+
+/* NEW LAYOUT RULES */
+.app-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 260px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    backdrop-filter: blur(20px);
+}
+
+.main-canvas {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-dark);
+}

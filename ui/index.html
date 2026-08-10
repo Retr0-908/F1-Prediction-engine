@@ -27,7 +27,8 @@
     </div>
 
     <!-- Main Navigation -->
-    <nav id="main-nav" class="hidden">
+    <div class="app-container">
+    <aside id="main-nav" class="sidebar hidden">
         <div class="nav-brand">F1 PREDICTOR</div>
         <div class="nav-links">
             <a href="#" data-target="dashboard-screen" class="nav-btn active">Dashboard</a>
@@ -49,7 +50,9 @@
             <a href="https://fantasy.formula1.com" target="_blank" class="btn btn-fantasy">&#8599; F1 Fantasy</a>
             <button id="btn-run-analysis" class="btn btn-primary" onclick="startAnalysis()">&#9654; Run Analysis</button>
         </div>
-    </nav>
+    </aside>
+
+    <main class="main-canvas">
 
     <!-- Global Download Progress Bar -->
     <div id="global-download-progress" class="hidden global-download-toast">
@@ -765,5 +768,7 @@
     </div>
 
     <script src="/static/app.js?v=7"></script>
+    </main>
+    </div>
 </body>
 </html>
