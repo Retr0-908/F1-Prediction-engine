@@ -1456,7 +1456,7 @@ h1, h2, h3 { font-family: var(--font-heading); }
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 580px;
+    max-height: 650px;
     overflow-y: auto;
     padding-right: 4px;
 }
@@ -1479,16 +1479,18 @@ h1, h2, h3 { font-family: var(--font-heading); }
 
 .driver-compact-card {
     display: grid;
-    grid-template-columns: 36px 36px 1fr 100px;
+    grid-template-columns: 36px 36px minmax(0, 1fr) 110px;
     gap: 12px;
     align-items: center;
-    padding: 8px 12px;
-    background: rgba(20, 20, 35, 0.4);
-    border-radius: 0 !important;
-    border: 1px solid rgba(255, 255, 255, 0.03);
+    padding: 10px 14px;
+    min-height: 48px;
+    background: rgba(15, 23, 42, 0.85) !important;
+    border-radius: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
     position: relative;
     overflow: hidden;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    transform: none !important; /* Disable spatial 3D transform skewing on compact card rows */
 }
 
 .driver-compact-card::before {
@@ -1503,41 +1505,43 @@ h1, h2, h3 { font-family: var(--font-heading); }
 }
 
 .driver-compact-card:hover {
-    transform: translateX(2px);
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
+    transform: none !important;
+    background: rgba(24, 35, 62, 0.95) !important;
+    border-color: rgba(0, 240, 255, 0.3) !important;
 }
 
 .cc-pos {
     font-family: var(--font-heading);
-    font-size: 1.15rem;
+    font-size: 1.05rem;
     font-weight: 800;
     text-align: center;
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 28px;
-    width: 28px;
-    border-radius: 0 !important;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    height: 32px;
+    width: 32px;
+    border-radius: 4px !important;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+    flex-shrink: 0;
 }
 
 /* Accent top-3 positioning in Sprint vs GP */
 .sprint-col .driver-compact-card.pos-1 .cc-pos,
 .sprint-col .driver-compact-card.pos-2 .cc-pos,
 .sprint-col .driver-compact-card.pos-3 .cc-pos {
-    background: rgba(255, 128, 0, 0.15);
-    color: var(--color-sprint);
-    border: 1px solid rgba(255, 128, 0, 0.3);
+    background: rgba(255, 128, 0, 0.25);
+    color: #FF8000;
+    border: 1px solid rgba(255, 128, 0, 0.5);
 }
 
 .race-col .driver-compact-card.pos-1 .cc-pos,
 .race-col .driver-compact-card.pos-2 .cc-pos,
 .race-col .driver-compact-card.pos-3 .cc-pos {
-    background: rgba(232, 0, 45, 0.15);
-    color: var(--f1-red);
-    border: 1px solid rgba(232, 0, 45, 0.3);
+    background: rgba(232, 0, 45, 0.25);
+    color: #FF335C;
+    border: 1px solid rgba(232, 0, 45, 0.5);
 }
 
 .cc-thumb-wrap {
@@ -1545,22 +1549,26 @@ h1, h2, h3 { font-family: var(--font-heading); }
     width: 32px;
     height: 32px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .cc-thumb {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    border-radius: 0 !important;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 4px !important;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .cc-info-block {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    gap: 2px;
+    gap: 3px;
+    justify-content: center;
 }
 
 .cc-name-row {
@@ -1569,15 +1577,17 @@ h1, h2, h3 { font-family: var(--font-heading); }
     gap: 6px;
     flex-wrap: nowrap;
     overflow: hidden;
+    line-height: 1.3;
 }
 
 .cc-name {
     font-weight: 700;
-    font-size: 0.88rem;
+    font-size: 0.92rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--text-main);
+    color: #FFFFFF !important; /* Crisp high-contrast white text */
+    letter-spacing: 0.2px;
 }
 
 .cc-badges {
@@ -1588,12 +1598,13 @@ h1, h2, h3 { font-family: var(--font-heading); }
 }
 
 .cc-team {
-    font-size: 0.7rem;
+    font-size: 0.76rem;
     color: var(--text-dim);
-    font-weight: 500;
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.2;
 }
 
 .cc-stats-block {
@@ -1608,6 +1619,7 @@ h1, h2, h3 { font-family: var(--font-heading); }
     font-family: var(--font-heading);
     font-size: 0.95rem;
     font-weight: 700;
+    line-height: 1.2;
 }
 
 .sprint-col .cc-pred-val {
@@ -1619,22 +1631,23 @@ h1, h2, h3 { font-family: var(--font-heading); }
 }
 
 .cc-conf-bar-wrap {
-    width: 60px;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.07);
-    border-radius: 0 !important;
+    width: 70px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px !important;
     overflow: hidden;
 }
 
 .cc-conf-bar-fill {
     height: 100%;
-    border-radius: 0 !important;
+    border-radius: 2px !important;
 }
 
 .cc-conf-text {
-    font-size: 0.65rem;
-    font-weight: 600;
+    font-size: 0.68rem;
+    font-weight: 700;
     color: var(--text-dim);
+    line-height: 1.1;
 }
 
 .cc-rookie-badge {
