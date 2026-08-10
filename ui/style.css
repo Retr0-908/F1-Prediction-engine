@@ -167,7 +167,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .insights-icon {
     color: var(--neon-cyan);
     font-size: 2rem;
-    filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.5));
     display: block;
     text-align: center;
     margin-bottom: var(--space-3);
@@ -266,7 +265,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .brand-title {
     font-size: 4rem;
     margin-bottom: 30px;
-    text-shadow: 0 0 20px rgba(232, 0, 45, 0.5);
     letter-spacing: 2px;
 }
 
@@ -392,7 +390,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 
 .hero-weather-large {
     font-size: 3rem;
-    filter: drop-shadow(0 0 10px rgba(255,255,255,0.2));
 }
 
 .map-placeholder {
@@ -487,10 +484,10 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 
 @keyframes apple-status-pulse {
     0%, 100% {
-        box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.55);
+        box-shadow: none;
     }
     50% {
-        box-shadow: 0 0 0 5px rgba(0, 240, 255, 0);
+        box-shadow: none;
     }
 }
 .status-label { flex: 1; font-weight: 500; font-size: 1.1rem; }
@@ -1028,7 +1025,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     border-radius: var(--radius-md) !important;  /* Phase 5 */
     padding: 16px;
     z-index: 9999;
-    box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset;
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
 .global-download-toast .toast-header {
@@ -1291,7 +1287,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 
 .engine-running #f1-car-svg {
-    filter: drop-shadow(0 0 8px var(--f1-red-hover)) drop-shadow(0 0 2px var(--f1-red));
 }
 
 .engine-running .speed-line {
@@ -1692,7 +1687,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     /* Phase 2: x translation managed by GSAP — only color state here */
     background: rgba(22, 32, 58, 0.95) !important;
     border-color: rgba(0, 240, 255, 0.28) !important;
-    box-shadow: inset 3px 0 0 var(--neon-cyan);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
 }
 
 /* Phase 1: pointer-down press state */
@@ -1917,7 +1912,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     justify-content: center;
     border-radius: 50%;
     font-size: 0.85rem;
-    box-shadow: 0 2px 8px rgba(0,240,255,0.3);
 }
 .ctor-badge {
     background: var(--color-yellow);
@@ -2234,7 +2228,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     font-weight: 700;
     font-optical-sizing: auto;
     margin-bottom: 28px;
-    text-shadow: 0 0 40px rgba(0, 240, 255, 0.3);
 }
 
 /* ── Phase 8: Sliding nav indicator ── */
@@ -2245,7 +2238,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     background: var(--neon-cyan);
     border-radius: 2px 2px 0 0;
     pointer-events: none;
-    box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
     opacity: 0;
     transform-origin: left center;
 }
