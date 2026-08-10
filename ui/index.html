@@ -34,12 +34,11 @@
             <a href="#" data-target="team-screen" class="nav-btn">My Team</a>
             <a href="#" data-target="prices-screen" class="nav-btn">Prices</a>
             <a href="#" data-target="standings-screen" class="nav-btn" id="nav-standings">Standings</a>
-            <a href="#" data-target="past-races-screen" class="nav-btn" id="nav-past-races">Past Races</a>
-            <a href="#" data-target="past-predictions-screen" class="nav-btn" id="nav-past-predictions">Past Predictions</a>
             <a href="#" data-target="analysis-screen" class="nav-btn" id="nav-analysis" style="display:none;">Analysis</a>
             <a href="#" data-target="results-screen" class="nav-btn" style="display:none;" id="nav-results">Results</a>
-            <a href="#" data-target="pred-analysis-screen" class="nav-btn" id="nav-pred-analysis">Prediction Analysis</a>
-            <a href="#" data-target="settings-screen" class="nav-btn" id="nav-settings">Settings</a>
+            <a href="#" data-target="settings-screen" class="nav-btn" id="nav-settings">Settings & Cache</a>
+            <a href="#" data-target="past-archive-screen" class="nav-btn" id="nav-past-archive">Past Archive</a>
+            <a href="#" data-target="pred-analysis-screen" class="nav-btn" id="nav-pred-analysis">Model Health</a>
         </div>
         <div class="nav-actions">
             <select id="mode-selector" class="mode-select" style="font-family: inherit; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 0.4rem 0.8rem; border-radius: 0; font-size: 0.85rem; margin-right: 10px; cursor: pointer; transition: all 0.2s;">
@@ -619,11 +618,18 @@
         </div>
     </div>
 
-    <!-- Screen 9: Past Races -->
-    <div id="past-races-screen" class="screen content-padding scrollable">
+    <!-- Screen 9: Past Archive -->
+    <div id="past-archive-screen" class="screen content-padding scrollable">
         <div class="header-row">
-            <h2>PAST RACES & TELEMETRY</h2>
-            <div style="display: flex; gap: 15px; align-items: center;">
+            <h2>PAST ARCHIVE</h2>
+            <div class="tab-row" style="margin-left: auto;">
+                <button class="tab-btn active" data-tab="tab-past-races">Races</button>
+                <button class="tab-btn" data-tab="tab-past-predictions">Predictions</button>
+            </div>
+        </div>
+
+        <div id="tab-past-races" class="tab-content active">
+            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
                 <label for="past-year-selector">Year:</label>
                 <select id="past-year-selector" class="input-field" onchange="onYearChange()" style="width: 100px;">
                     <!-- Populated dynamically via JS -->
@@ -633,20 +639,49 @@
                     <option value="">Select a race...</option>
                 </select>
             </div>
-        </div>
-        <div id="past-race-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
-            <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">🏁</div>
-            <p class="dim-text">Select a completed race from the dropdown above to view results and telemetry.</p>
-        </div>
-        <div id="past-race-content" class="results-layout" style="display: none;">
-            <div class="panel" style="grid-column: 1 / -1;">
-                <div class="panel-header">RACE RESULTS</div>
-                <div id="past-race-results" class="race-order-table"></div>
+            
+            <div id="past-race-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
+                <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">🏁</div>
+                <p class="dim-text">Select a completed race from the dropdown above to view results and telemetry.</p>
             </div>
-            <div class="panel" style="grid-column: 1 / -1;">
-                <div class="panel-header">TIRE STINTS & PACE DEGRADATION</div>
-                <div class="chart-container" style="height: 350px;">
-                    <canvas id="past-race-telemetry-chart"></canvas>
+            <div id="past-race-content" class="results-layout" style="display: none;">
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">RACE RESULTS</div>
+                    <div id="past-race-results" class="race-order-table"></div>
+                </div>
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">TIRE STINTS & PACE DEGRADATION</div>
+                    <div class="chart-container" style="height: 350px;">
+                        <canvas id="past-race-telemetry-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-past-predictions" class="tab-content">
+            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
+                <label for="past-pred-selector">Select Prediction:</label>
+                <select id="past-pred-selector" class="input-field select-large" onchange="loadPastPrediction()" style="width: 350px;">
+                    <option value="">Loading predictions...</option>
+                </select>
+                <button id="btn-compare-pred" class="btn btn-primary hidden" onclick="compareSelectedPrediction()">📊 Compare to Actual Race Data</button>
+            </div>
+            <div id="past-pred-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
+                <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">📁</div>
+                <p class="dim-text">Select a past prediction from the dropdown above to view its details.</p>
+            </div>
+            <div id="past-pred-content" class="results-layout hidden">
+                <!-- Details rendered by JS -->
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">PREDICTION DETAILS</div>
+                    <div id="past-pred-details-container"></div>
+                </div>
+                <!-- Comparison results container -->
+                <div class="panel hidden" id="past-pred-compare-panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">COMPARISON METRICS</div>
+                    <div id="past-pred-compare-metrics" class="metrics-container" style="display: flex; flex-direction: row; gap: 10px; padding: 15px 0;"></div>
+                    <div class="panel-header" style="margin-top:20px;">COMPARISON VS ACTUAL</div>
+                    <div id="past-pred-compare-table" class="race-order-table"></div>
                 </div>
             </div>
         </div>
@@ -725,38 +760,6 @@
                 <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; text-align: center;">
                     <button id="btn-reset-corrections" class="btn" style="background-color: #5c181e; color: #f8d7da; border: 1px solid #721c24;" onclick="resetModelCorrections()">🔄 Reset All Corrections</button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Screen 11: Past Predictions -->
-    <div id="past-predictions-screen" class="screen content-padding scrollable">
-        <div class="header-row">
-            <h2>PAST PREDICTIONS</h2>
-            <div style="display: flex; gap: 15px; align-items: center;">
-                <label for="past-pred-selector">Select Prediction:</label>
-                <select id="past-pred-selector" class="input-field select-large" onchange="loadPastPrediction()" style="width: 350px;">
-                    <option value="">Loading predictions...</option>
-                </select>
-                <button id="btn-compare-pred" class="btn btn-primary hidden" onclick="compareSelectedPrediction()">📊 Compare to Actual Race Data</button>
-            </div>
-        </div>
-        <div id="past-pred-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
-            <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">📁</div>
-            <p class="dim-text">Select a past prediction from the dropdown above to view its details.</p>
-        </div>
-        <div id="past-pred-content" class="results-layout hidden">
-            <!-- Details rendered by JS -->
-            <div class="panel" style="grid-column: 1 / -1;">
-                <div class="panel-header">PREDICTION DETAILS</div>
-                <div id="past-pred-details-container"></div>
-            </div>
-            <!-- Comparison results container -->
-            <div class="panel hidden" id="past-pred-compare-panel" style="grid-column: 1 / -1;">
-                <div class="panel-header">COMPARISON METRICS</div>
-                <div id="past-pred-compare-metrics" class="metrics-container" style="display: flex; flex-direction: row; gap: 10px; padding: 15px 0;"></div>
-                <div class="panel-header" style="margin-top:20px;">COMPARISON VS ACTUAL</div>
-                <div id="past-pred-compare-table" class="race-order-table"></div>
             </div>
         </div>
     </div>

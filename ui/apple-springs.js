@@ -113,12 +113,11 @@
     'team-screen',
     'prices-screen',
     'standings-screen',
-    'past-races-screen',
-    'past-predictions-screen',
+    'past-archive-screen',
     'pred-analysis-screen',
     'settings-screen',
     'analysis-screen',
-    'results-screen',
+    'results-screen'
   ];
 
   let currentScreenId = 'dashboard-screen';
@@ -204,7 +203,7 @@
         // Intercept: animate out old, animate in new
         if (prevContent) {
           gsap.to(prevContent, {
-            opacity: 0, x: dir * -20, duration: 0.18, ease: 'power2.in',
+            opacity: 0, x: dir * -20, duration: 0.09, ease: 'power2.in',
             onComplete: () => {
               prevContent.classList.remove('active');
               prevContent.style.display = 'none';
@@ -214,7 +213,7 @@
               nextContent.classList.add('active');
               gsap.fromTo(nextContent,
                 { opacity: 0, x: dir * 20 },
-                { opacity: 1, x: 0, duration: 0.28, ease: 'power2.out',
+                { opacity: 1, x: 0, duration: 0.14, ease: 'power2.out',
                   onComplete: () => gsap.set(nextContent, { clearProps: 'all' }) }
               );
             }
@@ -230,13 +229,15 @@
    * Uses CSS custom animation class rather than GSAP to keep it performant.
    */
   function initStatusPulse() {
-    // Observe for dynamic status updates
+    // Observe for dynamic status updates (Disabled for debugging)
+    /*
     const observer = new MutationObserver(() => {
       document.querySelectorAll('.status-indicator.green').forEach(dot => {
         dot.classList.add('apple-pulse');
       });
     });
     observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    */
 
     // Initial pass
     document.querySelectorAll('.status-indicator.green').forEach(dot => {
@@ -490,7 +491,8 @@
       }
     });
 
-    // Listen for screen changes to stagger-animate incoming panels
+    // Listen for screen changes to stagger-animate incoming panels (Disabled for debugging)
+    /*
     const screenObserver = new MutationObserver(mutations => {
       mutations.forEach(m => {
         if (m.type === 'attributes' && m.attributeName === 'class') {
@@ -504,6 +506,7 @@
     document.querySelectorAll('.screen').forEach(s => {
       screenObserver.observe(s, { attributes: true });
     });
+    */
   }
 
   // Run after DOM ready, and after GSAP is parsed

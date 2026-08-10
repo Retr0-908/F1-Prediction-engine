@@ -85,12 +85,11 @@ function setupNavigation() {
             
             if (targetId === 'standings-screen') {
                 fetchStandings();
-            } else if (targetId === 'past-races-screen') {
+            } else if (targetId === 'past-archive-screen') {
                 initPastRaces();
+                initPastPredictions();
             } else if (targetId === 'pred-analysis-screen') {
                 initPredictionAnalysis();
-            } else if (targetId === 'past-predictions-screen') {
-                initPastPredictions();
             }
         });
     });
