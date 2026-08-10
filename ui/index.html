@@ -3,42 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="F1 Fantasy Predictor — AI-powered race predictions, chip strategy, and dream team optimization for Formula 1 Fantasy.">
     <title>F1 Fantasy Predictor</title>
-    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/style.css?v=7">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Phase 5: Inter with full optical-size range, Space Grotesk, JetBrains Mono for telemetry -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <!-- Phase 2-10: Apple-grade spring animation system (loaded before app.js) -->
+    <script src="/static/apple-springs.js?v=1" defer></script>
 </head>
 <body>
-    <!-- Screen 1: Launch Screen -->
+    <!-- Screen 1: Launch Screen — Phase 9: GSAP stagger reveal -->
     <div id="launch-screen" class="screen active">
         <div class="particle-field"></div>
         <div class="launch-content">
             <h1 class="brand-title">F1 FANTASY PREDICTOR</h1>
             <div class="spinner"></div>
-            <p id="launch-status">Waking up engine...</p>
-            <script>
-                const msgs = [
-                    "[0.001] INITIALIZING TELEMETRY ENGINE...",
-                    "[0.045] ESTABLISHING PIT WALL LINK...",
-                    "[0.120] LOADING RACING LINE DATA...",
-                    "[0.294] CALIBRATING PREDICTION ALGORITHMS...",
-                    "[0.471] SYNCHRONIZING SECURE TUNNEL...",
-                    "[0.890] ALL SYSTEMS GO."
-                ];
-                let step = 0;
-                const el = document.getElementById("launch-status");
-                const interval = setInterval(() => {
-                    if(step < msgs.length) {
-                        el.innerText = msgs[step];
-                        step++;
-                    } else {
-                        clearInterval(interval);
-                    }
-                }, 120);
-            </script>
+            <p id="launch-status" class="dim-text">Waking up engine...</p>
         </div>
     </div>
 

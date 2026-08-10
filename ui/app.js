@@ -11,17 +11,62 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
 });
 
+// Phase 9: Animate launch status text (moved here from inline script for clean CSP)
+(function animateLaunchStatus() {
+    const msgs = [
+        'Initializing telemetry engine...',
+        'Establishing pit wall link...',
+        'Loading racing line data...',
+        'Calibrating prediction algorithms...',
+        'Synchronizing secure tunnel...',
+        'All systems go.',
+    ];
+    let step = 0;
+    const el = document.getElementById('launch-status');
+    if (!el) return;
+    const interval = setInterval(() => {
+        if (step < msgs.length) {
+            el.textContent = msgs[step];
+            step++;
+        } else {
+            clearInterval(interval);
+        }
+    }, 180);
+})();
+
 async function initApp() {
     await waitForServer();
     await loadDashboardData();
     await loadChipState();
 
-    // Transition
-    setTimeout(() => {
-        document.getElementById('launch-screen').classList.remove('active');
-        document.getElementById('main-nav').classList.remove('hidden');
-        document.getElementById('dashboard-screen').classList.add('active');
-    }, 500);
+    // Phase 3/9: Cinematic spring transition from launch to dashboard
+    const launchEl  = document.getElementById('launch-screen');
+    const navEl     = document.getElementById('main-nav');
+    const dashEl    = document.getElementById('dashboard-screen');
+
+    if (typeof gsap !== 'undefined' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        // Prepare dashboard: off-screen above, invisible
+        gsap.set(dashEl, { opacity: 0, y: 30 });
+        dashEl.classList.add('active');
+        navEl.classList.remove('hidden');
+
+        // Spring transition: launch fades out while dashboard springs in
+        const tl = gsap.timeline();
+        tl.to(launchEl, { opacity: 0, y: -20, duration: 0.35, ease: 'power2.in',
+            onComplete: () => {
+                launchEl.classList.remove('active');
+                gsap.set(launchEl, { clearProps: 'all' });
+            }
+        });
+        tl.to(dashEl, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out',
+            onComplete: () => gsap.set(dashEl, { clearProps: 'all' })
+        }, '-=0.15');
+    } else {
+        // Reduced-motion fallback: instant swap
+        launchEl.classList.remove('active');
+        navEl.classList.remove('hidden');
+        dashEl.classList.add('active');
+    }
 
     setupHeartbeat();
 }
