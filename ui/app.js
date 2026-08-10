@@ -811,6 +811,9 @@ function displayResults(data) {
 
     // ── Chip Strategy ──
     renderChipCards(chips);
+    
+    // ── AI Insights Panel ──
+    renderInsightsPanel(data);
 
     // ── Dream Team ──
     document.getElementById('dt-budget').innerText = opt.total_price ? opt.total_price.toFixed(1) : '0.0';
