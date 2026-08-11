@@ -134,7 +134,7 @@ function setNavBadge(navId, text, type) {
     badge.className = 'nav-badge badge-' + type;
     badge.id = navId + '-badge';
     badge.textContent = text;
-    btn.style.position = 'relative';
+    
     btn.appendChild(badge);
 }
 
