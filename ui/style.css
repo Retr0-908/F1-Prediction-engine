@@ -210,37 +210,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 
 .btn-primary:hover { background-color: var(--f1-red-hover); }
 
-.btn-fantasy {
-    background: transparent;
-    color: var(--f1-red);
-    border: 1px solid var(--f1-red);
-    font-family: var(--font-heading);
-    font-size: 0.95rem;
-    font-weight: 700;
-    padding: 10px 18px;
-    min-height: 44px;
-    border-radius: var(--radius-sm) !important;
-    cursor: pointer;
-    text-decoration: none;
-    letter-spacing: 0.3px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.btn-fantasy:active {
-    transform: scale(0.96);
-    transition: transform 80ms ease-out;
-}
-
-.btn-fantasy:hover {
-    background: var(--f1-red);
-    color: var(--text-on-accent);
-}
-
 /* Layouts */
 .screen {
     position: absolute;
@@ -348,10 +317,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     padding: 6px 14px;
 }
 
-.nav-actions .btn-fantasy {
-    font-size: 0.85rem;
-    padding: 5px 12px;
-}
 
 /* Dashboard Layout */
 .main-layout {
