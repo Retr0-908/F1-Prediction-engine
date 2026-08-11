@@ -21,8 +21,18 @@
         <div class="particle-field"></div>
         <div class="launch-content">
             <h1 class="brand-title">F1 FANTASY PREDICTOR</h1>
+            <p class="launch-tagline">AI-powered race predictions &amp; fantasy strategy</p>
             <div class="spinner"></div>
-            <p id="launch-status" class="dim-text">Waking up engine...</p>
+            <p id="launch-status" class="launch-status-main">Waking up engine...</p>
+            <p id="launch-sub-status" class="launch-sub-status">Establishing connection...</p>
+            <ul class="boot-step-list" id="boot-step-list">
+                <li class="boot-step" id="boot-step-server">Connecting to prediction engine</li>
+                <li class="boot-step" id="boot-step-race">Loading race calendar</li>
+                <li class="boot-step" id="boot-step-weather">Fetching weather forecast</li>
+                <li class="boot-step" id="boot-step-health">Checking system health</li>
+                <li class="boot-step" id="boot-step-prices">Scraping F1 Fantasy market prices</li>
+                <li class="boot-step" id="boot-step-team">Restoring saved team</li>
+            </ul>
         </div>
     </div>
 

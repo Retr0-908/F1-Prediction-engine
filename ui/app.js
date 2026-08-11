@@ -11,27 +11,24 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
 });
 
-// Phase 9: Animate launch status text (moved here from inline script for clean CSP)
+// Boot welcome sequence — runs only before server responds.
+// Stops automatically when waitForServer() calls setLaunchStatus().
+let _welcomeAnimRunning = true;
 (function animateLaunchStatus() {
     const msgs = [
-        'Initializing telemetry engine...',
-        'Establishing pit wall link...',
+        'Powering up the pit wall...',
         'Loading racing line data...',
-        'Calibrating prediction algorithms...',
-        'Synchronizing secure tunnel...',
-        'All systems go.',
+        'Spinning up prediction algorithms...',
+        'Connecting to telemetry engine...',
     ];
     let step = 0;
     const el = document.getElementById('launch-status');
     if (!el) return;
     const interval = setInterval(() => {
-        if (step < msgs.length) {
-            el.textContent = msgs[step];
-            step++;
-        } else {
-            clearInterval(interval);
-        }
-    }, 180);
+        if (!_welcomeAnimRunning) { clearInterval(interval); return; }
+        el.textContent = msgs[step % msgs.length];
+        step++;
+    }, 600);
 })();
 
 async function initApp() {
@@ -128,19 +125,28 @@ function activateNavBtn(targetId) {
 
 // ---- DATA LOADING ----
 async function waitForServer() {
-    const statusText = document.getElementById('launch-status');
     let attempts = 0;
+    markBootStepActive('boot-step-server');
+    setLaunchSubStatus('The prediction engine starts up in the background when you launch the app.');
     while (true) {
         try {
-            statusText.innerText = "Connecting to engine...";
             const res = await fetch('/api/status');
             if (res.ok) {
-                statusText.innerText = "Engine ready. Loading data...";
+                _welcomeAnimRunning = false;
+                setLaunchStatus('Engine online. Loading your dashboard...');
+                setLaunchSubStatus('Fetching live race data, weather, and market prices...');
+                markBootStepDone('boot-step-server');
                 break;
             }
         } catch (e) {
             attempts++;
-            if (attempts > 10) statusText.innerText = "Starting engine (this may take a few seconds)...";
+            if (attempts === 3) {
+                setLaunchStatus('Starting prediction engine...');
+                setLaunchSubStatus('First launch may take 5-10 seconds while Python initialises.');
+            } else if (attempts > 10) {
+                setLaunchStatus('Engine is taking longer than usual...');
+                setLaunchSubStatus('Still starting up. This is normal on first run or slow machines.');
+            }
         }
         await new Promise(r => setTimeout(r, 1000));
     }
@@ -251,11 +257,32 @@ function setLaunchStatus(msg) {
     if (el) el.innerText = msg;
 }
 
+function setLaunchSubStatus(msg) {
+    const el = document.getElementById('launch-sub-status');
+    if (el) el.innerText = msg;
+}
+
+function markBootStepActive(stepId) {
+    const el = document.getElementById(stepId);
+    if (!el) return;
+    document.querySelectorAll('.boot-step.active').forEach(s => s.classList.remove('active'));
+    el.classList.add('active');
+}
+
+function markBootStepDone(stepId) {
+    const el = document.getElementById(stepId);
+    if (!el) return;
+    el.classList.remove('active');
+    el.classList.add('done');
+}
+
 async function loadDashboardData() {
     let raceName = "", raceDate = "";
 
     // Race
     setLaunchStatus('Loading next race data...');
+    setLaunchSubStatus('Fetching race schedule and circuit configuration from Jolpica API...');
+    markBootStepActive('boot-step-race');
     updateStatusRow('status-race', 'yellow', 'Fetching...');
     try {
         const raceRes = await fetch('/api/race/next');
@@ -273,11 +300,17 @@ async function loadDashboardData() {
         }
         setupTimezoneSelector(race);
         renderSessionTimes(race);
-    } catch (e) { updateStatusRow('status-race', 'red', 'Error'); }
+        markBootStepDone('boot-step-race');
+    } catch (e) {
+        updateStatusRow('status-race', 'red', 'Error');
+        markBootStepDone('boot-step-race');
+    }
 
     // Weather
     if (raceName) {
         setLaunchStatus('Fetching race weekend weather forecast...');
+        setLaunchSubStatus('Checking forecast for ' + raceName + ' race weekend via Open-Meteo...');
+        markBootStepActive('boot-step-weather');
         updateStatusRow('status-weather', 'yellow', 'Fetching...');
         try {
             const weatherRes = await fetch(`/api/weather?race_name=${encodeURIComponent(raceName)}&date=${raceDate}`);
@@ -316,28 +349,46 @@ async function loadDashboardData() {
             const windEl = document.querySelector('#weather-wind div:last-child');
             if (windEl) windEl.innerText = `${wind}kph`;
 
-        } catch (e) { updateStatusRow('status-weather', 'red', 'Error'); }
+            markBootStepDone('boot-step-weather');
+        } catch (e) {
+            updateStatusRow('status-weather', 'red', 'Error');
+            markBootStepDone('boot-step-weather');
+        }
     }
 
     // System Health (Phase 2)
+    setLaunchStatus('Checking system health...');
+    setLaunchSubStatus('Verifying ML engine, FastF1 cache, and Julia compiler status...');
+    markBootStepActive('boot-step-health');
     try {
         const healthRes = await fetch('/api/system/health');
         const health = await healthRes.json();
         updateStatusRow('status-engine', health.compiler === 'Detected' ? 'green' : 'yellow', health.engine);
         updateStatusRow('status-cache', 'green', health.cache_size);
-    } catch (e) {}
+        markBootStepDone('boot-step-health');
+    } catch (e) {
+        markBootStepDone('boot-step-health');
+    }
 
     // Prices
     setLaunchStatus('Scraping F1 Fantasy market prices...');
+    setLaunchSubStatus('Connecting to F1 Fantasy servers to fetch live driver & constructor prices. May take 5-15 seconds...');
+    markBootStepActive('boot-step-prices');
     try {
         const pricesRes = await fetch('/api/prices');
         marketPrices = await pricesRes.json();
         updateStatusRow('status-team', 'grey', 'Scanned Market');
         renderPriceLists();
-    } catch (e) { }
+        markBootStepDone('boot-step-prices');
+        setLaunchSubStatus('Market prices loaded successfully.');
+    } catch (e) {
+        markBootStepDone('boot-step-prices');
+    }
 
     // Team
     setLaunchStatus('Restoring your saved team...');
+    setLaunchSubStatus('Loading your driver and constructor selections from local storage...');
+    markBootStepActive('boot-step-team');
     try {
         const teamRes = await fetch('/api/team');
         currentTeam = await teamRes.json();
@@ -352,9 +403,14 @@ async function loadDashboardData() {
             currentTeam.constructors = [];
         }
         renderTeamPickers();
-    } catch (e) { updateStatusRow('status-team', 'grey', 'Error'); }
+        markBootStepDone('boot-step-team');
+    } catch (e) {
+        updateStatusRow('status-team', 'grey', 'Error');
+        markBootStepDone('boot-step-team');
+    }
 
-    setLaunchStatus('Ready. Welcome back.');
+    setLaunchStatus('All systems ready. Welcome back! 🏎️');
+    setLaunchSubStatus('Dashboard loading now...');
 }
 
 function updateStatusRow(rowId, colorClass, valueText) {
