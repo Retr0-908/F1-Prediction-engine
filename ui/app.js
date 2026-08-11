@@ -80,7 +80,9 @@ function setupNavigation() {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(targetId).classList.add('active');
             
-            if (targetId === 'standings-screen') {
+            if (targetId === 'results-screen') {
+                clearNavBadge('nav-results');
+            } else if (targetId === 'standings-screen') {
                 fetchStandings();
             } else if (targetId === 'past-archive-screen') {
                 initPastRaces();
@@ -121,6 +123,24 @@ function activateNavBtn(targetId) {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const btn = document.querySelector(`.nav-btn[data-target="${targetId}"]`);
     if (btn) btn.classList.add('active');
+}
+
+function setNavBadge(navId, text, type) {
+    // type: 'live' | 'new'
+    const btn = document.getElementById(navId);
+    if (!btn) return;
+    clearNavBadge(navId);
+    const badge = document.createElement('span');
+    badge.className = 'nav-badge badge-' + type;
+    badge.id = navId + '-badge';
+    badge.textContent = text;
+    btn.style.position = 'relative';
+    btn.appendChild(badge);
+}
+
+function clearNavBadge(navId) {
+    const existing = document.getElementById(navId + '-badge');
+    if (existing) existing.remove();
 }
 
 // ---- DATA LOADING ----
@@ -573,14 +593,27 @@ async function startAnalysis() {
     }
     _isPipelineRunning = true;
     
-    const runBtn = document.getElementById('btn-run-pipeline'); // assuming there is a button
+    const runBtn = document.getElementById('btn-run-analysis');
     if (runBtn) {
         runBtn.disabled = true;
         runBtn.classList.add('disabled');
+        runBtn.textContent = '⏳ Analysing...';
     }
-    
-    showScreen('analysis-screen');
-    activateNavBtn('analysis-screen');
+
+    // Add LIVE badge to Analysis nav item
+    setNavBadge('nav-analysis', '● LIVE', 'live');
+
+    // Only auto-navigate to analysis screen if user is on dashboard or already on analysis.
+    // Otherwise leave them on their current tab and notify via toast.
+    const _activeScreenNow = document.querySelector('.screen.active');
+    const _activeScreenId = _activeScreenNow ? _activeScreenNow.id : '';
+    if (_activeScreenId === 'dashboard-screen' || _activeScreenId === 'analysis-screen') {
+        showScreen('analysis-screen');
+        activateNavBtn('analysis-screen');
+    } else {
+        showToast('⚡ Analysis running in background — visit the Analysis tab to watch progress', 'info');
+    }
+
     const logEl = document.getElementById('analysis-log');
     logEl.innerHTML = '';
     
@@ -762,10 +795,11 @@ function connectStream(runId) {
             _currentRaceInfo = data.data.race || null;
             setTimeout(() => displayResults(data.data), 800);
             _isPipelineRunning = false;
-            const runBtn = document.getElementById('btn-run-pipeline');
+            const runBtn = document.getElementById('btn-run-analysis');
             if (runBtn) {
                 runBtn.disabled = false;
                 runBtn.classList.remove('disabled');
+                runBtn.innerHTML = '&#9654; Run Analysis';
             }
         } else if (data.stage === 'ERROR') {
             evtSource.close();
@@ -773,10 +807,11 @@ function connectStream(runId) {
             if (anim) anim.style.display = 'none';
             showToast('Analysis failed: ' + data.message, 'error');
             _isPipelineRunning = false;
-            const runBtn = document.getElementById('btn-run-pipeline');
+            const runBtn = document.getElementById('btn-run-analysis');
             if (runBtn) {
                 runBtn.disabled = false;
                 runBtn.classList.remove('disabled');
+                runBtn.innerHTML = '&#9654; Run Analysis';
             }
         }
     };
@@ -793,11 +828,22 @@ function connectStream(runId) {
 
 // ---- RESULTS (SCREEN 6) ----
 function displayResults(data) {
-    // Show results nav tab
+    // Show results nav item and add NEW badge
     document.getElementById('nav-results').style.display = 'inline-block';
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('nav-results').classList.add('active');
-    showScreen('results-screen');
+    clearNavBadge('nav-analysis');
+    setNavBadge('nav-results', '● NEW', 'new');
+
+    // Auto-navigate only if user is currently watching the analysis screen.
+    // Otherwise notify via toast and let them come to results at their own pace.
+    const _activeNow = document.querySelector('.screen.active');
+    const _isOnAnalysis = _activeNow && _activeNow.id === 'analysis-screen';
+    if (_isOnAnalysis) {
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('nav-results').classList.add('active');
+        showScreen('results-screen');
+    } else {
+        showToast('✅ Analysis complete! Click Results in the sidebar to view your predictions.', 'success');
+    }
     
     const sugg = data.suggestions || {};
     const opt = data.optimal || { drivers: [], constructors: [], total_price: 0, total_pts: 0 };

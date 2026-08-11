@@ -387,6 +387,43 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     border: 1px solid rgba(0, 240, 255, 0.25);
 }
 
+.nav-btn {
+    position: relative;
+}
+
+/* Nav Item Badges */
+.nav-badge {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 5px;
+    border-radius: 3px;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.nav-badge.badge-live {
+    background: rgba(225, 6, 0, 0.2);
+    color: #e10600;
+    border: 1px solid rgba(225, 6, 0, 0.4);
+    animation: badge-pulse 1.4s ease-in-out infinite;
+}
+
+.nav-badge.badge-new {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.4);
+}
+
+@keyframes badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
 .nav-actions {
     display: flex;
     gap: 8px;
