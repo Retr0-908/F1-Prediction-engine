@@ -2,9 +2,12 @@ cache/
 __pycache__/
 *.pyc
 Screenshots/
-logs/
+logs/*
+!logs/.gitkeep
 *.log
 .env
 output/*.csv
 output/*.json
+output/*.txt
+output/*.html
 !output/.gitkeep

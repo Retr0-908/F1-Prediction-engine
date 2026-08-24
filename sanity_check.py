@@ -83,7 +83,7 @@ except Exception as e:
 
 # ── 5. CHIP ADVISOR ──────────────────────────────────────────────────────────
 try:
-    from chip_advisor import advise_chips, recommend_turbo_driver
+    from chip_advisor import advise_chips
     fake_race_info = {"round": 2, "name": "Chinese Grand Prix"}  # sprint round
     fake_driver_pts = [
         {"driver": "Alice", "team": "Red Bull", "total_pts": 35.0, "dnf_prob_pct": 5.0},
@@ -100,10 +100,7 @@ try:
     chips = [r.chip for r in recs]
     assert "Limitless" in chips, "Limitless chip missing"
     assert "No Negative" in chips, "No Negative chip missing"
-    # Test turbo
-    turbo = recommend_turbo_driver(["Alice", "Bob"], fake_driver_pts)
-    assert turbo["driver"] in ("Alice", "Bob"), "Turbo driver invalid"
-    print(f"[PASS] chip_advisor.py — {len(recs)} chip recs, turbo={turbo['driver']}")
+    print(f"[PASS] chip_advisor.py — {len(recs)} chip recs")
 except Exception as e:
     errors.append(f"[FAIL] chip_advisor.py: {e}")
     import traceback; traceback.print_exc()

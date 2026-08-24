@@ -126,13 +126,13 @@ def suggest_team_changes(
     best_swaps = []
     best_net_gain = 0.0
 
-    max_k = max(1, free_transfers)
+    max_k = max(3, free_transfers + 2)
 
     current_players = [{"type": "driver", "name": d} for d in current_drivers] + \
                       [{"type": "ctor",   "name": c} for c in current_constructors]
 
     for k in range(1, max_k + 1):
-        penalty = 0
+        penalty = max(0, k - free_transfers) * 10
 
         for out_combo in itertools.combinations(current_players, k):
             out_d = [p["name"] for p in out_combo if p["type"] == "driver"]
@@ -172,23 +172,10 @@ def suggest_team_changes(
 
                     # Top-performer protection
                     justified = True
-                    for od in out_d:
-                        if od in top_driver_names:
-                            current_star_pts = current_d_pts.get(od, 0)
-                            incoming_d_pts = sum(d["pts"] for d in in_d)
-                            min_required = current_star_pts * (1 + TOP_PERFORMER_GAIN_THRESHOLD)
-                            if incoming_d_pts < min_required:
-                                justified = False
-                                break
-                    if justified:
-                        for oc in out_c:
-                            if oc in top_ctor_names:
-                                current_star_pts = current_c_pts.get(oc, 0)
-                                incoming_c_pts = sum(c["pts"] for c in in_c)
-                                min_required = current_star_pts * (1 + TOP_PERFORMER_GAIN_THRESHOLD)
-                                if incoming_c_pts < min_required:
-                                    justified = False
-                                    break
+                    if any(od in top_driver_names for od in out_d) or any(oc in top_ctor_names for oc in out_c):
+                        # Ensure the whole transaction is a significant upgrade
+                        if pts_gained < pts_lost * 1.15:
+                            justified = False
 
                     if not justified:
                         continue
@@ -237,7 +224,7 @@ def suggest_team_changes(
         "suggested_changes":     best_swaps,
         "all_swaps_ranked":      [],
         "projected_pts_current": round(total_current_pts, 1),
-        "projected_pts_new":     round(total_current_pts + best_net_gain - penalties, 1),
+        "projected_pts_new":     round(total_current_pts + best_net_gain, 1),
         "points_gain":           round(best_net_gain, 1),
         "transfers_used":        actual_transfers,
         "transfers_free":        free_transfers,

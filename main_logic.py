@@ -13,7 +13,7 @@ from fantasy_optimizer import (
     find_differential_picks, find_best_turbo_driver
 )
 from monte_carlo import simulate_race_weekend, get_expected_value_pts
-from chip_advisor import advise_chips, recommend_turbo_driver, load_chip_state
+from chip_advisor import advise_chips, load_chip_state
 
 logger = logging.getLogger(__name__)
 

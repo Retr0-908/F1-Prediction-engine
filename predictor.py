@@ -1415,20 +1415,20 @@ class F1Predictor:
 
         # Race position points
         rp = RACE_POSITION_POINTS.get(race_pos, 0)
-        breakdown["race_position"] = round(rp * (1.0 - dnf_prob), 1)
+        breakdown["race_position"] = round(rp, 1)
 
         # Positions gained/lost (from effective grid after penalty)
         delta = effective_grid - race_pos
         if delta > 0:
             # Gained places
-            pos_pts = delta * POSITIONS_GAINED_PER * (1.0 - dnf_prob)
+            pos_pts = delta * POSITIONS_GAINED_PER
         else:
             # Lost places (delta is negative or zero)
-            pos_pts = abs(delta) * POSITIONS_LOST_PER * (1.0 - dnf_prob)
+            pos_pts = abs(delta) * POSITIONS_LOST_PER
         breakdown["positions_delta"] = round(pos_pts, 1)
 
-        # DNF penalty
-        breakdown["dnf_risk"] = round(DNF_PENALTY * dnf_prob, 1)
+        # DNF penalty (removed from base calculation to prevent double penalty)
+        breakdown["dnf_risk"] = 0.0
 
         # Fastest lap probability
         fl_prob = max(0.0, (0.09 - (race_pos - 1) * 0.005)) * (1.0 - dnf_prob)
@@ -1443,8 +1443,7 @@ class F1Predictor:
             sprint_entry = next((s for s in sprint_order if s["driver"] == driver_name), None)
             if sprint_entry:
                 sp_rank = sprint_entry["predicted_sprint_rank"]
-                sp_dnf  = sprint_entry["dnf_prob_pct"] / 100.0
-                sprint_pts = SPRINT_RACE_POINTS.get(sp_rank, 0) * (1.0 - sp_dnf)
+                sprint_pts = SPRINT_RACE_POINTS.get(sp_rank, 0)
                 breakdown["sprint"] = round(sprint_pts, 1)
             else:
                 breakdown["sprint"] = 0.0

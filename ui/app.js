@@ -32,9 +32,12 @@ let _welcomeAnimRunning = true;
 })();
 
 async function initApp() {
+    document.querySelector('.app-container').style.visibility = 'hidden';
     await waitForServer();
     await loadDashboardData();
     await loadChipState();
+
+    document.querySelector('.app-container').style.visibility = 'visible';
 
     // Phase 3/9: Cinematic spring transition from launch to dashboard
     const launchEl  = document.getElementById('launch-screen');
@@ -53,6 +56,7 @@ async function initApp() {
             onComplete: () => {
                 launchEl.classList.remove('active');
                 gsap.set(launchEl, { clearProps: 'all' });
+                launchEl.style.display = 'none';
             }
         });
         tl.to(dashEl, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out',
@@ -61,6 +65,7 @@ async function initApp() {
     } else {
         // Reduced-motion fallback: instant swap
         launchEl.classList.remove('active');
+        launchEl.style.display = 'none';
         navEl.classList.remove('hidden');
         dashEl.classList.add('active');
     }
@@ -392,16 +397,25 @@ async function loadDashboardData() {
 
     // Prices
     setLaunchStatus('Scraping F1 Fantasy market prices...');
-    setLaunchSubStatus('Connecting to F1 Fantasy servers to fetch live driver & constructor prices. May take 5-15 seconds...');
     markBootStepActive('boot-step-prices');
+    
+    let priceTimerSecs = 0;
+    const priceTimer = setInterval(() => {
+        priceTimerSecs++;
+        setLaunchSubStatus(`Connecting to F1 Fantasy servers... (${priceTimerSecs}s elapsed)`);
+    }, 1000);
+
     try {
         const pricesRes = await fetch('/api/prices');
         marketPrices = await pricesRes.json();
+        clearInterval(priceTimer);
         updateStatusRow('status-team', 'grey', 'Scanned Market');
         renderPriceLists();
         markBootStepDone('boot-step-prices');
-        setLaunchSubStatus('Market prices loaded successfully.');
+        setLaunchSubStatus(`Market prices loaded in ${priceTimerSecs}s ✓`);
     } catch (e) {
+        clearInterval(priceTimer);
+        setLaunchSubStatus('Using cached prices (live fetch failed)');
         markBootStepDone('boot-step-prices');
     }
 
@@ -431,6 +445,7 @@ async function loadDashboardData() {
 
     setLaunchStatus('All systems ready. Welcome back! 🏎️');
     setLaunchSubStatus('Dashboard loading now...');
+    await new Promise(resolve => setTimeout(resolve, 700));
 }
 
 function updateStatusRow(rowId, colorClass, valueText) {

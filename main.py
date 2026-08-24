@@ -76,7 +76,7 @@ from monte_carlo import (
     DistributionStats,
 )
 from chip_advisor import (
-    advise_chips, recommend_turbo_driver,
+    advise_chips,
     load_chip_state, save_chip_state, mark_chip_used, reset_chip_state,
     build_season_context_table, ALL_CHIPS, ChipScore,
 )
@@ -1392,7 +1392,7 @@ def main():
             current_drivers=my_drivers, free_transfers=transfers,
             chip_state=chip_state,
         )
-        turbo_rec = recommend_turbo_driver(
+        turbo_rec = find_best_turbo_driver(
             current_drivers=my_drivers, driver_pts=driver_pts,
             mc_results=mc_results if mc_results else None,
         )

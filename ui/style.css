@@ -222,13 +222,15 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 
 /* Launch Screen */
-#launch-screen.active {\n    display: flex;\n}\n#launch-screen {
-    display: none;
+#launch-screen {
+    display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     background: var(--bg-dark);
     z-index: 100;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
 }
 
 .brand-title {
@@ -352,22 +354,23 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .nav-links { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 
 .nav-links a {
-    color: var(--text-dim);
-    text-decoration: none;
-    padding: 0 12px;
-    min-height: 44px;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    margin: 0;
+    justify-content: flex-start;
+    width: 100%;
+    padding: 0 14px;
+    min-height: 44px;
     font-family: var(--font-body);
     font-weight: 500;
     font-size: 0.875rem;
+    color: var(--text-dim);
+    text-decoration: none;
     white-space: nowrap;
-    border-radius: var(--radius-sm) !important;  /* Phase 5 */
-    /* Phase 1: only color transitions — transform handled by GSAP */
+    border-radius: var(--radius-sm) !important;
     transition: color 0.18s ease, background-color 0.18s ease;
     user-select: none;
     -webkit-user-select: none;
+    position: relative;
 }
 
 /* Phase 1: pointer-down immediate feedback */
@@ -426,14 +429,50 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 
 .nav-actions {
     display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-shrink: 0;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
 }
 
-.nav-actions .btn {
+.mode-select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-main);
+    border: 1px solid var(--border-dim);
+    border-radius: var(--radius-sm) !important;
+    padding: 10px 12px;
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+    transition: border-color 0.18s ease;
+}
+.mode-select:focus {
+    border-color: var(--neon-cyan);
+    outline: none;
+}
+
+.nav-actions #btn-run-analysis {
+    width: 100%;
+    padding: 12px 16px;
     font-size: 0.9rem;
-    padding: 6px 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: var(--radius-sm) !important;
+    white-space: nowrap;
 }
 
 
@@ -723,7 +762,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .track-node.active .node-label { color: var(--color-yellow); }
 .track-node.done .node-label { color: var(--color-green); }
 
-.terminal-log { background: rgba(0,0,0,0.45); padding: 18px; border-radius: var(--radius-md) !important; font-family: var(--font-mono); height: calc(100% - 150px); overflow-y: auto; font-size: 0.88rem; line-height: 1.6; color: #a8d8e0; border: 1px solid rgba(255,255,255,0.06); }
+
 .log-line { margin-bottom: 5px; }
 .log-line.loading { color: var(--color-yellow); }
 .log-line.done { color: var(--color-green); }
@@ -1404,12 +1443,25 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 
 /* --- Split Layout for Running Pipeline --- */
+#analysis-screen {
+    overflow: hidden;
+}
+
+#analysis-screen .analysis-container {
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
 .analysis-split-layout {
     display: grid;
     grid-template-columns: 1.1fr 0.9fr;
     gap: 30px;
     height: calc(100% - 60px);
     margin-top: 10px;
+    flex: 1;
+    min-height: 0;
 }
 
 .analysis-left {
@@ -1427,6 +1479,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
 }
 
 .terminal-log {
@@ -1440,6 +1493,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     font-size: 0.86rem;
     line-height: 1.65;
     color: #9ab8c0;
+    min-height: 0;
 }
 
 /* --- Diagnostics HUD --- */
@@ -1579,14 +1633,14 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     align-items: center;
     position: relative;
     z-index: 2;
-    background: #0f0f23; /* fallback for backdrop */
+    background: transparent;
     padding: 0 10px;
     min-width: 80px;
 }
 
 /* Ensure step background matches app background for clean overlap */
 .sprint-weekend-banner .timeline-step {
-    background: rgba(18, 18, 30, 0.95);
+    background: transparent;
     border-radius: 0 !important;
 }
 
@@ -2252,9 +2306,10 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     .nav-links { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 
     .nav-links a {
-        min-height: 44px; /* WCAG 2.1 Touch Target */
-        display: inline-flex;
+        display: flex;
+        width: 100%;
         align-items: center;
+        min-height: 44px;
         padding: 8px 14px;
     }
 
