@@ -71,6 +71,12 @@ would freeze at e.g. 43 % forever. **Bundled fix:** pop the queue ONLY after a t
 EventSource resumes mid-stream (events buffered while detached are replayed — bounded by the
 existing terminal-event cleanup).
 
+**⚠️ Amendment (second audit): attach-once guard required with resume.**
+Once queues survive disconnects, two live generators attached to the same run_id would
+*split* events between them (each `queue.get()` goes to one consumer). Add an
+`attached: set[str]` registry — a second concurrent SSE connect to the same run receives
+HTTP 409 / an error event instead of silently stealing half the progress updates.
+
 ### Files touched
 `engine/core/warm_cache.py` (manifest + counter), `engine/serving/server.py` (~5 lines),
 `ui/app.js` (+~25 lines), `ui/index.html` (+3 lines), `ui/style.css` (progress styling).
@@ -184,6 +190,20 @@ self.race_xgb = xgb.XGBRanker(..., tree_method="hist", device=hw["xgb_device"])
    distribution). No golden-value tests exist, so nothing breaks — but this must be stated
    wherever reproducibility is claimed (docstring), and `F1E_MC_WORKERS=serial` remains the
    bit-exact fallback for debugging.
+
+**⚠️ Amendments (second audit):**
+4. **Gate the juliacall import behind `USE_JULIA_ENGINE`.** Today lines 32–36 of
+   monte_carlo.py *import and include the engine unconditionally* even though dispatch is
+   gated. With multiprocessing spawn, EVERY worker process re-imports the module → each pays
+   Julia runtime startup (~seconds) when juliacall is installed (it's in requirements.txt).
+   Wrap the whole try-import in `if USE_JULIA_ENGINE:` — also removes dead work for everyone.
+5. **Windows spawn re-import invariant (verified safe, keep it that way):** spawned children
+   re-import the server entry module as `__mp_main__`, so the uvicorn boot under
+   `if __name__ == "__main__":` (server.py:648) will NOT start a second server. Acceptance
+   test must include running the full parallel pipeline from inside the live server once,
+   to lock this invariant against future refactors.
+6. **Worker import diet:** the MC worker function must not transitively import TF/predictor
+   (monte_carlo imports only config today — preserve that boundary; asserted in final gates).
 
 ### 3d. Concurrent pipeline prelude (thread pool sized by `io_workers`)
 Weather + price-scrape + standings fetch overlap; on a 2-core machine this degrades to
@@ -310,6 +330,11 @@ official `points`, incl. fastest-lap bonus). `get_season_results` already downlo
 Module-level `requests.Session()` with `HTTPAdapter(pool_maxsize=8)` for Jolpica/OpenF1 —
 removes a TCP+TLS handshake per call (~100–300 ms each on Windows). Same request count,
 noticeably faster wall-clock, gentler on the remote.
+**⚠️ Amendment (second audit):** `requests.Session` is not documented thread-safe; urllib3's
+connection pool *is*. Keep ONE session whose adapters own the pool and never mutate session
+state (headers set once at construction); alternatively use `threading.local()` sessions if
+any mutation is ever needed. Add a warm-up GET at first use so the TLS handshake isn't paid
+inside the throttle slot.
 
 #### 5d. Host-aware worker split
 Jolpica (rate-limited) and FastF1 (own generous limits, throttled at 3 s) currently share one
@@ -387,6 +412,20 @@ New derived value `rain_prob ∈ [0,1] = clamp(0.6·PoP_race + 0.25·(precip_mm>
 emitted in the weather payload; replaces the bucketed `rain_enc` in features, DNF modifier,
 and MC noise scaling (noise magnitude ∝ rain_prob instead of 3 tiers).
 
+**⚠️ Amendments (second audit):**
+- **Keep the legacy `rain_risk` bucket field in the payload.** The UI reads
+  `weather.rain_risk` directly (app.js:347, 356) for the HUD badge — removing/renaming it
+  breaks the display. rain_prob is *additive* to the payload; only the ML feature column is
+  replaced.
+- **Feature count invariant:** `rain_prob` must REPLACE the `rain_enc` feature column
+  (not append) — `sanity_check.py:9` asserts `N_FEATURES == 56`, and keeping that assertion
+  green is an intentional regression guard against accidental schema drift.
+- **Coordinated single retrain:** 5b (derived standings), 6c–6f (weather labels, temp,
+  rain_prob, LSTM align) and I3's device-key all alter training data or the cache key.
+  Bundle them into ONE `MODEL_SCHEMA_VERSION = "7"` bump at the end of the rollout —
+  otherwise users pay multiple ~4-min retrains. The plan's execution order is sequenced so
+  v7 lands exactly once, after all data-affecting steps are merged.
+
 #### 6f. LSTM rain-context alignment (W7)
 Pass the same `rain_prob`-derived encoding in the temporal context vector; requires schema
 bump → **MODEL_SCHEMA_VERSION v7**, one retrain (~3–4 min post-I3) plus deletion of stale
@@ -449,9 +488,14 @@ with the smallest blast radius.
 | M2 | Windows spawn pickling failures | Module-level worker fn; plain-dict payloads; tested via acceptance run on Windows |
 | M3 | Silent numeric drift breaks reproducibility assumptions | Documented statistical-equivalence + `F1E_MC_WORKERS=serial` bit-exact escape hatch |
 | T1 | Telemetry counters slow hot paths | Lock-free integer dict increments; zero-cost when telemetry unused |
+| H1 | juliacall imported (and Julia started) in every MC spawn worker despite engine being disabled | Import gated behind USE_JULIA_ENGINE (verified: currently unconditional at monte_carlo.py:32-36) |
+| H2 | Spawned child re-boots the uvicorn server on Windows `-m` launch | Verified safe: boot is under `if __name__ == "__main__"` and children re-import as `__mp_main__`; acceptance test locks this invariant |
+| W1b | Renaming/removing `rain_risk` payload field breaks UI HUD badge (app.js:347,356) | rain_prob is additive to payload; only the ML feature column changes |
+| S1 | sanity_check `N_FEATURES == 56` assertion trips after weather rework | rain_prob REPLACES rain_enc column — count stays 56 by design; assertion kept as drift guard |
+| R2 | Multiple data-affecting steps each forcing separate ~4-min retrains | All bundled into ONE schema v7 bump at rollout end (5b + 6c-6f + I3 device key) |
 
 **Invariants preserved:** model-cache schema semantics (device now part of key); deterministic
-backtest results (backtest MC path unaffected — backtester doesn't call Monte Carlo);
-`F1 Fantasy.bat` / CLI entry contracts unchanged; no DB/migrations; all UI additions additive.
+backtest results (backtester doesn't call Monte Carlo); `F1 Fantasy.bat` / CLI entry contracts unchanged; no DB/migrations; all UI additions additive;
+weather payload remains backward-compatible (`rain_risk` buckets retained alongside rain_prob).
 **One intentional behavior change, flagged:** pipeline default sims 1000 → 2500 *after* parallel
 MC lands (net-faster than today's serial 1000).
