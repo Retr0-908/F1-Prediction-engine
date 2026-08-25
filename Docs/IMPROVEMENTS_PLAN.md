@@ -93,14 +93,53 @@ the merged set (23). Misleading.
 ### Fix
 After roster merge:
 ```python
-merged_n   = len(dynamic_roster)
-scraped_n  = len(driver_prices)
-gap_note   = f" ({merged_n - scraped_n} backfilled from standings)" if merged_n > scraped_n else ""
+merged_n = len(field)          # post-phantom-exclusion field from I7b
+scraped_n = len(driver_prices)
+gap_note  = f" ({merged_n - scraped_n} backfilled)" if merged_n > scraped_n else ""
 progress_callback(run_id, "PRICES", "done",
                   f"Prices for {scraped_n} drivers · predicting field of {merged_n}{gap_note}")
 ```
-Also emit the merged names list in `data={"field": sorted(dynamic_roster)}` so the UI log can
-expand it. No model changes.
+Also emit the merged names list in `data={"field": sorted(field)}` so the UI log can
+expand it. No model changes. *(Field size must be the I7b-validated value, not the raw
+union — the earlier "23" illustration predates the phantom-driver fix.)*
+
+---
+
+## ✅ Regression Test Suite — IMPLEMENTED (`engine/tools/tests/test_contracts.py`)
+
+I8e is now partially landed ahead of schedule: a 41-test stdlib-unittest suite guards the
+codebase's core contracts, network-free, runs in ~2 s:
+
+```
+python -m unittest engine.tools.tests.test_contracts -v
+```
+
+| Group | Locks |
+|---|---|
+| Result classification | finished / lapped (+1..+49 laps) / DSQ / withdrawal table |
+| Parse-position | numeric verbatim; non-numeric → per-race order index |
+| Season-results integrity | unique driver/round; contiguous positions 1..N; DNFs never carry top-10 positions |
+| Name normalization | Antonelli / Zhou / de Vries aliases |
+| Circuit matching | full calendar + historical circuits (Portugal/France/Russia/Turkey/Styrian→austria) |
+| Sprint calendar | verified fallback tables; schedule-field precedence |
+| Chip state | deepcopy isolation; clean reset |
+| Bayesian | zeros ≠ DNFs without flags; explicit-flag path sane |
+| Elo | roster-scoped pool bounds rank; DNF-vs-DNF pairs skipped (ratings stable) |
+| Monte Carlo | seeded reproducibility; empty-stats guard; all-DNF corner crash guard |
+| Scoring rules | pole=Q3+pole; P10=Q3-only; P11=Q2-only; FL ineligible >P10; total==Σbreakdown |
+| Structural (AST/source) | feature widths 56==56; schema-version key; backtest field-ranks; juliacall gated; watchdog job-guard; pipeline price-recording |
+| Planned-fix probes | 7 × `expectedFailure` pins for 7a/7b/8b/9-C3/9-H4/9-M14 |
+
+**Protocol:** probes fail today *by design*; when a fix lands its probe turns green
+("unexpected success") → remove the decorator in the same commit.
+
+**Third-audit live discovery:** the integrity tests immediately detected REAL corruption in
+cached data — non-contiguous positions in **2025 R11/R16/R21** and **2026 R5/R10**, including
+six 2026 R5 DNFs carrying fabricated P5–P10 classifications (Perez, Norris, Russell, Alonso,
+Albon, Lindblad). This is 9-C1 confirmed against production caches. Remediation therefore
+REQUIRES: land 9-C1 → purge `cache/api/*results*.json` AND `*qualifying*.json` → re-warm →
+flip the skipped/expected-failure probes on. The corrupted rounds list above doubles as the
+verification checklist.
 
 ---
 
@@ -706,7 +745,7 @@ after 7a + 8a/8d + 5b + 6c–6f are all merged (single retrain).
 | X2b | Fabricated $5M/$8M prices silently entering budget/LP math; substring fuzzy match resolving wrong player | Match failure = exclude-with-log; full-token matching; ambiguity rejection; estimate tagging (8b) |
 | X3b | 47 silent `except: pass/continue` sites masking failures (the pattern that hid root cause A) | Repo-wide sweep to logged warnings; acceptance grep enforces zero (8c) |
 | X4b | Meta rank inputs shift with field size (20 historical vs 22-23 live) | Normalized ranks rank/(N+1) in train+inference+backtest via shared helper (8d) |
-| E1 | Incident-class regressions recur unnoticed | Golden contract tests: micro e2e, meta-representation equality, price honesty, payload keys (8e) |
+| E1 | Incident-class regressions recur unnoticed | **IMPLEMENTED**: 41-test contract suite (`engine/tools/tests/test_contracts.py`, unittest, 2 s, network-free) — already detected live 9-C1 corruption in cached data; remaining golden tests (micro e2e, meta-representation equality) land with their fixes as expectedFailure probes |
 | P1b | 2026 22-car grids never page-align (100 % 5×20) → DNF positions corrupt for every boundary race of the CURRENT season | Per-round pagination or cross-page running counter + dedupe (9-C1) — verified live against API |
 | P2b | Cross-season prediction files validated against wrong season; accuracy log + bias loop poisoned | Explicit season saved at report time; season threaded through validators (9-C2) |
 | P3b | R16 Sepang gets Sakhir config + desert weather forecast; calendar rounds drift | Exact-name entry + renumbering (9-C3) |
