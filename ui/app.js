@@ -2975,11 +2975,47 @@ async function rebuildCache() {
         }
         
         const runId = result.run_id;
+        
+        // Plan I1: live download progress bar (injected once, reused)
+        let bar = document.getElementById('cache-progress-bar');
+        let barText = document.getElementById('cache-progress-text');
+        if (!bar) {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'margin-top:8px;display:flex;align-items:center;gap:10px;';
+            bar = document.createElement('progress');
+            bar.id = 'cache-progress-bar';
+            bar.max = 100; bar.value = 0;
+            bar.style.cssText = 'flex:1;height:10px;';
+            barText = document.createElement('span');
+            barText.id = 'cache-progress-text';
+            barText.style.cssText = 'font-size:12px;color:var(--text-secondary);white-space:nowrap;';
+            wrap.appendChild(bar); wrap.appendChild(barText);
+            statusSpan.parentElement.appendChild(wrap);
+        }
+        bar.value = 0;
+        progressDiv.classList.remove('hidden');
+        
         const evtSource = new EventSource(`/api/run/stream/${runId}`);
         
         evtSource.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            
+            // Plan I1: dict progress payloads from the manifest warmer
+            if (data.stage === 'DOWNLOADING' && data.data && data.data.total) {
+                const d = data.data;
+                const pct = Math.round(100 * d.done / Math.max(1, d.total));
+                bar.value = pct;
+                const failTxt = d.failed > 0 ? ` · ⚠ ${d.failed} failed` : '';
+                const etaTxt = d.eta_min != null ? ` · ETA ${Math.round(d.eta_min)}m` : '';
+                barText.innerText = `${d.done} / ${d.total}${failTxt}${etaTxt}`;
+                if (d.phase === 'fastf1_sessions') {
+                    barText.innerText += ' · telemetry sessions';
+                }
+            }
+            
             if (data.stage === 'COMPLETE') {
+                bar.value = 100;
+                barText.innerText = 'Complete ✓';
                 statusSpan.innerText = 'Rebuild complete!';
                 evtSource.close();
                 setTimeout(() => {

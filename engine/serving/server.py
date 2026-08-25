@@ -279,9 +279,17 @@ async def rebuild_cache():
             clear_cache("fastf1")
             clear_cache("elo")
 
-            from engine.core.warm_cache import warm_cache
-            def cache_progress(year, round_num, msg):
-                sync_progress_callback(run_id, "DOWNLOADING", "loading", msg)
+            from engine.core.warm_cache             import engine.core.warm_cache as warm_cache
+            def cache_progress(payload):
+                # Plan I1: dict progress contract {done,total,current,...}
+                if isinstance(payload, dict):
+                    sync_progress_callback(
+                        run_id, "DOWNLOADING", "loading",
+                        payload.get("current", ""),
+                        data=payload,
+                    )
+                else:
+                    sync_progress_callback(run_id, "DOWNLOADING", "loading", str(payload))
             warm_cache.verify_and_download_caches(progress_callback=cache_progress)
             # Client-visible terminal event (app.js reloads on COMPLETE)
             sync_progress_callback(run_id, "COMPLETE", "done", "Cache rebuild complete")

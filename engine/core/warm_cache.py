@@ -1,6 +1,8 @@
-import time
 import datetime
 import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from engine.core.config import HISTORICAL_SEASONS, CURRENT_SEASON
 from engine.core.data_fetcher import (
@@ -11,134 +13,174 @@ from engine.core.data_fetcher import (
     get_constructor_standings,
     get_grid_penalties,
     get_season_results,
-    get_fastf1_session
+    get_fastf1_session,
 )
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger("f1_predictor.warm_cache")
 
 
-def _warm_single_race(year: int, round_num: int, race: dict):
-    """Download single race session data. Returns (ok, message)."""
-    race_name = race.get("name", f"Round {round_num}")   # schedule key is "name"
+# ─────────────────────────────────────────────
+# PROGRESS STATE (plan I1)
+# ─────────────────────────────────────────────
+class ProgressState:
+    """Thread-safe done/total counter emitting the dict payload contract."""
 
-    # Skip future races
-    race_date_str = race.get("date")
-    try:
-        race_date = datetime.datetime.strptime(race_date_str, "%Y-%m-%d").date()
-        if race_date > datetime.date.today():
-            return True, f"[{year} R{round_num}] Skipped future race: {race_name}"
-    except Exception:
-        logger.warning("Suppressed error", exc_info=True)
-        pass
+    def __init__(self, total: int):
+        self.total = total
+        self.done = 0
+        self.failed = 0
+        self.current = ""
+        self.phase = "downloading"
+        self._lock = threading.Lock()
+        self._t0 = time.time()
+        self._last_done = 0
+        self._last_t = self._t0
 
-    failures = []
+    def advance(self, ok: bool, current: str):
+        with self._lock:
+            self.done += 1
+            if not ok:
+                self.failed += 1
+            self.current = current
 
-    # 1. Jolpica core endpoints (race, qualifying, standings)
-    try:
-        get_race_results(year, round_num)
-        get_qualifying_results(year, round_num)
-        get_driver_standings(year, round_num)
-        get_constructor_standings(year, round_num)
-    except Exception as e:
-        failures.append(f"jolpica: {e}")
+    def snapshot(self) -> dict:
+        with self._lock:
+            elapsed = max(0.001, time.time() - self._t0)
+            rate = self.done / elapsed * 60.0
+            remaining = max(0, self.total - self.done)
+            eta = (remaining / rate) if rate > 0.5 else None
+            return {
+                "done": self.done,
+                "total": self.total,
+                "failed": self.failed,
+                "current": self.current,
+                "phase": self.phase,
+                "rate_per_min": round(rate, 1),
+                "eta_min": round(eta, 1) if eta else None,
+            }
 
-    # 2. Grid penalties (Jolpica-derived quali-vs-grid deltas)
-    if year >= 2023:
+
+def _build_manifest(seasons: list[int]) -> list[tuple]:
+    """[(year, round, name, [endpoints...])] for every completed race.
+    Plan I1 amendment: EVERY unit counts as work — cached hits complete in
+    milliseconds, so totals stay truthful without fragile cache probing."""
+    units = []
+    today = datetime.date.today()
+    for year in seasons:
         try:
-            get_grid_penalties(year, round_num)
+            sched = get_season_schedule(year)
         except Exception as e:
-            failures.append(f"grid_penalties: {e}")
-
-    # 3. FastF1 Telemetry Session Data
-    try:
-        get_fastf1_session(year, round_num, "R")
-        get_fastf1_session(year, round_num, "Q")
-    except Exception as e:
-        failures.append(f"fastf1: {e}")
-
-    if failures:
-        for f in failures:
-            logger.warning("[%s R%s] %s cache failure: %s", year, round_num, race_name, f)
-        return False, f"[{year} R{round_num}] Partial: {race_name} ({len(failures)} source(s) failed)"
-    return True, f"[{year} R{round_num}] Cached: {race_name}"
-
-
-def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
-    print("==================================================")
-    print("  F1 FANTASY HIGH-SPEED BULK CACHE WARMER         ")
-    print("==================================================")
-    print("Checking historical seasons to ensure all API data is locally cached.")
-    print("Using bulk season endpoints and parallel thread pool for max speed.\n")
-
-    # Plan 9-LOW: dedupe seasons (CURRENT_SEASON already in HISTORICAL_SEASONS)
-    seasons_to_check = sorted(set(HISTORICAL_SEASONS) | {CURRENT_SEASON})
-    total_races_cached = 0
-    failed_races = 0
-
-    for year in seasons_to_check:
-        print(f"\n[SEASON {year}] Ingesting bulk season data...")
-        if progress_callback:
-            progress_callback(year, "schedule", f"Bulk fetching {year}")
-
-        try:
-            # Method A: Bulk 1-shot season fetch (downloads full season in ~1 second)
-            schedule = get_season_schedule(year)
-            get_season_results(year)
-        except Exception as e:
-            print(f"  [Error] Bulk fetch failed for {year}: {e}")
+            logger.warning("Manifest: schedule unavailable for %s: %s", year, e)
             continue
-
-        if not schedule:
-            print(f"  [Warning] No schedule found for {year}.")
-            continue
-
-        print(f"  Schedule loaded: {len(schedule)} rounds found. Concurrent session warming...")
-
-        # Filter completed races
-        completed_races = []
-        for race in schedule:
+        for race in sched:
             r_num = race.get("round")
             if not r_num:
                 continue
-            race_date_str = race.get("date")
             try:
-                race_date = datetime.datetime.strptime(race_date_str, "%Y-%m-%d").date()
-                if race_date <= datetime.date.today():
-                    completed_races.append((r_num, race))
+                if datetime.datetime.strptime(race["date"], "%Y-%m-%d").date() > today:
+                    continue
             except Exception:
-                completed_races.append((r_num, race))
+                pass
+            eps = ["jolpica_results", "jolpica_quali",
+                   "jolpica_drv_standings", "jolpica_ctor_standings"]
+            if year >= 2023:
+                eps.append("grid_penalties")
+            eps += ["fastf1_R", "fastf1_Q"]
+            units.append((year, r_num, race.get("name", f"R{r_num}"), eps))
+    return units
 
-        # Method B: Concurrent multi-threaded session warming
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(_warm_single_race, year, r_num, race): (r_num, race)
-                for r_num, race in completed_races
-            }
-            for future in as_completed(futures):
-                r_num, race = futures[future]
-                try:
-                    ok, msg = future.result()
-                    print(f"  {msg}")
-                    if ok:
-                        total_races_cached += 1
-                    else:
-                        failed_races += 1
-                except Exception as exc:
-                    failed_races += 1
-                    logger.error("[%s R%s] warm task crashed: %s", year, r_num, exc)
 
-    summary = (f"CACHE WARMING COMPLETE: {total_races_cached} races fully cached"
-               + (f", {failed_races} with partial failures (see warnings)" if failed_races else ""))
+def _run_unit(year: int, round_num: int, name: str, ep: str) -> tuple[bool, str]:
+    """Execute ONE manifest endpoint. Returns (ok, label)."""
+    label = f"{year} R{round_num} · {ep}"
+    try:
+        if ep == "jolpica_results":
+            get_race_results(year, round_num)
+        elif ep == "jolpica_quali":
+            get_qualifying_results(year, round_num)
+        elif ep == "jolpica_drv_standings":
+            get_driver_standings(year, round_num)
+        elif ep == "jolpica_ctor_standings":
+            get_constructor_standings(year, round_num)
+        elif ep == "grid_penalties":
+            get_grid_penalties(year, round_num)
+        elif ep == "fastf1_R":
+            get_fastf1_session(year, name, "R")
+        elif ep == "fastf1_Q":
+            get_fastf1_session(year, name, "Q")
+        else:
+            return True, label
+        return True, label
+    except Exception as e:
+        logger.warning("[%s R%s] %s failed: %s", year, round_num, ep, e)
+        return False, label
+
+
+def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
+    """Bulk cache warmer with manifest-based progress (plan I1).
+
+    progress_callback receives DICT payloads:
+      {done, total, failed, current, phase, rate_per_min, eta_min}
+    """
+    print("==================================================")
+    print("  F1 FANTASY HIGH-SPEED BULK CACHE WARMER         ")
+    print("==================================================")
+    seasons = sorted(set(HISTORICAL_SEASONS) | {CURRENT_SEASON})
+    logger.info("Building work manifest for %d seasons...", seasons)
+    units = _build_manifest(seasons)
+    total_units = len(units)
+    print(f"Manifest: {total_units} download units across {len(seasons)} seasons.\n")
+
+    state = ProgressState(total_units)
+
+    def emit():
+        if progress_callback:
+            try:
+                progress_callback(state.snapshot())
+            except Exception as e:
+                logger.warning("progress callback error: %s", e)
+
+    # Host-aware split (plan 5d): Jolpica endpoints are rate-limited and
+    # paced; FastF1 has its own throttle and bigger payloads. Two pools so
+    # neither serializes behind the other.
+    jolpica_units = [(y, r, n, ep) for y, r, n, eps in units for ep in eps
+                     if not ep.startswith("fastf1")]
+    fastf1_units = [(y, r, n, ep) for y, r, n, eps in units for ep in eps
+                    if ep.startswith("fastf1")]
+
+    failures = []
+
+    def run_pool(pool_units, workers, pool_name):
+        if not pool_units:
+            return
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_run_unit, *u): u for u in pool_units}
+            for fut in as_completed(futs):
+                y, r, n, ep = futures[fut]
+                ok, label = fut.result()
+                state.advance(ok, label)
+                if not ok:
+                    failures.append(label)
+                emit()
+
+    run_pool(jolpica_units, max_workers, "jolpica")
+    state.phase = "fastf1_sessions"
+    run_pool(fastf1_units, max(2, max_workers), "fastf1")
+
+    state.phase = "complete"
+
+    summary = (f"CACHE WARMING COMPLETE: {state.done}/{state.total} units "
+               f"({state.failed} failed)")
     print("\n==================================================")
     print(summary)
-    print("All ML models, ELO ratings, and FastF1 sessions are locally available.")
     print("==================================================")
 
     if progress_callback:
-        progress_callback("DONE", "DONE", summary)
+        snap = state.snapshot()
+        snap["phase"] = "complete"
+        progress_callback(snap)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     verify_and_download_caches()
