@@ -93,6 +93,7 @@ SC_PROBABILITY = {
     "france":       0.25,   # Paul Ricard — huge run-offs
     "russia":       0.45,   # Sochi — long walls near Turn 2-3
     "turkey":       0.40,   # Istanbul Park — Turn 1 multi-car risk
+    "malaysia":     0.50,   # Sepang — monsoon downpours, evening storms
 }
 
 VSC_PROBABILITY = {
@@ -125,6 +126,7 @@ VSC_PROBABILITY = {
     "france":       0.20,
     "russia":       0.30,
     "turkey":       0.30,
+    "malaysia":     0.40,
 }
 
 # ─────────────────────────────────────────────
@@ -276,47 +278,56 @@ CIRCUITS = {
         "track_type": "street", "overtaking": "high",
         "power_unit": "high", "downforce": "low", "round": 15,
     },
+    # Plan 9-C3: the live 2026 calendar inserts a Sepang round under the
+    # Jolpica name "Bahrain Grand Prix in Malaysia" — the exact-name entry
+    # below wins over any substring match against Sakhir. R17+ shifted +1.
+    "Bahrain Grand Prix in Malaysia": {
+        "key": "malaysia", "city": "Kuala Lumpur", "country": "MY",
+        "lat": 2.7608, "lon": 101.7381,
+        "track_type": "permanent", "overtaking": "high",
+        "power_unit": "high", "downforce": "medium", "round": 16,
+    },
     "Singapore Grand Prix": {
         "key": "singapore", "city": "Singapore", "country": "SG",
         "lat": 1.2914, "lon": 103.8640,
         "track_type": "street", "overtaking": "very_low",
-        "power_unit": "low", "downforce": "very_high", "round": 16,
+        "power_unit": "low", "downforce": "very_high", "round": 17,
     },
     "United States Grand Prix": {
         "key": "usa", "city": "Austin", "country": "US",
         "lat": 30.1328, "lon": -97.6411,
         "track_type": "permanent", "overtaking": "medium",
-        "power_unit": "medium", "downforce": "medium", "round": 17,
+        "power_unit": "medium", "downforce": "medium", "round": 18,
     },
     "Mexico City Grand Prix": {
         "key": "mexico", "city": "Mexico City", "country": "MX",
         "lat": 19.4042, "lon": -99.0907,
         "track_type": "permanent", "overtaking": "medium",
-        "power_unit": "high", "downforce": "low", "round": 18,
+        "power_unit": "high", "downforce": "low", "round": 19,
     },
     "Brazilian Grand Prix": {
         "key": "brazil", "city": "São Paulo", "country": "BR",
         "lat": -23.7036, "lon": -46.6997,
         "track_type": "permanent", "overtaking": "high",
-        "power_unit": "medium", "downforce": "medium", "round": 19,
+        "power_unit": "medium", "downforce": "medium", "round": 20,
     },
     "Las Vegas Grand Prix": {
         "key": "las_vegas", "city": "Las Vegas", "country": "US",
         "lat": 36.1699, "lon": -115.1398,
         "track_type": "street", "overtaking": "high",
-        "power_unit": "very_high", "downforce": "very_low", "round": 20,
+        "power_unit": "very_high", "downforce": "very_low", "round": 21,
     },
     "Qatar Grand Prix": {
         "key": "qatar", "city": "Lusail", "country": "QA",
         "lat": 25.4700, "lon": 51.4538,
         "track_type": "permanent", "overtaking": "medium",
-        "power_unit": "medium", "downforce": "medium", "round": 21,
+        "power_unit": "medium", "downforce": "medium", "round": 22,
     },
     "Abu Dhabi Grand Prix": {
         "key": "abu_dhabi", "city": "Abu Dhabi", "country": "AE",
         "lat": 24.4672, "lon": 54.6031,
         "track_type": "permanent", "overtaking": "low",
-        "power_unit": "medium", "downforce": "medium", "round": 22,
+        "power_unit": "medium", "downforce": "medium", "round": 23,
     },
     "Bahrain Grand Prix": {
         "key": "bahrain", "city": "Sakhir", "country": "BH",
@@ -391,14 +402,15 @@ SPRINT_ROUNDS = frozenset([
 # 2026 DRIVER REGISTRY (11 teams, 22 drivers)
 # ─────────────────────────────────────────────
 DRIVER_TEAMS_2026 = {
-    # Synced with Jolpica standings-derived lineup (get_season_roster(2026)).
-    # NOTE: API shows Lawson at Red Bull and Hadjar/Tsunoda/Lindblad at
-    # Racing Bulls — trust the dynamic detection over announcements.
+    # CURATED 22-seat seed (exactly 2 per team). The live pipeline's field
+    # authority is the fantasy entry list; standings-only extras (e.g. a
+    # driver who lost a seat mid-season but remains in season standings)
+    # are EXCLUDED as phantoms per plan I7b. Do NOT bulk-sync this table
+    # from the API — edit seats deliberately.
     "Max Verstappen":    "Red Bull",
     "Liam Lawson":       "Red Bull",
     "Isack Hadjar":      "Racing Bulls",
     "Arvid Lindblad":    "Racing Bulls",
-    "Yuki Tsunoda":      "Racing Bulls",
     "Lando Norris":      "McLaren",
     "Oscar Piastri":     "McLaren",
     "Charles Leclerc":   "Ferrari",

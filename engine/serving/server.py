@@ -255,8 +255,18 @@ def clear_cache(cache_type: str):
 
 @app.post("/api/cache/rebuild")
 async def rebuild_cache():
-    # Trigger background thread — heavy rmtree clearing runs OFF the event loop
-    run_id = "cache_rebuild"
+    # Plan 9-H2: mutual exclusion — a rebuild while the pipeline is running
+    # deletes cache dirs out from under it (mixed-vintage features, 429 storms).
+    global _rebuild_running
+    if _pipeline_running:
+        return {"status": "error",
+                "message": "Cannot rebuild caches while an analysis is running."}
+    if _rebuild_running:
+        return {"status": "error", "message": "A cache rebuild is already running."}
+    _rebuild_running = True
+    # Trigger background thread — heavy rmtree clearing runs OFF the event loop.
+    # Unique run_id: a second click must not orphan the first stream's queue.
+    run_id = f"cache_rebuild_{uuid.uuid4().hex[:8]}"
     run_queues[run_id] = asyncio.Queue()
     _job_begin()
     
@@ -276,6 +286,7 @@ async def rebuild_cache():
         except Exception as e:
             sync_progress_callback(run_id, "ERROR", "error", str(e))
         finally:
+            globals()["_rebuild_running"] = False
             _job_end()
             sync_progress_callback(run_id, "_TERMINATE", "done", "")
 
@@ -367,6 +378,7 @@ _last_heartbeat: float = 0.0
 _heartbeat_received: bool = False
 _HEARTBEAT_TIMEOUT: int  = 20  # seconds — 4 missed beats before exit
 _pipeline_running: bool  = False  # block duplicate /api/run while ML is in flight
+_rebuild_running: bool   = False  # plan 9-H2: block rebuild↔run mutual exclusion
 
 # Job-aware shutdown guard: EVERY long-running background job (pipeline,
 # cache rebuild, post-race check) registers here for its lifetime so a
@@ -467,7 +479,11 @@ async def trigger_run(request: Request):
     global _pipeline_running
     if _pipeline_running:
         return {"status": "error", "message": "A pipeline is already currently running"}
-        
+    # Plan 9-H2: block runs during cache rebuilds (dirs deleted underneath)
+    if _rebuild_running:
+        return {"status": "error",
+                "message": "A cache rebuild is running — start the analysis after it completes."}
+
     data = await request.json()
     run_id = str(uuid.uuid4())
     run_queues[run_id] = asyncio.Queue()

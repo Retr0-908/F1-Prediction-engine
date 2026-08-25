@@ -99,30 +99,21 @@ class SeasonResultsIntegrityTests(unittest.TestCase):
 
     def test_positions_contiguous_1_to_N_per_round(self):
         # Catches page-split enumerate resets: duplicated/skipped positions.
-        # ⚠️ KNOWN FAILING until Plan 9-C1 lands: cached seasons contain
-        # boundary-corrupted rounds (verified: 2025 R11/R16/R21, 2026 R5/R10).
-        # After the fix: purge cache/api/*results*.json + *qualifying*.json,
-        # re-warm, then REMOVE this decorator.
+        # Plan 9-C1 fixed + caches re-warmed 2026-08-25: all seasons verified
+        # contiguous (2542 rows).
         bad = []
         for year in self.by_season:
             for rnd, rows in self._rounds(year).items():
                 poss = sorted(r["position"] for r in rows)
                 if poss != list(range(1, len(rows) + 1)):
                     bad.append(f"{year} R{rnd}")
-        raise unittest.SkipTest(
-            f"KNOWN 9-C1 corruption present in cached data: {bad}. "
-            "Fix pagination, purge result caches, re-warm, then enable."
-        )
+        self.assertEqual(bad, [], f"non-contiguous positions: {bad}")
 
-    @unittest.expectedFailure  # Plan 9-C1 (see skip above)
-    def _positions_contiguous_placeholder_enabled_after_fix(self):
-        self.assertTrue(True)
-
-    @unittest.expectedFailure  # Plan 9-C1 (see contiguity skip note above)
     def test_current_season_boundary_race_not_corrupted(self):
         # The specific 9-C1 live failure: a race whose rows straddle a
         # 100-row page boundary must still classify DNFs with realistic
-        # positions (> 12), never 1..10 fallback indices.
+        # positions (> 12), never 1..10 fallback indices. Was failing with
+        # six fabricated P5-P10 DNFs in 2026 R5; passes after fix + purge.
         # ⚠️ VERIFIED FAILING TODAY: 2026 R5 has six DNFs at P5–P10
         # (Perez, Norris, Russell, Alonso, Albon, Lindblad) — fabricated
         # classifications in cached data. Enable after 9-C1 + cache purge.
@@ -179,8 +170,8 @@ class CircuitMatcherTests(unittest.TestCase):
                           ("Turkish Grand Prix", "turkey")]:
             self.assertEqual(m(name).get("key"), key)
 
-    @unittest.expectedFailure  # Plan 9-C3: Sepang entry missing; Sakhir wrongly matched
     def test_bahrain_in_malaysia_resolves_to_sepang(self):
+        # Plan 9-C3 regression guard: Sepang must not resolve to Sakhir
         from engine.models.predictor import _match_circuit_cfg as m
         cfg = m("Bahrain Grand Prix in Malaysia")
         self.assertNotEqual(cfg.get("key"), "bahrain")
@@ -195,7 +186,6 @@ class CircuitMatcherTests(unittest.TestCase):
 class DataFetcherCircuitMatcherTests(unittest.TestCase):
     """The OTHER matcher (used by get_race_by_round/pipeline)."""
 
-    @unittest.expectedFailure  # Plan 9-H4: no São Paulo alias/city fallback here yet
     def test_sao_paulo_matches_brazil(self):
         from engine.core.data_fetcher import _match_circuit_config as m
         cfg = m("São Paulo Grand Prix")
@@ -408,10 +398,12 @@ class StructuralInvariantTests(unittest.TestCase):
     def test_model_cache_key_embeds_schema_version_and_device_ready(self):
         self.assertIn('MODEL_SCHEMA_VERSION = "', PRED_SRC)
 
-    def test_backtest_uses_field_rank_conversion(self):
+    def test_backtest_uses_shared_field_rank_helper(self):
         bt = (ROOT / "engine" / "analysis" / "backtest.py").read_text(encoding="utf-8")
-        self.assertIn("argsort(np.argsort", bt,
-                      "backtest must convert ranker margins via field ranks")
+        self.assertIn("from engine.models.predictor import",
+                      bt) and self.assertIn("to_rank", bt,
+                      "backtest must convert ranker margins via the shared to_rank helper")
+        self.assertIn("_field_ranks = to_rank", bt)
 
     def test_julia_engine_gated_off_by_default(self):
         mc = (ROOT / "engine" / "models" / "monte_carlo.py").read_text(encoding="utf-8")
@@ -425,7 +417,8 @@ class StructuralInvariantTests(unittest.TestCase):
     def test_pipeline_records_prices_after_merge(self):
         pl = (ROOT / "engine" / "serving" / "pipeline.py").read_text(encoding="utf-8")
         self.assertIn("price_tracker.record_prices", pl)
-        self.assertIn("merged from standings", pl)
+        self.assertIn("backfilled/validated", pl)   # 9-H1 merge logging
+        self.assertIn("FIELD_VALIDATION", pl)       # 7b integrity event
 
 
 class PlannedFixProbes(unittest.TestCase):
@@ -433,7 +426,6 @@ class PlannedFixProbes(unittest.TestCase):
     moment each planned fix lands. Remove the decorator in the same commit as
     the fix once the probe turns green ('unexpected success')."""
 
-    @unittest.expectedFailure  # Plan 7a: shared module-level to_rank + meta usage
     def test_meta_learner_uses_shared_rank_helper(self):
         self.assertIn("def to_rank", PRED_SRC, "to_rank must be hoisted module-level")
         i = PRED_SRC.find("def _train_meta_learner")
@@ -441,7 +433,6 @@ class PlannedFixProbes(unittest.TestCase):
         self.assertIn("to_rank(", seg,
                       "_train_meta_learner must convert OOF preds via to_rank")
 
-    @unittest.expectedFailure  # Plan 7b: curated 22-seat seed restored
     def test_config_seed_is_exactly_22_drivers(self):
         from engine.core.config import DRIVER_TEAMS_2026
         self.assertEqual(len(DRIVER_TEAMS_2026), 22)

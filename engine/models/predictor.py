@@ -201,7 +201,11 @@ N_FEATURES = len(FEATURE_NAMES)
 # Bump on ANY change to feature construction, target construction, or model
 # hyperparameters. Embedded in the disk-cache key so stale models are never
 # silently loaded after a schema change.
-MODEL_SCHEMA_VERSION = "6"   # v6: historical circuits (Portugal/France/Russia/Turkey/Styrian) now resolve
+MODEL_SCHEMA_VERSION = "6"   # v7 bump lands at end of rollout (see plan)
+
+# Monotonic label ceiling for ranker targets (higher = better). Larger than
+# any possible field position; only ORDER matters for lambdarank/ndcg.
+FIELD_LABEL_CEILING = 25.0
 
 WEATHER_ENC  = {"dry": 0, "overcast": 1, "mixed": 2, "wet": 3, "unknown": 1}
 RAIN_RISK_ENC = {"low": 0, "medium": 1, "high": 2, "unknown": 1}
@@ -233,6 +237,20 @@ def _clamp(val, lo=0, hi=20):
 # ─────────────────────────────────────────────
 # MAIN PREDICTOR CLASS
 # ─────────────────────────────────────────────
+def to_rank(scores: np.ndarray, normalize: bool = True) -> np.ndarray:
+    """Raw scores → per-field rank (1 = best), shared by inference, backtest,
+    AND meta-learner training so all three use an identical representation.
+
+    Normalized mode emits rank/(N+1) ∈ (0,1) — field-size invariant, so a
+    meta-learner trained on ~20-driver historical fields transfers cleanly
+    to 22–23-driver live fields (plan 8d).
+    """
+    ranks = np.argsort(np.argsort(-np.asarray(scores, dtype=float))).astype(float) + 1.0
+    if normalize:
+        ranks = ranks / (len(ranks) + 1.0)
+    return ranks
+
+
 class F1Predictor:
     """
     4-model ensemble predictor for F1 race and qualifying position.
@@ -654,18 +672,18 @@ class F1Predictor:
             try:
                 if self._temporal_model is None:
                     self._temporal_model = _get_temporal_model(verbose=False)
-                # Build the real race-day context vector. The model was trained
-                # with a VARYING grid position — freezing it at the training
-                # median (11.0) would discard the strongest context signal.
-                _rain_risk = str(weather.get("rain_risk", "low")).lower()
-                _rain_enc = 1.0 if _rain_risk in ("medium", "high") else 0.0
-                _sc_p = SC_PROBABILITY.get(circuit_key, 0.40)
-                _elo_vals = list(ctor_elo.values()) if ctor_elo else []
-                _elo_mean = float(np.mean(_elo_vals)) if _elo_vals else ELO_BASE
-                _elo_std = float(np.std(_elo_vals)) if len(_elo_vals) > 1 else 1.0
-                _ctor_z = (c_elo - _elo_mean) / (_elo_std or 1.0)
+                # Build the race-day context vector. PARITY RULE (plan 9-H3):
+                # every context feature must vary in TRAINING exactly as it
+                # varies here. grid_pos and sc_prob vary in training; rain_enc
+                # and ctor_elo_z are training-time CONSTANTS, so they are pinned
+                # to those constants here — feeding real values into never-
+                # trained axes shifts momentum output arbitrarily. Unpin via
+                # plan 6c/6f (archive labels + Elo replay) in the v7 retrain.
+                _rain_enc = 0.0    # == build_training_dataset constant
+                _ctor_z = 0.0      # == build_training_dataset constant
                 ctx_vec = np.array(
-                    [quali_pos_val, 35.0, _rain_enc, _sc_p, _ctor_z],
+                    [quali_pos_val, 35.0, _rain_enc,
+                     SC_PROBABILITY.get(circuit_key, 0.40), _ctor_z],
                     dtype=np.float32,
                 )
                 lstm_momentum_pos = self._temporal_model.predict_driver_momentum(
@@ -1072,7 +1090,7 @@ class F1Predictor:
             self.race_rf.fit(Xr, yr)
             
             # Rankers optimize for higher values, so invert the target
-            yr_inv = 25.0 - yr
+            yr_inv = FIELD_LABEL_CEILING - yr
             
             if progress_callback:
                 progress_callback("Fitting XGBoost race model...")
@@ -1174,10 +1192,7 @@ class F1Predictor:
             s_xgb = np.asarray(mdl_xgb.predict(fs), dtype=float)
             s_lgb = np.asarray(mdl_lgb.predict(fs), dtype=float)
 
-        def to_rank(scores: np.ndarray) -> np.ndarray:
-            """Raw scores → expected rank within this field (1 = best)."""
-            return np.argsort(np.argsort(-scores)).astype(float) + 1.0
-
+        # Shared helper — SAME representation the meta-learner trains on (7a/8d)
         r_rf, r_xgb, r_lgb = to_rank(s_rf), to_rank(s_xgb), to_rank(s_lgb)
 
         results: dict[str, tuple[float, float]] = {}
@@ -1507,6 +1522,11 @@ class F1Predictor:
 
         race_pos  = race_entry["predicted_rank"]
         grid_pos  = quali_entry["predicted_grid"]
+        # Plan 7c: positions beyond the field are always a data-integrity bug
+        if not (1 <= race_pos <= 22) or not (1 <= grid_pos <= 22):
+            raise ValueError(
+                f"Fantasy-points integrity failure for {driver_name}: "
+                f"race_pos={race_pos}, grid_pos={grid_pos}")
         # Qualifying CLASSIFICATION (pre-penalty) drives quali bonus points in
         # F1 Fantasy; the effective grid (post-penalty) only matters for the
         # positions-gained calculation below.
@@ -1659,50 +1679,61 @@ def _train_meta_learner(
     model_rf, model_xgb, model_lgb,
     n_splits: int = 5,
 ):
+    """Train the Ridge stacking meta-learner on out-of-fold predictions.
+
+    CRITICAL (plan 7a/8d): the OOF features MUST use the exact same
+    representation as inference — per-field normalized ranks via the shared
+    `to_rank()` helper. The historical bug fed the meta-learner raw RF outputs
+    plus margin-inversions while inference fed field ranks → coefficients
+    applied to the wrong scale → arbitrary orderings.
+    """
     from sklearn.linear_model import Ridge
     from sklearn.base import clone
-    import numpy as np
 
     oof_preds = np.zeros((len(y), 3))
-    
+
     group_boundaries = [0] + list(np.cumsum(groups))
     total_groups = len(groups)
-    
+
     test_size = total_groups // (n_splits + 1)
     if test_size == 0:
         test_size = 1
-        
+
     for i in range(n_splits):
         test_start_group = total_groups - (n_splits - i) * test_size
         test_end_group = test_start_group + test_size if i < n_splits - 1 else total_groups
         train_end_group = test_start_group
-        
+
         if train_end_group == 0:
             continue
-            
+
         train_start_idx = 0
         train_end_idx = group_boundaries[train_end_group]
         test_start_idx = group_boundaries[test_start_group]
         test_end_idx = group_boundaries[test_end_group]
-        
+
         X_train, y_train = X[train_start_idx:train_end_idx], y[train_start_idx:train_end_idx]
         X_test, y_test = X[test_start_idx:test_end_idx], y[test_start_idx:test_end_idx]
-        
+
         train_groups = groups[:train_end_group]
-        
+
         rf_clone = clone(model_rf)
         xgb_clone = clone(model_xgb)
         lgb_clone = clone(model_lgb)
-        
+
         rf_clone.fit(X_train, y_train)
-        y_train_inv = 25.0 - y_train
+        y_train_inv = FIELD_LABEL_CEILING - y_train
         xgb_clone.fit(X_train, y_train_inv, group=train_groups)
         lgb_clone.fit(X_train, y_train_inv, group=train_groups)
-        
-        oof_preds[test_start_idx:test_end_idx, 0] = rf_clone.predict(X_test)
-        # Rankers output "higher = better" scores; invert back to position scale
-        oof_preds[test_start_idx:test_end_idx, 1] = 25.0 - xgb_clone.predict(X_test)
-        oof_preds[test_start_idx:test_end_idx, 2] = 25.0 - lgb_clone.predict(X_test)
+
+        # Convert ALL THREE models' OOF scores to per-field normalized ranks —
+        # identical to _ensemble_rank_predictions at inference.
+        s_rf  = np.asarray(rf_clone.predict(X_test), dtype=float)
+        s_xgb = np.asarray(xgb_clone.predict(X_test), dtype=float)
+        s_lgb = np.asarray(lgb_clone.predict(X_test), dtype=float)
+        oof_preds[test_start_idx:test_end_idx, 0] = to_rank(s_rf)
+        oof_preds[test_start_idx:test_end_idx, 1] = to_rank(s_xgb)
+        oof_preds[test_start_idx:test_end_idx, 2] = to_rank(s_lgb)
 
     first_test_start = group_boundaries[total_groups - n_splits * test_size]
     if first_test_start < len(y):

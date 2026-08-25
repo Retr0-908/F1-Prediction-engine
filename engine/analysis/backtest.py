@@ -35,7 +35,7 @@ from engine.core.data_fetcher import (
     compute_multiseason_driver_form, compute_multiseason_constructor_stats,
     get_sprint_rounds, get_season_roster,
 )
-from engine.models.predictor import F1Predictor, _match_circuit_cfg
+from engine.models.predictor import F1Predictor, _match_circuit_cfg, to_rank
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from scipy.stats import spearmanr
@@ -204,9 +204,9 @@ def backtest_race(
         ))
         valid_drivers.append(drv)
 
-    def _field_ranks(raw_scores):
-        order = np.argsort(np.argsort(-np.asarray(raw_scores, dtype=float)))
-        return order.astype(float) + 1.0
+    # Shared normalized rank helper — identical representation to inference
+    # and meta-learner training (plan 7a/8d)
+    _field_ranks = to_rank
 
     driver_preds, quali_preds = [], []
     with warnings.catch_warnings():

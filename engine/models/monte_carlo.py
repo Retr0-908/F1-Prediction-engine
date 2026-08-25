@@ -157,6 +157,12 @@ def _simulate_one_race(
         else:
             effective_grid[drv_name] = q["predicted_grid"] + (grid_penalties or {}).get(drv_name, 0)
     grid      = effective_grid
+    # Plan 7c: grid integrity — duplicates mean two cars share a slot, which
+    # corrupts positions-gained math and every downstream points simulation.
+    if len(set(effective_grid.values())) != len(effective_grid):
+        dupes = [d for d, g in effective_grid.items()
+                 if list(effective_grid.values()).count(g) > 1]
+        raise ValueError(f"MC grid integrity failure — duplicate grids for: {dupes}")
     dnf_probs = {d["driver"]: d.get("dnf_prob_pct", 7.0) / 100.0 for d in race_order}
 
     # ── 2. Apply DNF events (probabilistic) ──

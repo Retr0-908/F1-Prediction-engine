@@ -105,12 +105,18 @@ def _find_prediction_file(round_num: int) -> Path | None:
 # MAIN VALIDATION LOGIC
 # ─────────────────────────────────────────────
 
-def validate_specific_prediction(pred_file: Path) -> dict | None:
+def validate_specific_prediction(pred_file: Path, season: int = None) -> dict | None:
     """
     Validate a specific prediction file against actual results.
+
+    season: explicit override. When None, the season embedded in the report is
+    used (falling back to CURRENT_SEASON for legacy files). Plan 9-C2: a
+    mismatch between the requested season and the file's own season is logged
+    loudly — validating a 2025 file against 2026 results poisons the accuracy
+    log and the bias-correction loop.
     """
     if not pred_file.exists():
-        console.print(f"[!] Prediction file not found: {pred_file}")
+        console.print(f"[yellow][!] Prediction file not found: {pred_file}[/yellow]")
         return None
 
     with open(pred_file, "r", encoding="utf-8") as f:
@@ -118,7 +124,14 @@ def validate_specific_prediction(pred_file: Path) -> dict | None:
 
     race_name = pred_data.get("race", {}).get("name", "Unknown Race")
     round_num = pred_data.get("race", {}).get("round", 0)
-    season = pred_data.get("race", {}).get("season", CURRENT_SEASON)
+    file_season = pred_data.get("season") or pred_data.get("race", {}).get("season")
+    season = season or file_season or CURRENT_SEASON
+    if file_season and season != file_season:
+        console.print(
+            f"[red][!] SEASON MISMATCH: requested {season}, prediction file is "
+            f"from {file_season}. Refusing to validate — this would corrupt "
+            "the accuracy log.[/red]")
+        return None
     
     console.print(f"\n[bold cyan][Metrics] Post-Race Validation - {race_name} (R{round_num}, {season})[/bold cyan]\n")
     console.print(f"  Prediction file: {pred_file.name}")
@@ -285,6 +298,8 @@ def validate_round(round_num: int, season: int = CURRENT_SEASON) -> dict | None:
     """
     Fetch actual results for round_num, compare to stored predictions,
     compute accuracy metrics, update accuracy log, and display comparison.
+    Plan 9-C2: the requested season is passed through — a stored prediction
+    from a different season is refused instead of silently mis-validated.
     """
     console.print(f"\n[bold cyan][Metrics] Post-Race Validation - Round {round_num} ({season})[/bold cyan]\n")
 
@@ -295,7 +310,7 @@ def validate_round(round_num: int, season: int = CURRENT_SEASON) -> dict | None:
                       f"Run main.py before the race to generate predictions.")
         return None
 
-    return validate_specific_prediction(pred_file)
+    return validate_specific_prediction(pred_file, season=season)
 
 
 

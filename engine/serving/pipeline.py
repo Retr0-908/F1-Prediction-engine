@@ -110,7 +110,6 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
                 constructor_prices[drv]["price"] = float(data.get("price"))
 
         progress_callback(run_id, "PRICES", "done", f"{len(driver_prices)} drivers loaded")
-
         # Record price/ownership snapshots so web-UI users accumulate movement
         # history too (previously only the CLI recorded these).
         try:
@@ -121,29 +120,73 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             logger.warning("Price snapshot recording failed: %s", e)
 
         # Cross-check the scraped fantasy roster against Jolpica standings.
-        # The MERGED roster is authoritative: standings fill gaps where the
-        # fantasy site is missing drivers (e.g. new teams/substitutes), so
-        # every real driver gets predictions and EV even without a scrape row.
+        #
+        # FIELD AUTHORITY PRECEDENCE (plan I7b):
+        #   1. The fantasy game entry list (scrape) defines who can score.
+        #   2. Gaps are backfilled ONLY from the curated 22-seat config seed.
+        #   3. Standings contribute TEAM ATTRIBUTION only — never new names.
+        # Standings-only extras (drivers who lost seats but remain in season
+        # standings) are EXCLUDED as phantoms; a blind union previously let a
+        # phantom 23rd driver into predictions.
         try:
+            from engine.core.config import DRIVER_TEAMS_2026
             from engine.core.data_fetcher import get_season_roster, compare_rosters
             api_roster = get_season_roster(CURRENT_SEASON)
-            if api_roster and dynamic_roster:
-                diffs = compare_rosters(
-                    dynamic_roster, api_roster,
-                    "fantasy-scrape", "jolpica-standings",
-                )
-                if diffs:
-                    progress_callback(run_id, "PRICES", "loading",
-                                      f"Roster drift detected ({len(diffs)} differences) — see logs")
-                missing_from_scrape = set(api_roster) - set(dynamic_roster)
-                if missing_from_scrape:
-                    logger.warning(
-                        "Fantasy scrape missing %d drivers — merged from standings: %s",
-                        len(missing_from_scrape), ", ".join(sorted(missing_from_scrape)),
+            if dynamic_roster:
+                seed_names = set(DRIVER_TEAMS_2026)
+                accepted = set(dynamic_roster) | seed_names
+                # Phantom exclusion: standings extras not in scrape∪seed
+                excluded_phantoms = sorted(set(api_roster or {}) - accepted) if api_roster else []
+                for name in excluded_phantoms:
+                    logger.warning("Excluded phantom driver (standings-only): %s", name)
+
+                # Team attribution: curated seed wins; API fills unknowns
+                merged_roster: dict[str, str] = {}
+                for name in accepted:
+                    merged_roster[name] = (
+                        DRIVER_TEAMS_2026.get(name)
+                        or (api_roster or {}).get(name)
+                        or dynamic_roster.get(name, "")
                     )
-                dynamic_roster = {**dynamic_roster, **api_roster}
+                drift = compare_rosters(
+                    {n: t for n, t in dynamic_roster.items() if n in merged_roster},
+                    {n: t for n, t in (api_roster or {}).items() if n in merged_roster},
+                    "fantasy-scrape", "jolpica-standings",
+                ) if api_roster else []
+                if drift:
+                    progress_callback(run_id, "PRICES", "loading",
+                                      f"Roster drift detected ({len(drift)} differences) — see logs")
+                if excluded_phantoms:
+                    logger.warning(
+                        "Fantasy scrape missing %d drivers — backfilled/validated: "
+                        "field=%d, phantoms_excluded=%s",
+                        len(excluded_phantoms), len(merged_roster), excluded_phantoms,
+                    )
+                dynamic_roster = merged_roster
+
+                # Hard integrity gate (plan I7b.5)
+                n_field = len(dynamic_roster)
+                if not (18 <= n_field <= 24):
+                    raise RuntimeError(
+                        f"Field integrity failure: {n_field} drivers "
+                        "(expected 18–24). Refusing to predict."
+                    )
+                if n_field != 22:
+                    logger.warning("Unusual field size %d (calendar standard is 22)", n_field)
+                progress_callback(run_id, "PRICES", "loading",
+                                  f"FIELD_VALIDATION size={n_field} "
+                                  f"backfilled={max(0, n_field - len(driver_prices))} "
+                                  f"phantoms_excluded={len(excluded_phantoms)}")
+                # Plan I2: report the VALIDATED field size, not the price-table size
+                gap_note = (f" ({n_field - len(driver_prices)} backfilled)"
+                            if n_field > len(driver_prices) else "")
+                progress_callback(run_id, "PRICES", "done",
+                                  f"Prices for {len(driver_prices)} drivers · "
+                                  f"predicting field of {n_field}{gap_note}")
             elif api_roster and not dynamic_roster:
-                dynamic_roster = api_roster
+                dynamic_roster = dict(DRIVER_TEAMS_2026)
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.debug("Roster cross-check skipped: %s", e)
 
@@ -289,12 +332,15 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             import datetime as dt
             report = {
                 "generated_at":     dt.datetime.now().isoformat(),
-                "race":             race,
+                "season":           CURRENT_SEASON,   # plan 9-C2: explicit season for validators
+                "race":             {**race, "season": CURRENT_SEASON},
                 "weather_summary":  {
                     k: v for k, v in weather.items() if k != "race_day_hourly"
                 },
-                "qualifying_order": quali_order[:20] if quali_order else [],
-                "race_order":       race_order[:20] if race_order else [],
+                # Plan 9-C4: NO truncation — every predicted driver must appear
+                # in post-race comparison, not just the first 20.
+                "qualifying_order": quali_order if quali_order else [],
+                "race_order":       race_order if race_order else [],
                 "driver_pts":       sorted(driver_pts, key=lambda x: x.get("total_pts", 0), reverse=True),
                 "constructor_pts":  sorted(ctor_pts, key=lambda x: x.get("total_pts", 0), reverse=True),
                 "suggestions":      suggestions,

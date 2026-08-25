@@ -17,7 +17,8 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Optional
 
-from engine.core.config import F1_FANTASY_COOKIE, CURRENT_SEASON, DRIVER_TEAMS_2025, CONSTRUCTORS_2025
+from engine.core.config import (F1_FANTASY_COOKIE, CURRENT_SEASON, DRIVER_TEAMS_2025,
+                                CONSTRUCTORS_2025, DRIVER_TEAMS_2026)
 from engine.core.data_fetcher import _load_cache, _save_cache
 
 # ─────────────────────────────────────────────
@@ -86,8 +87,19 @@ def _try_playwright_scrape(is_constructor: bool = False) -> Optional[dict]:
             prices = {}
             roster = {}
             
-            # Known driver names for cross-validation
-            known_drivers = set(DRIVER_TEAMS_2025.keys())
+            # Known driver names for cross-validation.
+            # Plan 9-H1: validate against the CURRENT season's union (curated
+            # seed + last known roster), not a prior-season table — validating
+            # 2026 DOM names against DRIVER_TEAMS_2025 silently dropped
+            # Perez/Bottas/Lindblad from the primary scrape path.
+            try:
+                from engine.core.data_fetcher import get_season_roster
+                _live_roster = get_season_roster(CURRENT_SEASON) or {}
+            except Exception:
+                _live_roster = {}
+            known_drivers = (set(DRIVER_TEAMS_2026.keys())
+                             | set(DRIVER_TEAMS_2025.keys())
+                             | set(_live_roster.keys()))
             known_drivers_lower = {n.lower() for n in known_drivers}
             
             for i, line in enumerate(lines):

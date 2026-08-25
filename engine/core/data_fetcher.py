@@ -484,16 +484,42 @@ def get_race_by_round(round_num: int, year: int = CURRENT_SEASON) -> Optional[di
 
 
 def _match_circuit_config(race_name: str) -> dict:
+    """Match a Jolpica race name to its CIRCUITS config.
+
+    Resolution order (plan 9-H4): exact name → alias table → distinctive-word
+    containment → key substring. The alias table covers renamed GPs word
+    matching can't resolve ("São Paulo Grand Prix" shares no words with
+    "Brazilian Grand Prix").
+    """
+    lower = race_name.lower().strip()
     if race_name in CIRCUITS:
         base = CIRCUITS[race_name]
     else:
-        # Fallback to loose matching
         base = {}
-        for name, cfg in CIRCUITS.items():
-            n_clean = name.lower().replace("grand prix", "").strip()
-            if n_clean and n_clean in race_name.lower():
-                base = cfg
-                break
+        alias_key = _RACE_NAME_ALIASES_DATA.get(lower)
+        if alias_key:
+            for name, cfg in CIRCUITS.items():
+                if cfg.get("key") == alias_key:
+                    base = {**cfg, "name": name}
+                    break
+        if not base:
+            # Distinctive-word containment, most-specific match wins
+            best_name, best_cfg, best_words = "", {}, []
+            for name, cfg in CIRCUITS.items():
+                n_clean = name.lower().replace("grand prix", "").strip()
+                if n_clean and n_clean in lower:
+                    words = [w for w in n_clean.split() if len(w) > 3]
+                    if len(words) > len(best_words):
+                        best_name, best_cfg, best_words = name, cfg, words
+            if best_words:
+                base = {**best_cfg, "name": best_name}
+        if not base:
+            # Key-substring fallback (mirrors weather._match_circuit)
+            for name, cfg in CIRCUITS.items():
+                key = cfg.get("key", "").lower()
+                if key and key in lower:
+                    base = {**cfg, "name": name}
+                    break
 
     # Phase 8: Enrich with per-circuit JSON features
     try:
@@ -503,7 +529,16 @@ def _match_circuit_config(race_name: str) -> dict:
             return enriched
     except Exception:
         pass
+    if not base:
+        logger.warning("_match_circuit_config: no circuit match for %r", race_name)
     return base
+
+
+# Renamed/historical Jolpica race names → CIRCUITS `key` fields.
+_RACE_NAME_ALIASES_DATA = {
+    "são paulo grand prix": "brazil",
+    "sao paulo grand prix": "brazil",
+}
 
 
 # ─────────────────────────────────────────────
@@ -805,6 +840,13 @@ def get_season_results(year: int) -> list[dict]:
     offset = 0
     page_size = 100
 
+    # Plan 9-C1: Jolpica paginates result ROWS, so a race can be SPLIT across
+    # a page boundary. A per-page enumerate() restarts at 1 for the tail
+    # fragment and corrupts every non-numeric-position (DNF/DSQ) row. Track a
+    # RUNNING per-round counter across pages instead.
+    running_order: dict[int, int] = {}   # round -> last order index used
+    seen_rows: set[tuple[int, str]] = set()   # (round, driverId) dedupe guard
+
     while True:
         data = _jolpica_get(
             f"/{year}/results.json",
@@ -822,8 +864,18 @@ def get_season_results(year: int) -> list[dict]:
         for race in races:
             round_num = int(race["round"])
             race_name = race["raceName"]
-            for idx, r in enumerate(race.get("Results", []), start=1):
-                raw_rows.append(((round_num, race_name, idx), r))
+            for r in race.get("Results", []):
+                running_order[round_num] = running_order.get(round_num, 0) + 1
+                key = (round_num, r["Driver"]["driverId"])
+                if key in seen_rows:
+                    logger.warning(
+                        "get_season_results(%d): duplicate row R%s %s — "
+                        "page-boundary overlap skipped", year, round_num,
+                        r["Driver"]["driverId"])
+                    running_order[round_num] -= 1
+                    continue
+                seen_rows.add(key)
+                raw_rows.append(((round_num, race_name, running_order[round_num]), r))
 
         offset += page_size
         if (total is not None and offset >= total) or not races:
