@@ -529,11 +529,89 @@ one manual confirmation against the real 2026 entry list during implementation.
 
 ---
 
+## 🔴 Improvement 8 — Cross-Cutting Contract Integrity (incident-class sweep)
+
+**Rationale:** the Improvement-7 incident was not a one-off bug — it was a *class*: silent
+cross-module contract mismatches and fabricated data that produce plausible-looking garbage
+with zero errors. A full-codebase sweep for that CLASS found four more live instances:
+
+### Findings (verified by code inspection + AST analysis)
+
+| # | Finding | Evidence | Severity |
+|---|---|---|---|
+| X1 | **Feature name↔value binding is POSITIONAL ONLY**. `FEATURE_NAMES` (56 entries) and the returned `np.array` (56 values, AST-counted) are aligned today, but nothing binds them: reordering one without the other trains/predicts with permuted feature semantics — **no error, wrong model** | predictor.py; no `FEATURE_NAMES.index`/dict-zip mechanism exists | 🔴 |
+| X2 | **Silent fallback prices fabricate money data.** Unmatched driver → `$5.0M`, constructor → `$8.0M` (`_get_driver_price/_get_ctor_price`) — silently feeds budget checks and the LP solver. Combined with `_fuzzy_match`'s bidirectional *substring* containment, a near-miss name resolves to the WRONG player's price or an invented one | fantasy_optimizer.py:520–531 | 🔴 |
+| X3 | **47 remaining `except Exception: pass/continue`** across 16 files (data_fetcher ×12, scraper ×7, cli ×4, server ×4, self_improvement ×4 …) — the same masking pattern that hid root cause A until it exploded | repo-wide regex audit | 🟠 |
+| X4 | **Meta rank-input is field-size dependent.** Meta trains on ranks from historical fields (~20 rows/race) but serves 22–23-driver fields; Ridge inputs shift distribution slightly. Not garbage (monotonic), but avoidable noise | consequence of 7a design | 🟡 |
+
+### Fixes
+
+#### 8a. Dict-bound feature construction + startup assertion (X1)
+Rebuild `_build_features` to assemble an ordered dict `{name: value}` and return
+`np.array([feat[n] for n in FEATURE_NAMES])`. Add a module-level self-check (runs once at
+import, ~free):
+```python
+assert set(feat.keys()) == set(FEATURE_NAMES), "feature drift"
+```
+Extend `sanity_check` with a canary vector test: build features for two synthetic drivers
+differing in EXACTLY ONE known feature (e.g. dnf_rate) and assert only that column moves.
+Reorder/rename on either side now fails loudly at import/test time instead of poisoning
+training. Feature count stays 56 (S1 invariant intact).
+
+#### 8b. Honest pricing: no fabricated numbers (X2)
+- `_get_driver_price/_get_ctor_price`: on match failure raise/log-and-skip the candidate
+  (candidate excluded from optimizer with a visible reason), NEVER invent a price.
+- Tighten `_fuzzy_match`: exact-normalized match first; then token-based match requiring the
+  FULL surname token equality (mirroring post_race_check fix); ambiguous matches (≥2 keys
+  tie) are rejected, not first-picked; every non-exact resolution logs
+  `"fuzzy: 'X' -> 'Y' (score)"`.
+- Backfilled drivers without real prices are labelled `"price_source": "estimate"` end-to-end
+  so UI/telemetry shows estimate vs live.
+
+#### 8c. Silent-swallow elimination sweep (X3)
+Convert all 47 sites to `logger.warning(..., exc_info=True)` minimum; keep `continue`
+control-flow where intentional but always log. Mechanical change per file; each file gets its
+logger if missing. Priority order: data_fetcher, fantasy_scraper, server, cli,
+self_improvement, then the rest. Acceptance: `grep -rE "except Exception:\s*\n\s*(pass|continue)"`
+returns 0 hits in engine/.
+
+#### 8d. Field-size-invariant rank encoding (X4)
+In the shared `to_rank()` helper (from 7a), emit normalized ranks `rank / (N + 1)` instead of
+raw integers — identical transformation applied in `_train_meta_learner` folds, inference, and
+backtest. Makes meta input distribution invariant to field size; costs nothing; rides the
+same v7 bump.
+
+#### 8e. Golden contract tests (regression net for this entire class)
+New `engine/tools/tests/test_contracts.py`:
+1. **Micro end-to-end**: synthetic 3-season mini-dataset → train → predict → assert
+   field size == input roster, ranks contiguous, better-form drivers rank better on average.
+2. **Meta representation equality**: structural assert that `_train_meta_learner` OOF path and
+   `_ensemble_rank_predictions` both route through the SAME `to_rank` helper (source-level
+   check or shared-function monkeypatch counting calls).
+3. **Price honesty**: optimizer given an unknown driver asserts exclusion-with-log, not $5M.
+4. **Weather payload keys**: `rain_risk` present (UI contract) alongside rain_prob.
+These run in seconds (tiny data), no network, and would have caught BOTH incident regressions.
+
+### Files touched
+`engine/models/predictor.py` (8a, 8d), `engine/strategy/fantasy_optimizer.py` (8b),
+16 files for the swallow sweep (8c), new `engine/tools/tests/test_contracts.py` (8e),
+`engine/tools/sanity_check.py` (canary test hook).
+
+### Risk
+Low: 8a/8d ride the already-planned v7 retrain; 8b changes optimizer candidate sets only when
+data was previously fabricated (strictly more honest); 8c is logging-only. 8e adds a fast
+test file with zero runtime impact.
+
+---
+
 ## Execution Order & Risk
 
 | Step | Depends on | Risk | Effort |
 |---|---|---|---|
 | **7. PREDICTION HOTFIX (meta unification + field integrity)** | none — **do first** | medium | 2–3 h |
+| **8e. golden contract tests** | 7a (asserts its invariants) | none | 1–2 h |
+| **8a/8d. dict-bound features + normalized ranks** | v7 bundle | low | 2 h |
+| **8b. honest pricing** | none | low | 1 h |
 | 2. count fix | none | none | 15 min |
 | **5a/5c. pacer + Session** | none | low | 1–2 h |
 | **5b. derived standings** | none | medium (tie-break fidelity) | 2 h |
@@ -543,15 +621,17 @@ one manual confirmation against the real 2026 entry list during implementation.
 | 3a/3b. hardware detect + XGB CUDA | none | medium (fallback path tested with GPU absent) | 1–2 h |
 | 3c. MC multiprocessing | 3a | medium (Windows spawn pickling) | 2–3 h |
 | 3d. concurrent prelude | 5d | low | 1 h |
+| **8c. silent-swallow sweep (47 sites)** | none | low (logging-only) | 2–3 h |
 | **6a/6b. race-hour slice + anchored forecast** | none | low | 1–2 h |
 | **6c. backfill real weather labels** | none | low (~70 archive calls, one-time) | 1–2 h |
-| **6d/6e/6f. temp-tires + rain_prob + LSTM align (schema v7)** | 6c, **7a** | medium (retrain + EV shifts) | 2 h |
-| Final gates | all | — | compile, sanity_check, one live pipeline, backtest spot-round, timings vs baseline |
+| **6d/6e/6f. temp-tires + rain_prob + LSTM align (schema v7)** | 6c, **7a**, **8a/8d** | medium (retrain + EV shifts) | 2 h |
+| Final gates | all | — | compile, sanity_check + contract tests, one live pipeline, backtest spot-round, timings vs baseline |
 
-Total estimate: 2 focused sessions. Every change is additive; rollback = revert commit.
-**Milestone 0 is now the hotfix (Improvement 7)** — predictions are invalid until it ships.
-Schema v7 lands once, containing: 7a meta representation + 5b standings fallback + 6c–6f
-weather rework + I3 device-key. Recommended first milestone: **7 → then 2 + 5a + 5c + 1**.
+Total estimate: 2–2.5 focused sessions. Every change is additive; rollback = revert commit.
+**Milestone 0 remains the hotfix (7), immediately followed by the contract tests (8e)** —
+8e is the regression net that makes every later step safer. Schema v7 lands once,
+containing: 7a meta representation + 8a/8d feature/rank integrity + 5b standings fallback +
+6c–6f weather rework + I3 device-key. Recommended first milestone: **7 → 8e → 2 + 5a + 5c + 1**.
 
 ---
 
@@ -575,9 +655,17 @@ weather rework + I3 device-key. Recommended first milestone: **7 → then 2 + 5a
 | W1b | Renaming/removing `rain_risk` payload field breaks UI HUD badge (app.js:347,356) | rain_prob is additive to payload; only the ML feature column changes |
 | S1 | sanity_check `N_FEATURES == 56` assertion trips after weather rework | rain_prob REPLACES rain_enc column — count stays 56 by design; assertion kept as drift guard |
 | R2 | Multiple data-affecting steps each forcing separate ~4-min retrains | All bundled into ONE schema v7 bump at rollout end (5b + 6c-6f + I3 device key) |
+| X1b | Feature name/value positional drift (silent mislabeling — the incident class) | Dict-bound construction + import-time key assertion + canary vector test (8a) |
+| X2b | Fabricated $5M/$8M prices silently entering budget/LP math; substring fuzzy match resolving wrong player | Match failure = exclude-with-log; full-token matching; ambiguity rejection; estimate tagging (8b) |
+| X3b | 47 silent `except: pass/continue` sites masking failures (the pattern that hid root cause A) | Repo-wide sweep to logged warnings; acceptance grep enforces zero (8c) |
+| X4b | Meta rank inputs shift with field size (20 historical vs 22-23 live) | Normalized ranks rank/(N+1) in train+inference+backtest via shared helper (8d) |
+| E1 | Incident-class regressions recur unnoticed | Golden contract tests: micro e2e, meta-representation equality, price honesty, payload keys (8e) |
 
 **Invariants preserved:** model-cache schema semantics (device now part of key); deterministic
 backtest results (backtester doesn't call Monte Carlo); `F1 Fantasy.bat` / CLI entry contracts unchanged; no DB/migrations; all UI additions additive;
-weather payload remains backward-compatible (`rain_risk` buckets retained alongside rain_prob).
+weather payload remains backward-compatible (`rain_risk` buckets retained alongside rain_prob);
+feature count stays 56 (replacement, not addition).
 **One intentional behavior change, flagged:** pipeline default sims 1000 → 2500 *after* parallel
-MC lands (net-faster than today's serial 1000).
+MC lands (net-faster than today's serial 1000). Second flagged change: optimizer now *excludes*
+unpriceable candidates instead of inventing prices (strictly more honest; may reduce candidate
+pool when the scrape is degraded).
