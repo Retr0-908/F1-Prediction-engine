@@ -17,7 +17,7 @@ echo 5-15 minutes due to API rate limits.
 echo.
 pause
 
-python warm_cache.py
+python -m engine.core.warm_cache
 
 echo.
 pause

@@ -9,6 +9,6 @@ echo  =============================================
 echo.
 echo  Running backtest on: 2024 and 2025 races
 echo.
-python backtest.py --years 2024 2025
+python -m engine.analysis.backtest --years 2024 2025
 echo.
 pause

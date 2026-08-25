@@ -2,11 +2,11 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from predictor import F1Predictor
-from data_fetcher import get_next_race
-from weather import get_race_weekend_weather
-from fantasy_scraper import scrape_driver_prices
-from config import CURRENT_SEASON
+from engine.models.predictor import F1Predictor
+from engine.core.data_fetcher import get_next_race
+from engine.core.weather import get_race_weekend_weather
+from engine.core.fantasy_scraper import scrape_driver_prices
+from engine.core.config import CURRENT_SEASON
 
 print("Initializing predictor...")
 predictor = F1Predictor()

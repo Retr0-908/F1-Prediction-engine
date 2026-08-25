@@ -22,6 +22,6 @@ if errorlevel 1 (
 )
 
 :: Start the server in the foreground
-python server.py
+python -m engine.serving.server
 
 pause

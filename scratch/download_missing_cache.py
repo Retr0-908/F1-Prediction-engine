@@ -5,7 +5,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from data_fetcher import (
+from engine.core.data_fetcher import (
     get_season_schedule,
     get_driver_standings,
     get_constructor_standings,
