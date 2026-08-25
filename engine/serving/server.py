@@ -164,12 +164,14 @@ def get_team():
                 team_cache_file.parent.mkdir(parents=True, exist_ok=True)
                 team_cache_file.write_text(legacy.read_text(encoding="utf-8"), encoding="utf-8")
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
     if team_cache_file.exists():
         try:
             with open(team_cache_file, "r") as f:
                 return json.load(f)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
     return {
         "drivers": [],
@@ -309,6 +311,7 @@ def list_predictions():
                         "race": data.get("race", {}).get("name")
                     })
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
     # Sort by newest
     preds.sort(key=lambda x: x.get("generated_at", ""), reverse=True)
@@ -369,6 +372,8 @@ main_loop = None
 import time
 import webbrowser
 
+
+logger = logging.getLogger("f1_predictor.server")
 # ── Browser-close watchdog ──────────────────────────────────────────────────
 # The frontend sends POST /api/heartbeat every 5 s while the page is open.
 # If no heartbeat arrives within HEARTBEAT_TIMEOUT seconds after the first
@@ -405,6 +410,7 @@ def _request_shutdown():
             srv.should_exit = True
             return
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
     os._exit(0)   # last resort if no server handle
 # ────────────────────────────────────────────────────────────────────────────
@@ -643,7 +649,7 @@ def get_race_results_api(round_num: int, year: int = None):
 def get_telemetry(gp_name: str, round_num: int = None, year: int = None):
     from engine.core.config import CURRENT_SEASON
     from engine.core.data_fetcher import get_tire_stints
-    
+
     target_year = year if year else CURRENT_SEASON
     target_event = round_num if round_num else gp_name
     

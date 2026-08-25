@@ -41,6 +41,8 @@ except Exception as e:
     print(f"  [monte_carlo] Julia engine load failed: {e}")
     _JULIA_AVAILABLE = False
 
+import logging
+
 from engine.core.config import (
     RACE_POSITION_POINTS, QUALI_POSITION_POINTS,
     QUALI_Q2_BONUS, QUALI_Q3_BONUS, POLE_BONUS,
@@ -48,6 +50,8 @@ from engine.core.config import (
     FASTEST_LAP_BONUS, DRIVER_OF_DAY_BONUS,
     SPRINT_RACE_POINTS, SC_PROBABILITY, VSC_PROBABILITY,
 )
+
+logger = logging.getLogger("f1_predictor.monte_carlo")
 
 # ─────────────────────────────────────────────
 # CONSTANTS
@@ -425,6 +429,7 @@ def simulate_race_weekend(
             try:
                 jl.seval(f"import Random; Random.seed!({int(seed)})")
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
 
             # Call Julia: returns (rank_counts_matrix, dnf_counts_vector)
@@ -436,6 +441,7 @@ def simulate_race_weekend(
                 n_simulations
             )
             import numpy as np
+
             rank_counts = np.asarray(rank_counts_jl)   # copy out of juliacall
             dnf_counts  = np.asarray(dnf_counts_jl)
             

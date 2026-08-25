@@ -101,6 +101,9 @@ DEG_LOSS_WEIGHT = 0.7    # higher weight on regression task (primary goal)
 STR_LOSS_WEIGHT = 0.3    # strategy classification is secondary
 
 from engine.core.paths import MODEL_CACHE_DIR
+import logging
+logger = logging.getLogger("f1_predictor.tire_model")
+
 DEG_MODEL_PATH  = MODEL_CACHE_DIR / "tire_model.keras"
 DEG_SCALER_PATH = MODEL_CACHE_DIR / "tire_scaler.pkl"
 
@@ -162,6 +165,7 @@ def build_tire_dataset(
         try:
             schedule = get_season_schedule(year)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
 
         for race in schedule:
@@ -169,6 +173,7 @@ def build_tire_dataset(
             try:
                 tire_data = get_tire_stints(year, gp_name, session_type="R")
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 continue
 
             if not tire_data:
@@ -453,6 +458,7 @@ class TireDegradationModel:
         if circuit_key and (altitude_m is None or tire_degradation is None):
             try:
                 from engine.core.track_features_loader import load_track_features
+
                 tf = load_track_features(circuit_key)
                 if tf:
                     alt_val = float(tf.get("altitude_m", alt_val))
@@ -460,6 +466,7 @@ class TireDegradationModel:
                     delta_val = float(tf.get("deg_compound_delta", delta_val))
                     sm_val = float(tf.get("sm_zones", sm_val))
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
 
         if not self._trained or self.model is None:

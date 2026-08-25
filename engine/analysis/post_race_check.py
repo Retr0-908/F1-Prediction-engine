@@ -30,6 +30,7 @@ from rich import box
 from engine.core.config import CURRENT_SEASON
 from engine.core.data_fetcher import get_race_results
 from engine.core.paths import ACCURACY_LOG, OUTPUT_DIR
+import logging
 
 console = Console()
 
@@ -95,6 +96,7 @@ def _find_prediction_file(round_num: int) -> Path | None:
             try:
                 ts = datetime.fromtimestamp(f.stat().st_mtime).isoformat()
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 continue
         if ts >= best_ts:
             best_ts, best_path = ts, f
@@ -300,6 +302,7 @@ def validate_round(round_num: int, season: int = CURRENT_SEASON) -> dict | None:
     compute accuracy metrics, update accuracy log, and display comparison.
     Plan 9-C2: the requested season is passed through — a stored prediction
     from a different season is refused instead of silently mis-validated.
+logger = logging.getLogger("f1_predictor.post_race_check")
     """
     console.print(f"\n[bold cyan][Metrics] Post-Race Validation - Round {round_num} ({season})[/bold cyan]\n")
 

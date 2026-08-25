@@ -32,7 +32,10 @@ from typing import Optional
 from engine.core.data_fetcher import get_season_results, get_season_schedule, HISTORICAL_SEASONS
 from engine.core.paths import ELO_CACHE_DIR as _ELO_CACHE_DIR
 from engine.core.config import CURRENT_SEASON
+import logging
 
+
+logger = logging.getLogger("f1_predictor.elo_ratings")
 # ─────────────────────────────────────────────
 # GLICKO-2 CONSTANTS
 # ─────────────────────────────────────────────
@@ -449,6 +452,7 @@ def _latest_completed_round() -> int:
     """
     try:
         from engine.core.data_fetcher import data_fetcher
+
         today = datetime.date.today()
         done = [
             r["round"] for r in data_fetcher.get_season_schedule(CURRENT_SEASON)
@@ -500,6 +504,7 @@ def get_elo_system(
                     print(f"  Loaded cached Glicko-2 ratings ({seasons[0]}–{seasons[-1]}, through round {latest_round})")
                 return _cached_elo
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
 
     if verbose:
@@ -513,6 +518,7 @@ def get_elo_system(
         with open(cache_path, "wb") as f:
             pickle.dump(g2, f)
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     _cached_elo = g2

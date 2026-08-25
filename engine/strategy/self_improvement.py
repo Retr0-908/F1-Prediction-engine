@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 
 from engine.core.paths import LOGS_DIR, ACCURACY_LOG, BIAS_CORRECTIONS, WEIGHT_ADJUSTMENTS
+import logging
+logger = logging.getLogger("f1_predictor.self_improvement")
 
 
 # MIN_SAMPLES_CIRCUIT: require this many races at a circuit type before trusting
@@ -241,6 +243,7 @@ def get_model_health_report():
             with open(ACCURACY_LOG, "r", encoding="utf-8") as f:
                 report["accuracy_log"] = json.load(f)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
             
     if BIAS_CORRECTIONS.exists():
@@ -248,6 +251,7 @@ def get_model_health_report():
             with open(BIAS_CORRECTIONS, "r", encoding="utf-8") as f:
                 report["bias_corrections"] = json.load(f)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
             
     if WEIGHT_ADJUSTMENTS.exists():
@@ -255,6 +259,7 @@ def get_model_health_report():
             with open(WEIGHT_ADJUSTMENTS, "r", encoding="utf-8") as f:
                 report["weight_adjustments"] = json.load(f)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
             
     return report
@@ -265,5 +270,6 @@ def reset_corrections():
             try:
                 p.unlink()
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
     return {"status": "ok", "message": "Corrections reset successfully"}

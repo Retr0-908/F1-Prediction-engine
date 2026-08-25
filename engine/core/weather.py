@@ -12,7 +12,10 @@ from typing import Optional
 
 from engine.core.config import CIRCUITS, CONDITION_ENC
 from engine.core.paths import WEATHER_CACHE_DIR as _WEATHER_CACHE_DIR
+import logging
 
+
+logger = logging.getLogger("f1_predictor.weather")
 # Disk cache for weather responses (avoids burning call limits on re-runs)
 _WEATHER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -108,6 +111,7 @@ def _open_meteo_historical_fallback(lat: float, lon: float, race_date: datetime.
             else:
                 target_date = datetime.date(y, race_date.month, race_date.day)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
             
         start_d = target_date - datetime.timedelta(days=2)
@@ -137,6 +141,7 @@ def _open_meteo_historical_fallback(lat: float, lon: float, race_date: datetime.
                     daily_history.append(res_data["daily"])
             time.sleep(0.1)  # Respect API limits
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
             
     if not daily_history:
@@ -375,6 +380,7 @@ def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
         # produced timestamps wrong by the venue/host UTC offset.
         try:
             from zoneinfo import ZoneInfo
+
             _venue_tz = ZoneInfo(forecast.get("timezone", "UTC") or "UTC")
         except Exception:
             _venue_tz = None

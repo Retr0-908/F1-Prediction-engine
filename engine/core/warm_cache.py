@@ -30,6 +30,7 @@ def _warm_single_race(year: int, round_num: int, race: dict):
         if race_date > datetime.date.today():
             return True, f"[{year} R{round_num}] Skipped future race: {race_name}"
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     failures = []

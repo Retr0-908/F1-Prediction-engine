@@ -12,13 +12,18 @@ helping identify sell-high and buy-low opportunities before chip decisions.
 """
 
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
 from engine.core.config import CURRENT_SEASON
-from engine.core.paths import PRICE_HISTORY_PATH as _PRICE_HISTORY_PATH, \
-    OWNERSHIP_HISTORY_PATH as _OWNERSHIP_HISTORY_PATH
+from engine.core.paths import (
+    PRICE_HISTORY_PATH as _PRICE_HISTORY_PATH,
+    OWNERSHIP_HISTORY_PATH as _OWNERSHIP_HISTORY_PATH,
+)
+
+logger = logging.getLogger("f1_predictor.price_tracker")
 
 
 # How many rounds of history to keep (rolling window)
@@ -36,6 +41,7 @@ def _load_json(path: Path) -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
     return {}
 

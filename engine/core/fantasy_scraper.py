@@ -20,7 +20,10 @@ from typing import Optional
 from engine.core.config import (F1_FANTASY_COOKIE, CURRENT_SEASON, DRIVER_TEAMS_2025,
                                 CONSTRUCTORS_2025, DRIVER_TEAMS_2026)
 from engine.core.data_fetcher import _load_cache, _save_cache
+import logging
 
+
+logger = logging.getLogger("f1_predictor.fantasy_scraper")
 # ─────────────────────────────────────────────
 # PLAYWRIGHT DOM SCRAPER (Primary Public Method)
 # ─────────────────────────────────────────────
@@ -70,6 +73,7 @@ def _try_playwright_scrape(is_constructor: bool = False) -> Optional[dict]:
                     for (const el of overlays) el.remove();
                 }""")
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
             
             if is_constructor:
@@ -264,6 +268,7 @@ def _try_public_feed() -> Optional[dict]:
                 roster = {n: d["team"] for n, d in parsed.items() if not d.get("is_constructor")}
                 return parsed, roster
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     # Try alternate URL patterns
@@ -277,6 +282,7 @@ def _try_public_feed() -> Optional[dict]:
                     roster = {n: d["team"] for n, d in parsed.items() if not d.get("is_constructor")}
                     return parsed, roster
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
     return None
 
@@ -306,6 +312,7 @@ def _try_cookie_auth_api() -> Optional[dict]:
                     roster = {n: d["team"] for n, d in parsed.items() if not d.get("is_constructor")}
                     return parsed, roster
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
     return None
 
@@ -348,6 +355,7 @@ def _try_html_scrape() -> Optional[tuple]:
             roster = {n: d["team"] for n, d in parsed.items()}
             return parsed, roster
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
     return None
 
@@ -440,6 +448,7 @@ def _parse_embedded_json(json_strings: list[str]) -> Optional[dict]:
                     "source":        "html_embedded",
                 }
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
     return drivers if drivers else None
 
@@ -447,6 +456,7 @@ def _parse_embedded_json(json_strings: list[str]) -> Optional[dict]:
 def _clean_name(name: str) -> str:
     """Normalise driver names for consistent matching."""
     import unicodedata
+
     name = name.strip()
     # Remove extra spaces
     name = " ".join(name.split())
@@ -485,6 +495,7 @@ def scrape_constructor_prices(force_refresh: bool = False) -> dict[str, dict]:
                 _save_cache(cache_key, ctors)
                 return ctors
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     # Attempt 2: Playwright headless browser (Public SPA)

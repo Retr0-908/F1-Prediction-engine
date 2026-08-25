@@ -724,6 +724,7 @@ class F1Predictor:
                 # Clamped to [-0.1, 0.1] seconds/lap range
                 tire_efficiency_score = float(np.clip(-driver_deg, -0.1, 0.1))
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
 
         # Apply self-improvement weight adjustments to features if present

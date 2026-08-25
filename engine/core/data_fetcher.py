@@ -637,6 +637,7 @@ def _match_circuit_config(race_name: str) -> dict:
         if enriched:
             return enriched
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
     if not base:
         logger.warning("_match_circuit_config: no circuit match for %r", race_name)
@@ -786,6 +787,7 @@ def get_season_roster(year: int, round_num: int = None) -> dict[str, str]:
                         year, r["name"], r["constructor"], rnd,
                     )
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     if len(roster) < 16:
@@ -1066,6 +1068,7 @@ def get_circuit_history(circuit_id: str, seasons: list[int] = None) -> pd.DataFr
                         "dnf":         did_not_finish,
                     })
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
 
     if not all_rows:
@@ -1237,6 +1240,7 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
                         if abbr and full:
                             abbr_to_name[abbr] = full
                     except Exception:
+                        logger.warning("Suppressed error", exc_info=True)
                         pass
                 
                 for driver_abbr, drv_laps in session.laps.groupby("Driver"):
@@ -1257,6 +1261,7 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
                         unique_stints = comp_laps["Stint"].nunique()
                         driver_used_sets[canonical_name][compound_str] += unique_stints
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
                 
         result = {}
@@ -1344,6 +1349,7 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
                 if abbr and full:
                     abbr_to_name[abbr] = full
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass
 
         result: dict[str, list[dict]] = {}
@@ -1392,6 +1398,7 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
                         try:
                             lap_times_sec.append(lt.total_seconds())
                         except Exception:
+                            logger.warning("Suppressed error", exc_info=True)
                             pass
 
                 avg_lap_sec = float(np.mean(lap_times_sec)) if lap_times_sec else None
@@ -1422,6 +1429,7 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
                                 float(np.interp(ref_sec, weather_times, weather_temps)), 1
                             )
                     except Exception:
+                        logger.warning("Suppressed error", exc_info=True)
                         pass
 
                 driver_stints.append({
@@ -1668,6 +1676,7 @@ def get_best_practice_pace(year: int, gp_name: str) -> tuple[dict, str]:
             if data:
                 return data, session
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
     return {}, "N/A"
 
@@ -1821,6 +1830,7 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
                     "round":    race["round"],
                 })
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
 
     form_data = {}
@@ -1953,6 +1963,7 @@ def compute_multiseason_driver_form(
                     "race_count":   len(grp),
                 }
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
 
     merged: dict[str, dict] = {}
@@ -2040,6 +2051,7 @@ def compute_multiseason_constructor_stats(
                     "race_count":   len(grp),
                 }
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             continue
 
     merged: dict[str, dict] = {}

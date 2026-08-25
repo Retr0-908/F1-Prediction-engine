@@ -63,6 +63,9 @@ EPOCHS = 50
 BATCH_SIZE = 32
 
 from engine.core.paths import MODEL_CACHE_DIR
+import logging
+logger = logging.getLogger("f1_predictor.temporal_model")
+
 MODEL_PATH = MODEL_CACHE_DIR / "temporal_model.keras"
 SCALER_PATH = MODEL_CACHE_DIR / "temporal_scaler.pkl"
 
@@ -249,6 +252,7 @@ def build_training_dataset(
             try:
                 tire_data = get_tire_stints(year, race["name"], session_type="R")
             except Exception:
+                logger.warning("Suppressed error", exc_info=True)
                 pass  # missing tire data is fine - deg_per_lap defaults to 0
 
             # Build the rolling sequence: up to SEQ_LENGTH races *before* this one
@@ -281,6 +285,7 @@ def build_training_dataset(
                 try:
                     from engine.core.data_fetcher import _match_circuit_config as _mcc
                     from engine.core.config import SC_PROBABILITY as _SC_PROB
+
                     _ckey = (_mcc(race["name"]) or {}).get("key", "")
                     sc_prob = float(_SC_PROB.get(_ckey, 0.40))
                 except Exception:

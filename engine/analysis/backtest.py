@@ -39,7 +39,10 @@ from engine.models.predictor import F1Predictor, _match_circuit_cfg, to_rank
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from scipy.stats import spearmanr
+import logging
 
+
+logger = logging.getLogger("f1_predictor.backtest")
 # ─────────────────────────────────────────────
 # ROSTER RESOLUTION — dynamic first, static fallback
 # Lineups are auto-derived from championship standings each season; the tables
@@ -146,6 +149,7 @@ def _get_year_roster(year: int) -> dict[str, str]:
         if len(derived) >= 16:
             return derived
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
     static = DRIVER_TEAMS_BY_YEAR.get(year)
     if static is None:
@@ -338,6 +342,7 @@ def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
 
     from engine.models.elo_ratings import EloRatingSystem, ConstructorEloSystem
     from engine.core.config import HISTORICAL_SEASONS
+
     year_elo_sys = EloRatingSystem()
     year_elo_sys.build_from_history([y for y in HISTORICAL_SEASONS if y < year], verbose=False)
     year_ctor_elo_sys = ConstructorEloSystem(year_elo_sys)
@@ -497,6 +502,7 @@ def main():
         try:
             sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
 
     console.print(f"\n[bold]Training model on historical data (up to {train_up_to})...[/bold]")

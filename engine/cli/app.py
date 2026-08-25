@@ -980,6 +980,7 @@ def check_grid_changes(current_roster: dict[str, str], console: Console):
             with open(cache_path, "r") as f:
                 last_roster = json.load(f)
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
 
     if not last_roster:
@@ -1104,6 +1105,7 @@ def main():
         record_prices(race["round"], driver_prices, constructor_prices)
         record_ownership(race["round"], driver_prices, constructor_prices)
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     # (Prices table is now displayed in the HTML Dashboard)
@@ -1119,6 +1121,7 @@ def main():
             bl_str = "  ".join(f"[green]{c['name'].split()[-1]} {c['current_price']:.1f}M ({c['price_change']:.1f}M, {c['own_change']:.0f}% own)[/green]" for c in buy_lows[:3])
             _print_slow(f"  [Down] [bold]Buy-Low candidates:[/bold]  {bl_str}")
     except Exception:
+        logger.warning("Suppressed error", exc_info=True)
         pass
 
     # ------------------------------------------
@@ -1319,6 +1322,7 @@ def main():
                 console.print(f"  Constructors: {', '.join(auto_team.get('constructors', []))}")
                 console.print(f"  Budget: ${auto_team.get('budget_remaining', 0.0)}M  |  Points: {auto_team.get('current_points', 0.0)}")
         except Exception:
+            logger.warning("Suppressed error", exc_info=True)
             pass
 
     my_points = 0.0
