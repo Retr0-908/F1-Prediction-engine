@@ -187,46 +187,43 @@ def _simulate_one_race(
         for drv in rng.sample(back_half, n_shunted):
             dnf_set.add(drv)
 
-    # ── 3. Weather variance (rain causes more position shuffling) ──
+    # ── 3. Weather + circuit variance (single coherent pass, plan 9-M1) ──
+    # Base weather sigma from rain risk; circuit features modulate it via a
+    # multiplicative factor applied to the ONE draw (the old code drew at full
+    # sigma then added an abs() "delta" second draw — calm circuits ended up
+    # MORE chaotic than baseline).
     weather_noise = 0.0
     if rain_risk == "high":
         weather_noise = 3.5
     elif rain_risk == "medium":
         weather_noise = 1.5
 
-    # Apply position noise from weather
+    if circuit_features:
+        overtake_diff = circuit_features.get("overtaking_difficulty", 3)
+        weather_var = circuit_features.get("weather_variability", 3)
+        sm_eff = circuit_features.get("overtake_mode_efficiency", 0.5)
+    else:
+        overtake_diff = 3
+        weather_var = 3
+        sm_eff = 0.5
+
     if weather_noise > 0:
+        factor = (1.0 + (weather_var - 3) * 0.2) if circuit_features else 1.0
+        sigma_eff = max(0.4, weather_noise * factor)
         for drv in positions:
             if drv not in dnf_set:
-                noise = rng.gauss(0, weather_noise)
-                positions[drv] = max(1.0, positions[drv] + noise)
+                positions[drv] = max(1.0, positions[drv] + rng.gauss(0, sigma_eff))
+    else:
+        # Dry race: overtaking difficulty creates position variance
+        base_overtake_noise = max(
+            0.0, ((1.0 + (3 - overtake_diff) * 0.15) - 1.0) if circuit_features else 0.0)
+        if base_overtake_noise > 0:
+            for drv in positions:
+                if drv not in dnf_set:
+                    positions[drv] = max(1.0,
+                                         positions[drv] + rng.gauss(0, base_overtake_noise))
 
-    # ── Circuit-specific variance from track features ──
     if circuit_features:
-        # Overtaking difficulty scales position noise
-        # High difficulty (5) = Monaco: positions stable, less shuffling
-        # Low difficulty (1) = Monza: more position changes
-        overtake_diff = circuit_features.get("overtaking_difficulty", 3)
-        overtake_noise_factor = 1.0 + (3 - overtake_diff) * 0.15  # 0.55-1.30
-        # Weather variability scales weather noise
-        weather_var = circuit_features.get("weather_variability", 3)
-        weather_noise_factor = 1.0 + (weather_var - 3) * 0.2  # 0.6-1.4
-        if weather_noise > 0:
-            # Already applied above, scale would double-count; apply only the delta
-            extra = weather_noise * (weather_noise_factor - 1.0)
-            if abs(extra) > 0.01:
-                for drv in positions:
-                    if drv not in dnf_set:
-                        noise = rng.gauss(0, abs(extra))
-                        positions[drv] = max(1.0, positions[drv] + noise)
-        else:
-            # Dry race: overtaking difficulty still creates position variance
-            base_overtake_noise = max(0.0, overtake_noise_factor - 1.0)
-            if base_overtake_noise > 0:
-                for drv in positions:
-                    if drv not in dnf_set:
-                        noise = rng.gauss(0, base_overtake_noise)
-                        positions[drv] = max(1.0, positions[drv] + noise)
         # First lap incident risk
         first_lap_risk = circuit_features.get("first_lap_incident_risk", 0.07)
         if rng.random() < first_lap_risk:
@@ -242,10 +239,6 @@ def _simulate_one_race(
                         dnf_set.add(drv)
                     else:
                         positions[drv] += rng.uniform(1.5, 4.0)
-        # Straight Mode efficiency (used later in SC benefit block)
-        sm_eff = circuit_features.get("overtake_mode_efficiency", 0.5)
-    else:
-        sm_eff = 0.5
 
     # ── 4. Safety car deployment ──
     sc_triggered  = rng.random() < sc_prob
