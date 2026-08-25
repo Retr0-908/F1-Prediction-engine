@@ -341,6 +341,30 @@ def _simulate_one_race(
 # ─────────────────────────────────────────────
 # PUBLIC API
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# PARALLEL WORKER (plan I3/3c) — module-level for spawn safety; imports only
+# stdlib + this module's own functions (no TF/predictor transitive imports).
+# ─────────────────────────────────────────────
+def _simulate_chunk(base_seed: int, n_sims: int, chunk_seed: int, payload: dict) -> dict:
+    """Run a chunk of simulations with an isolated RNG. Returns
+    {driver: [pts, ...]} plain-dict (spawn-picklable)."""
+    rng = random.Random(chunk_seed)
+    out: dict[str, list[float]] = {d["driver"]: [] for d in payload["race_order"]}
+    for _ in range(n_sims):
+        sim = _simulate_one_race(
+            payload["race_order"], payload["quali_order"],
+            payload["sc_prob"], payload["vsc_prob"], payload["rain_risk"],
+            payload["is_sprint"], payload["sprint_order"],
+            rng,
+            circuit_features=payload["circuit_features"],
+            grid_penalties=payload["grid_penalties"],
+        )
+        for drv, pts in sim.items():
+            if drv in out:
+                out[drv].append(pts)
+    return out
+
+
 def simulate_race_weekend(
     race_order: list[dict],
     quali_order: list[dict],
@@ -505,33 +529,88 @@ def simulate_race_weekend(
         except Exception as e:
             print(f"  [monte_carlo] Julia execution failed: {e}. Falling back to Python...")
 
-    # ── Fallback Python Implementation ──
-    rng = random.Random(seed)
-    driver_pts_lists: dict[str, list[float]] = {d["driver"]: [] for d in race_order}
-    
-    for sim in range(n_simulations):
-        sim_result = _simulate_one_race(
-            race_order, quali_order,
-            sc_prob, vsc_prob, rain_risk,
-            is_sprint, sprint_order,
-            rng,
-            circuit_features=_track_data,  # NEW: per-circuit variance parameters
-            grid_penalties=grid_penalties,
-        )
-        for drv, pts in sim_result.items():
-            if drv in driver_pts_lists:
-                driver_pts_lists[drv].append(pts)
-        
-        # Periodic progress updates
-        if progress_callback and (sim + 1) % 100 == 0:
-            intermediate_ev = {}
-            for d_name, pts_list in driver_pts_lists.items():
-                if pts_list:
-                    intermediate_ev[d_name] = sum(pts_list) / len(pts_list)
-            # Find top 3
-            top_3 = sorted(intermediate_ev.items(), key=lambda x: x[1], reverse=True)[:3]
-            top_3_str = ", ".join(f"{d_name}: {pts:.1f} EV" for d_name, pts in top_3)
-            progress_callback(sim + 1, n_simulations, top_3_str)
+    # ── Python Implementation (serial or process-parallel, plan I3/3c) ──
+    from engine.core.hardware import profile as _hw
+    workers = _hw()["mc_workers"]
+
+    if workers > 1 and n_simulations >= 2000:
+        # Parallel path: chunk sims across processes with per-chunk derived
+        # seeds (deterministic per seed). NOTE: results match the serial mode
+        # in DISTRIBUTION, not bitwise — F1E_MC_WORKERS=serial is the exact
+        # reproduction escape hatch.
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        chunk_size = math.ceil(n_simulations / workers)
+        chunks = [(i * chunk_size, min(chunk_size, n_simulations - i * chunk_size))
+                  for i in range((n_simulations + chunk_size - 1) // chunk_size)]
+
+        payload = {
+            "race_order": race_order, "quali_order": quali_order,
+            "sc_prob": sc_prob, "vsc_prob": vsc_prob,
+            "rain_risk": rain_risk, "is_sprint": is_sprint,
+            "sprint_order": sprint_order,
+            "circuit_features": _track_data, "grid_penalties": grid_penalties,
+        }
+
+        driver_pts_lists: dict[str, list[float]] = {d["driver"]: [] for d in race_order}
+        done = 0
+        ctx = mp.get_context("spawn")
+        try:
+            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+                futs = [ex.submit(_simulate_chunk, base, size, seed * 1000003 + i, payload)
+                        for i, (base, size) in enumerate(chunks)]
+                for fut in as_completed(futs):
+                    chunk_res = fut.result()
+                    done += sum(len(v) for v in chunk_res.values())
+                    for drv, pts in chunk_res.items():
+                        if drv in driver_pts_lists:
+                            driver_pts_lists[drv].extend(pts)
+                    if progress_callback:
+                        intermediate_ev = {
+                            d: sum(v) / len(v)
+                            for d, v in driver_pts_lists.items() if v
+                        }
+                        top_3 = sorted(intermediate_ev.items(),
+                                       key=lambda x: x[1], reverse=True)[:3]
+                        top_3_str = ", ".join(f"{d}: {p:.1f} EV" for d, p in top_3)
+                        progress_callback(done, n_simulations, top_3_str)
+        except Exception as e:
+            print(f"  [monte_carlo] parallel MC failed ({e}) — falling back to serial")
+            driver_pts_lists = {d["driver"]: [] for d in race_order}
+            rng = random.Random(seed)
+            for sim in range(n_simulations):
+                sim_result = _simulate_one_race(
+                    race_order, quali_order, sc_prob, vsc_prob, rain_risk,
+                    is_sprint, sprint_order, rng,
+                    circuit_features=_track_data, grid_penalties=grid_penalties)
+                for drv, pts in sim_result.items():
+                    if drv in driver_pts_lists:
+                        driver_pts_lists[drv].append(pts)
+    else:
+        rng = random.Random(seed)
+        driver_pts_lists: dict[str, list[float]] = {d["driver"]: [] for d in race_order}
+        for sim in range(n_simulations):
+            sim_result = _simulate_one_race(
+                race_order, quali_order,
+                sc_prob, vsc_prob, rain_risk,
+                is_sprint, sprint_order,
+                rng,
+                circuit_features=_track_data,
+                grid_penalties=grid_penalties,
+            )
+            for drv, pts in sim_result.items():
+                if drv in driver_pts_lists:
+                    driver_pts_lists[drv].append(pts)
+
+            if progress_callback and (sim + 1) % 100 == 0:
+                intermediate_ev = {}
+                for d_name, pts_list in driver_pts_lists.items():
+                    if pts_list:
+                        intermediate_ev[d_name] = sum(pts_list) / len(pts_list)
+                top_3 = sorted(intermediate_ev.items(), key=lambda x: x[1], reverse=True)[:3]
+                top_3_str = ", ".join(f"{d_name}: {pts:.1f} EV" for d_name, pts in top_3)
+                progress_callback(sim + 1, n_simulations, top_3_str)
 
     results: dict[str, DistributionStats] = {}
     for drv, pts_list in driver_pts_lists.items():

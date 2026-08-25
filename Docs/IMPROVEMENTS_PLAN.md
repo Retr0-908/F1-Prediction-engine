@@ -1,5 +1,15 @@
 # Improvements Implementation Plan
 
+> **IMPLEMENTATION STATUS (2026-08-25):**
+> ✅ **LANDED & VERIFIED:** I7 hotfix · 9-C1/C2/C3/C4 · 9-H1–H4 · 8a/8b/8d/8e(41 tests green) ·
+> 8c sweep (46 sites) · 5a/5b/5c · 9-M1/M6/M8/M9/M10/M12/M13/M14 · I2 · I3 (CUDA verified live:
+> `xgb=cuda` on RTX 5060, retrain validated, field=22, sane top-5) · I3/3c parallel MC
+> (5000 sims ≈ 3.2 s across 14 workers)
+>
+> ⏳ **REMAINING:** I1 progress-bar UI · I4 telemetry panel · 5d/5e host-split/breaker ·
+> 6a–6f weather intelligence · 9-M2/M3/M4/M5/M7 + LOW batch · final schema v7 bump + retrain
+> (after which the two contiguity probes and remaining expectedFailures flip).
+
 **Scope:** (1) live cache-download progress bar · (2) accurate driver-count reporting ·
 (3) full-hardware utilization incl. RTX 5060 GPU · (4) richer live analysis telemetry.
 **Machine profile (verified):** AMD-class laptop, **16 logical cores**, **NVIDIA RTX 5060 Laptop GPU (8 GB)**,
