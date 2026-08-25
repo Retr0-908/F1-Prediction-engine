@@ -31,11 +31,15 @@ text status span (`app.js rebuildCache()` ~L2958). No totals, no fraction comple
        return units
    ```
    `TOTAL_UNITS = sum(len(eps) for units)` — typically ~900–1100 units for 2021–2026.
-   A unit is *skipped instantly* if its cache file exists & fresh (manifest check uses
-   `_load_cache(..., allow_stale=True)` existence probe — no network).
+   A unit is *skipped instantly* if its cache file exists & fresh.
+   **⚠️ Amendment (audit):** existence-probing must NOT use `allow_stale` semantics for
+   FastF1 units — those live in FastF1's own parquet cache (`cache/fastf1/`), not our JSON
+   layer, so JSON-key probes would report false "already cached". Simpler & safe: **count
+   every manifest unit as work** and let cached hits complete in milliseconds — totals stay
+   truthful by construction.
 2. **Thread-safe counter**: `ProgressState(done, failed, current_item, phase)` updated by each
    worker task (both Jolpica and FastF1 endpoints become individually countable).
-3. **Callback contract upgrade** (backwards-compatible):
+3. **Callback contract change**:
    ```python
    progress_callback({
      "done": 412, "total": 1043, "failed": 2,
@@ -45,8 +49,10 @@ text status span (`app.js rebuildCache()` ~L2958). No totals, no fraction comple
      "eta_min": 30.1,
    })
    ```
-   Server (`/api/cache/rebuild` `_bg`) wraps it into
-   `sync_progress_callback(run_id, "DOWNLOADING", "loading", current, data={...})`.
+   **⚠️ Amendment:** this is *not* backwards-compatible (old signature was positional
+   `(year, stage, msg)`) — but there is exactly ONE consumer (`server.py` rebuild `_bg`)
+   plus `__main__` prints; both are updated in the same commit, so the risk is nil.
+   Server wraps it into `sync_progress_callback(run_id, "DOWNLOADING", "loading", current, data={...})`.
 4. **UI**: inside the Settings screen next to the existing status span add:
    ```html
    <progress id="cache-progress-bar" max="100" value="0"></progress>
@@ -54,6 +60,16 @@ text status span (`app.js rebuildCache()` ~L2958). No totals, no fraction comple
    ```
    `app.js` DOWNLOADING handler sets `bar.value = done/total*100`. On COMPLETE → 100 %,
    green state, existing reload behavior unchanged. Failed count shown in amber when > 0.
+
+### ⚠️ Amendment (audit): SSE queue lifecycle must be fixed first
+`server.py:525-527` pops `run_queues[run_id]` in the stream generator's `finally:` — i.e. on
+**client disconnect**, not only on terminal events. A page refresh mid-download therefore orphans
+the queue while the producer keeps writing into it: every subsequent event is silently dropped and
+reconnecting yields "Invalid run_id". Today this only loses text lines; with a progress bar it
+would freeze at e.g. 43 % forever. **Bundled fix:** pop the queue ONLY after a terminal event
+(`COMPLETE`/`ERROR`/`_TERMINATE` observed); on disconnect, keep the queue alive so a reconnecting
+EventSource resumes mid-stream (events buffered while detached are replayed — bounded by the
+existing terminal-event cleanup).
 
 ### Files touched
 `engine/core/warm_cache.py` (manifest + counter), `engine/serving/server.py` (~5 lines),
@@ -155,6 +171,20 @@ self.race_xgb = xgb.XGBRanker(..., tree_method="hist", device=hw["xgb_device"])
 - Windows/macOS spawn-safe: module-level worker fn, plain-dict payloads only.
 - Memory guard: chunk target shrinks if driver field > 30 (never expected, but safe).
 
+**⚠️ Amendments (audit):**
+1. **Reuse one pool per process.** `run_full_pipeline` calls `simulate_race_weekend` up to
+   **4×** (main race + 3 lookahead rounds). A fresh `ProcessPoolExecutor` per call pays
+   spawn + import cost (~1–3 s on Windows) four times over. Use a lazily-created,
+   module-level cached executor (created on first parallel call, reused; never at import).
+2. **Default sims sit below the threshold.** Pipeline default is `sims=1000`, so typical runs
+   take the *serial* path and see no MC speedup. Once parallel lands, raise the pipeline
+   default to `sims=2500` — faster than today's 1000-serial *and* statistically tighter.
+3. **Statistical, not bitwise, equivalence.** Chunked per-chunk RNG streams draw different
+   samples than the single serial stream: same-seed parallel ≠ serial numerically (only in
+   distribution). No golden-value tests exist, so nothing breaks — but this must be stated
+   wherever reproducibility is claimed (docstring), and `F1E_MC_WORKERS=serial` remains the
+   bit-exact fallback for debugging.
+
 ### 3d. Concurrent pipeline prelude (thread pool sized by `io_workers`)
 Weather + price-scrape + standings fetch overlap; on a 2-core machine this degrades to
 sequential-ish automatically.
@@ -201,6 +231,11 @@ Extend `sync_progress_callback` payloads (`data={...}`) — no new endpoint need
 Implementation notes:
 - `predictor.load_context/train` accept an optional `telemetry_cb(dict)` (default no-op);
   pipeline passes a closure forwarding into `progress_callback`. Keeps engine decoupled.
+- **⚠️ Amendment (audit):** the `DATA` substage counters (cache_hits / api_calls) require a
+  global stats singleton in `data_fetcher` incremented in `_load_cache`/`_jolpica_get`. To keep
+  the hot path free of overhead when telemetry is off, use a plain module-level dict with
+  integer increments (nanoseconds) and **no locks** — approximate counts are fine for display;
+  reset at pipeline start via `telemetry_reset()`.
 - **UI**: new right-hand "Engine Telemetry" column on the Analysis screen (index.html + ~80
   lines app.js): key/value grid auto-updating from any arriving payload keys, plus per-stage
   duration badges computed client-side from event timestamps. Log lines gain timestamps +
@@ -227,3 +262,27 @@ Implementation notes:
 | Final gates | all | — | compile, sanity_check, one live pipeline, backtest spot-round, timings vs baseline |
 
 Total estimate: 1–1.5 focused sessions. Every change is additive; rollback = revert commit.
+
+---
+
+## Audit Verdict (post-review amendments applied)
+
+**Breakage-risk register — what could have broken, and why it now can't:**
+
+| # | Risk | Mitigation in plan |
+|---|---|---|
+| R1 | Progress bar freezes mid-download after page refresh | SSE queue pop moved to terminal-events-only (I1 amendment) |
+| F1 | FastF1 units misreported as cached | Manifest counts all units; cache hits complete fast — totals always truthful |
+| C1 | Callback signature change breaks a hidden consumer | Verified: exactly one consumer (`server._bg`) + `__main__`; updated in same commit |
+| G1 | CUDA-trained pickle reused on CPU-only machine → predict failure | `xgb_device` embedded in model-cache key |
+| G2 | GPU absent/driver broken at runtime | 10-row micro-fit probe = ground truth; silent CPU fallback; env override to pin |
+| M1 | Pool spawn cost ×4 per pipeline run | Module-level persistent executor |
+| M2 | Windows spawn pickling failures | Module-level worker fn; plain-dict payloads; tested via acceptance run on Windows |
+| M3 | Silent numeric drift breaks reproducibility assumptions | Documented statistical-equivalence + `F1E_MC_WORKERS=serial` bit-exact escape hatch |
+| T1 | Telemetry counters slow hot paths | Lock-free integer dict increments; zero-cost when telemetry unused |
+
+**Invariants preserved:** model-cache schema semantics (device now part of key); deterministic
+backtest results (backtest MC path unaffected — backtester doesn't call Monte Carlo);
+`F1 Fantasy.bat` / CLI entry contracts unchanged; no DB/migrations; all UI additions additive.
+**One intentional behavior change, flagged:** pipeline default sims 1000 → 2500 *after* parallel
+MC lands (net-faster than today's serial 1000).
