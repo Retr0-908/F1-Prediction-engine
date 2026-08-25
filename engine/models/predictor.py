@@ -860,9 +860,14 @@ class F1Predictor:
           3. Bumping MODEL_SCHEMA_VERSION
         """
         eff_seasons = getattr(self, "_train_seasons", HISTORICAL_SEASONS)
+        # Device provenance (plan I3): CUDA-trained pickles must never be
+        # reused by a CPU-only process sharing this cache dir.
+        from engine.core.hardware import profile as _hw_profile
+        _dev = _hw_profile()["xgb_device"]
         seasons_str = (
             ",".join(str(y) for y in sorted(eff_seasons))
             + "_features_" + "|".join(FEATURE_NAMES)
+            + f"_xgb{_dev}"
             + f"_v{MODEL_SCHEMA_VERSION}"
         )
         return hashlib.sha1(seasons_str.encode()).hexdigest()[:16]
@@ -1077,6 +1082,10 @@ class F1Predictor:
             Xr = self.scaler_race.fit_transform(np.array(X_race))
             yr = np.array(y_race)
 
+            # Plan I3: device from hardware profile (verified CUDA or CPU)
+            from engine.core.hardware import profile as _hw
+            _dev = _hw()["xgb_device"]
+
             self.race_rf = RandomForestRegressor(
                 n_estimators=500, max_depth=10, min_samples_leaf=2,
                 max_features="sqrt", random_state=42, n_jobs=-1,
@@ -1085,7 +1094,7 @@ class F1Predictor:
                 n_estimators=400, max_depth=5, learning_rate=0.03,
                 subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1,
                 reg_lambda=1.0, random_state=42, verbosity=0,
-                objective="rank:ndcg",
+                objective="rank:ndcg", tree_method="hist", device=_dev,
             )
             self.race_lgb = lgb.LGBMRanker(
                 n_estimators=400, num_leaves=31, learning_rate=0.03,
@@ -1130,10 +1139,13 @@ class F1Predictor:
             self.quali_xgb = xgb.XGBRanker(
                 n_estimators=400, max_depth=5, learning_rate=0.03,
                 subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0,
+                objective="rank:ndcg", tree_method="hist", device=_dev,
             )
             self.quali_lgb = lgb.LGBMRanker(
                 n_estimators=400, num_leaves=31, learning_rate=0.03,
-                subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1,
+                subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1,
+                reg_lambda=1.0, random_state=42, verbose=-1,
+                objective="lambdarank",
             )
             if progress_callback:
                 progress_callback("Fitting Random Forest qualifying model...")
