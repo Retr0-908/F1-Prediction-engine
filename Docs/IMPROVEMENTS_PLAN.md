@@ -249,19 +249,115 @@ Implementation notes:
 
 ---
 
+## Improvement 5 — Resilient & Faster Cache Downloading (anti-429)
+
+**Observed (production log):** repeated `[rate limit 429] waiting 5s (attempt 1/4)` during a
+full re-download after cache wipe. Three root causes identified:
+
+| # | Root cause | Evidence |
+|---|---|---|
+| A | **Thundering herd**: all ThreadPool workers that hit a 429 sleep the *same* 5 s, then retry simultaneously → another synchronized burst | 429s repeat every few seconds across the log |
+| B | **Backoff floor too low & uncoordinated**: 5 s minimum doesn't clear a server-side token bucket, and there is no shared state — one worker's 429 doesn't slow the others | gaps between 429s ≈ constant |
+| C | **Request volume**: ~2 standalone standings calls per race (driver + constructor) × ~114 races ≈ **230 avoidable requests** per full warm, on top of results/quali | endpoint inventory |
+
+### Methods (in priority order)
+
+#### 5a. Adaptive pacer with global cooldown (fixes A + B)
+Replace the fixed-gap `_throttle()` for Jolpica with a shared AIMD pacer:
+```python
+class _Pacer:
+    gap = 2.1                 # seconds between requests (all workers share ONE slot)
+    cooldown_until = 0.0      # global: EVERY worker waits past this after any 429
+    successes_since_drop = 0
+
+    def on_429(self, retry_after: int):
+        # Global cooldown: nobody sends until it expires (kills the herd)
+        self.cooldown_until = max(self.cooldown_until,
+                                  time.time() + max(retry_after, self.gap * 3))
+        self.gap = min(10.0, self.gap * 1.5)          # multiplicative increase, capped
+        self.successes_since_drop = 0
+
+    def slot(self):
+        """Called under lock before every request."""
+        self._next_slot = max(self._next_slot, time.time()) + self.gap
+        return max(self._next_slot - self.gap, self.cooldown_until)
+
+    def on_success(self):
+        self.successes_since_drop += 1
+        if self.successes_since_drop >= 25:           # additive decrease when healthy
+            self.gap = max(2.1, self.gap * 0.9)
+```
+Retry sleeps additionally get ±20 % jitter to desynchronize stragglers. Expected effect:
+429s drop to near zero; when one occurs, the whole fleet pauses once instead of stampeding.
+
+#### 5b. Eliminate ~230 requests: derive standings from already-cached results
+Championship standings are fully derivable from per-race result rows (each row carries the
+official `points`, incl. fastest-lap bonus). `get_season_results` already downloads them in
+~5 paginated calls per season.
+- New `data_fetcher.standings_asof(year, round_num)`:
+  1. If the API per-round standings file is already cached → serve it (zero change).
+  2. Else accumulate points from cached season results up to `round_num`
+     (tie-break: wins desc, then points-desc finish consistency — matches Ergast closely),
+     return in the identical dict shape.
+  3. Never writes fake API-cache entries; it's a distinct local computation.
+- Consumers switched to it: `warm_cache`, `predictor.train()` per-round standings, backtest
+  per-round standings. API standings remain authoritative wherever already cached and for
+  live/current-season use.
+- Net effect: full-warm Jolpica volume drops roughly **from ~700 to ~350 requests**;
+  combined with 5a this is the difference between "constant 429s" and "no 429s".
+
+#### 5c. Connection reuse (speed, not rate)
+Module-level `requests.Session()` with `HTTPAdapter(pool_maxsize=8)` for Jolpica/OpenF1 —
+removes a TCP+TLS handshake per call (~100–300 ms each on Windows). Same request count,
+noticeably faster wall-clock, gentler on the remote.
+
+#### 5d. Host-aware worker split
+Jolpica (rate-limited) and FastF1 (own generous limits, throttled at 3 s) currently share one
+ThreadPool. Split into two executors so FastF1's slower downloads don't serialize behind
+Jolpica pacing, and vice versa — overall wall-clock improves without raising Jolpica pressure.
+
+#### 5e. Circuit breaker + resumability UX
+- Rolling 60 s window: if ≥6 429s occur, enter cooldown mode (pause 5 min, emit progress event
+  `"phase": "cooling_down"`), then resume with the raised gap. Prevents hammering into a ban.
+- Combined with Improvement 1's manifest: restarting a broken download resumes where it left
+  off instead of starting over — the practical answer to "I hit limits mid-download".
+
+#### 5f. Observability hooks (feeds Improvements 1 & 4)
+Progress payload gains `{throttle_gap_s, cooldown_remaining_s, http_429_count}`; telemetry
+panel shows a live "API health" row. Users SEE the pacer adapting instead of staring at raw
+429 prints.
+
+### Files touched
+`engine/core/data_fetcher.py` (pacer, Session, standings_asof), `engine/core/warm_cache.py`
+(split executors, breaker), `engine/models/predictor.py` + `engine/analysis/backtest.py`
+(use `standings_asof`), small SSE/UI additions shared with I1/I4.
+
+### Risks & mitigations
+- Derived standings may differ from API on exotic tie-breaks → only used as a *fallback*
+  when the API file isn't cached; live/current-season paths keep API precedence.
+- Pacer adds latency when healthy (2.1 s floor unchanged) → no regression vs today.
+- AIMD oscillation → capped at 10 s, floored at 2.1 s, decay only after 25 clean successes.
+
+---
+
 ## Execution Order & Risk
 
 | Step | Depends on | Risk | Effort |
 |---|---|---|---|
 | 2. count fix | none | none | 15 min |
-| 4. telemetry payloads + panel | none | low (additive) | 3–4 h |
-| 1. download progress bar | none | low | 2 h |
-| 3a/3b. hardware detect + XGB CUDA | none | medium (fallback path must be tested with GPU absent — simulate via env var) | 1–2 h |
+| **5a/5c. pacer + Session** | none | low | 1–2 h |
+| **5b. derived standings** | none | medium (tie-break fidelity) | 2 h |
+| **5d/5e. host split + breaker** | 5a | low | 1–2 h |
+| 4. telemetry payloads + panel | 5f hooks ideal but optional | low (additive) | 3–4 h |
+| 1. download progress bar | SSE lifecycle fix | low | 2 h |
+| 3a/3b. hardware detect + XGB CUDA | none | medium (fallback path tested with GPU absent) | 1–2 h |
 | 3c. MC multiprocessing | 3a | medium (Windows spawn pickling) | 2–3 h |
-| 3d. concurrent prelude | none | low | 1 h |
+| 3d. concurrent prelude | 5d | low | 1 h |
 | Final gates | all | — | compile, sanity_check, one live pipeline, backtest spot-round, timings vs baseline |
 
-Total estimate: 1–1.5 focused sessions. Every change is additive; rollback = revert commit.
+Total estimate: 1.5–2 focused sessions. Every change is additive; rollback = revert commit.
+Recommended first milestone: **2 + 5a + 5c + 1** — directly addresses the observed rate-limit pain
+with the smallest blast radius.
 
 ---
 
