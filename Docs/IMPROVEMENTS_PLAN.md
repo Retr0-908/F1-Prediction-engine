@@ -604,34 +604,81 @@ test file with zero runtime impact.
 
 ---
 
+## 🔴 Improvement 9 — Full-Spectrum Bug Sweep (third audit round, ~35 verified findings)
+
+Four parallel line-by-line audits of every remaining module. Findings are NEW (none overlap
+I1–I8). Several directly explain production symptoms already observed. Ordered by severity;
+fixes are precise and scoped.
+
+### CRITICAL
+
+| ID | Bug | Evidence / failure | Fix |
+|---|---|---|---|
+| **9-C1** | **Pagination splits races across pages; per-page `enumerate` resets** → DNF positions corrupted for any boundary-straddling race. Jolpica paginates result ROWS not races; 2026 has 22-car grids so page_size=100 is *never* aligned (verified live: 2026 R5 rows straddle offset=100). Corrupts CURRENT-season form/constructor stats/ELO/temporal data with full season weight | data_fetcher.py:803–851; live API probe showed Miami-2023 sliced mid-list | Paginate **per round** via schedule × `/{year}/{round}/results.json`, or carry a running per-round counter across pages + `(round, driver_id)` dedupe |
+| **9-C2** | **Post-race validation runs against the WRONG SEASON**: prediction files save `"race"` without a `season` key → `.get("season", CURRENT_SEASON)` always yields 2026; `validate_round()` accepts `--season` but silently drops it. A 2025 file compared today corrupts the accuracy log entry AND the bias-correction feedback loop | post_race_check.py:121,129,284–298; pipeline.py:292 | Save `report["season"]` explicitly; thread `season` param through `validate_specific_prediction`; log when file-season ≠ requested-season |
+| **9-C3** | **2026 calendar drift**: live R16 = *"Bahrain Grand Prix **in Malaysia**"* (Sepang). Config has no Sepang → loose matcher returns Sakhir config + **Sakhir weather forecast (desert lat/lon)** for a humid Malaysian round; Singapore→Abu Dhabi all off-by-one (config says 24 races, calendar has 23 + Malaysia) | config.py:186,279–326; `_match_circuit_config` substring pass verified against live schedule | Add Sepang entry under the exact API name (key `malaysia`, true coords), renumber R17–R23, move Sakhir to historical block (`round: 0`) |
+| **9-C4** | **Merged-roster substitutes reach the LP optimizer with a fabricated $5M price**, evade the 2-assets-per-team cap (counted as their own team via `DRIVER_TEAMS_2025.get(drv, drv)`), are omitted from lookahead constructor EV but included in deterministic totals, and `race_order[:20]` truncation drops a real driver from saved reports | pipeline.py:123–146,387–403; fantasy_optimizer.py:288,520–556 | Fold into **I7b**: merged-only drivers either excluded from optimizer inputs or given synthesized price/team entries; LP/cap lookups use `dynamic_roster`; remove `[:20]` truncation |
+
+### HIGH
+
+| ID | Bug | Failure | Fix |
+|---|---|---|---|
+| **9-H1** | **Playwright scrape validates names against `DRIVER_TEAMS_2025`** — Lindblad/Perez/Bottas rejected by the primary path. *This is why your scrape returns 20 drivers* | fantasy_scraper.py:90–91,135 | Validate against `DRIVER_TEAMS_2026 ∪ get_season_roster()`; log dropped-price lines |
+| **9-H2** | **No mutual exclusion `/api/cache/rebuild` ↔ `/api/run`** — exactly the concurrent click seen in your logs: pipeline trains while its cache dirs are deleted underneath it; Windows rmtree silently skips open files → mixed-vintage features; two rebuild clicks collide on literal run_id `"cache_rebuild"` (first stream orphaned forever) | server.py:215–284,468–469 | Shared busy gate both directions; unique uuid run_id per rebuild |
+| **9-H3** | **Temporal LSTM: `rain_enc` and `ctor_elo_z` trained as constants 0.0 but fed REAL values at inference** (the comment claiming parity is false). Untrained sensitivity axes shift momentum output arbitrarily per wet forecast / Elo z-score | temporal_model.py:274–291 vs predictor.py:657–670 | Short-term: predictor feeds 0.0 for both (true parity); long-term folded into 6c archive-label work. Extend 6f |
+| **9-H4** | **`_match_circuit_config("São Paulo Grand Prix")` returns `{}`** for every 2021–2025 Brazilian GP (no alias, no city fallback unlike weather's matcher) → empty circuit features in all historical/backtest paths | data_fetcher.py:486–506 | Add `"São Paulo Grand Prix"` alias → interlagos/brazil |
+
+### MEDIUM
+
+| ID | Bug | Fix |
+|---|---|---|
+| **9-M1** | MC weather-variance "delta" adds `abs(extra)` Gaussian noise ON TOP of full-σ base draw → low-variability circuits get MORE chaos than baseline (inverted purpose); variance math wrong (√(σ²+(f−1)²σ²) ≠ fσ) | Draw once: `sigma_eff = weather_noise * factor` after computing factor |
+| **9-M2** | Lazy singletons (bayesian/temporal/tire/elo) have no init lock → concurrent first-calls run DUPLICATE TF trainings (minutes, possible OOM) and non-atomic `.keras`/pickle saves | Double-checked locking + tmp-file atomic saves |
+| **9-M3** | Glicko-2: no RD inflation for drivers MISSING rating periods (injury/substitute gaps keep veteran confidence indefinitely), violating Glickman §missing-periods | Track last-period index; apply φ←√(φ²+c²) for absent drivers each period |
+| **9-M4** | Tire model TRAINED path ignores `tire_degradation`/`sm_zones`/compound-delta (dead vars; only altitude multiplier applied) → Bahrain(deg 5) and Silverstone(deg 2) return identical deg_per_lap | Apply physics multiplier symmetric with fallback path, or add scalars as NN inputs (v7 retrain covers cost) |
+| **9-M5** | CLI records price history BEFORE `--prices-file` overrides and manual corrections → estimate-vs-real snapshots create phantom ±$2M+ "movements" feeding sell-high/buy-low banners | Move recording after all correction points |
+| **9-M6** | Dashboard weather strip reads nonexistent keys (`race_day_temp_c`, `temp_c`, wind variants) → temp/wind render `?°C`/`? km/h` EVERY run | Read `weather["sessions"]["Race"]["temp_day_c"/"wind_speed_kph"]` like pipeline does |
+| **9-M7** | Weather session offsets assume classic 3-day format — sprint weekends get Thursday FP forecasts, shifted quali, and NO Sprint session forecast despite sprint_date being available in the schedule dict | Build sessions from actual fp1/quali/sprint dates passed in race dict |
+| **9-M8** | Permanent caching freezes IN-PROGRESS race results: empty-response guard only catches pre-race; a lap-30 running order (total>0) is cached forever for the current season | TTL 3h for current-season results until race_date+1d passes, then promote to permanent |
+| **9-M9** | Backtest form off-by-one: standings snapshot includes round rnd−1 but `compute_driver_form(until_round=rnd−1)` EXCLUDES it (exclusive bound) → form lags standings by one race inside the same feature vector | Call `_compute_form_asof(year, rnd)` |
+| **9-M10** | Dream-team turbo doubling exists only in terminal table; saved .txt and HTML dashboard show un-doubled rows → TOTAL ≠ sum(parts), turbo assignment (the actionable part) unmarked | Mark + double turbo row in both artifacts via `optimal["turbo_driver"]` |
+| **9-M11** | One failed fetch aborts entire multi-year backtest (no try/except → hours lost, CSV never written); empty quali silently fabricates P11 baselines producing fake quali MAE | Per-race try/except → "No Data" row; None quali metrics excluded from summary |
+| **9-M12** | Manual grid overrides permanently outrank ACTUAL qualifying (applied after `_actual_grid`, labeled LOCKED, never auto-cleared client-side) — Saturday's drag experiment pins Sunday's reality | Overrides only fill drivers missing from actual grid; UI auto-clears on COMPLETE |
+| **9-M13** | CLI `--prices-file` writes `"ownership"` key; every consumer reads `"ownership_pct"` → documented override feature is a silent no-op | Accept both keys, store canonical; fix help text |
+| **9-M14** | `get_season_roster` accepts 10–15-entry rosters after only a warning → partial API responses become THE lineup | Return `{}` below realistic seat count (20/22 season-aware) |
+
+### LOW (batched fixes)
+`--report-only`/`--race` flags parsed but never implemented · `--auto` first-run falls into interactive prompts · `_medal` glyphs stripped to empty strings · dashboard constructor tags look up nonexistent `team` key (always grey) · tire strategy head labels use hindsight full-race sequences + `remaining_laps` outside trained range · Bayesian ψ/μ branches disagree on dnf_flags length mismatch · `upside_pct` tautologically ≈25% · grid sentinel `0` flows into LSTM sequences/scaler ranges · MC missing-quali driver defaults to P10 + collects Q3 bonus every sim · DNF finishing-order iterates a set (PYTHONHASHSEED nondeterminism vs seed contract) · transfers input not restored from saved team · `activeOverrides` accumulates/stale-pins market prices against refresh · poll-fallback spins 10 min after an instant failure (error swallowed server-side: `None` stored) · `analyse_results.py` hardcodes CSV name backtester no longer produces · fallback price table half-migrated (Tsunoda missing, Hadjar mis-team) · warm_cache double-warms current season + fires DONE twice · hourly summary coerces genuine 0°C→20°C via truthiness.
+
+---
+
 ## Execution Order & Risk
 
 | Step | Depends on | Risk | Effort |
 |---|---|---|---|
-| **7. PREDICTION HOTFIX (meta unification + field integrity)** | none — **do first** | medium | 2–3 h |
-| **8e. golden contract tests** | 7a (asserts its invariants) | none | 1–2 h |
+| **7. PREDICTION HOTFIX** | none — **do first** | medium | 2–3 h |
+| **9-C1/C2. pagination + season-integrity** | none — corrupts live data NOW | medium | 1–2 h |
+| **9-C3. Sepang/calendar drift** | none | low | 30 min |
+| **9-H1..H4 (scrape roster, rebuild gate, LSTM parity, São Paulo)** | 9-H1 folds into 7b | low–med | 2 h |
+| **8e. golden contract tests** | 7a | none | 1–2 h |
 | **8a/8d. dict-bound features + normalized ranks** | v7 bundle | low | 2 h |
-| **8b. honest pricing** | none | low | 1 h |
+| **8b. honest pricing** (+ 9-C4 optimizer scope) | none | low | 1 h |
 | 2. count fix | none | none | 15 min |
-| **5a/5c. pacer + Session** | none | low | 1–2 h |
-| **5b. derived standings** | none | medium (tie-break fidelity) | 2 h |
-| **5d/5e. host split + breaker** | 5a | low | 1–2 h |
-| 4. telemetry payloads + panel | 5f hooks ideal but optional | low (additive) | 3–4 h |
+| **5a/5c. pacer + Session** (+ 9-M8 TTL) | none | low | 1–2 h |
+| **5b. derived standings** (+ fixes 9-M9 off-by-one) | none | medium | 2 h |
+| **5d/5e. host split + breaker** (+ 9-H2 mutual exclusion) | 5a | low | 1–2 h |
+| **9-M1..M14 + LOW batch** | grouped by module | low each | 4–6 h total |
+| 4. telemetry payloads + panel | 5f hooks ideal but optional | low | 3–4 h |
 | 1. download progress bar | SSE lifecycle fix | low | 2 h |
-| 3a/3b. hardware detect + XGB CUDA | none | medium (fallback path tested with GPU absent) | 1–2 h |
-| 3c. MC multiprocessing | 3a | medium (Windows spawn pickling) | 2–3 h |
+| 3a/3b. hardware detect + XGB CUDA | none | medium | 1–2 h |
+| 3c. MC multiprocessing (+ 9-M1 noise fix, L-findings) | 3a | medium | 2–3 h |
 | 3d. concurrent prelude | 5d | low | 1 h |
-| **8c. silent-swallow sweep (47 sites)** | none | low (logging-only) | 2–3 h |
-| **6a/6b. race-hour slice + anchored forecast** | none | low | 1–2 h |
-| **6c. backfill real weather labels** | none | low (~70 archive calls, one-time) | 1–2 h |
-| **6d/6e/6f. temp-tires + rain_prob + LSTM align (schema v7)** | 6c, **7a**, **8a/8d** | medium (retrain + EV shifts) | 2 h |
-| Final gates | all | — | compile, sanity_check + contract tests, one live pipeline, backtest spot-round, timings vs baseline |
+| **6a–6f weather intelligence** (+ absorbs 9-H3 long-term, 9-M7) | 6c, 7a, 8a/8d | medium | 2 h |
+| Final gates | all | — | compile, sanity_check + contract tests, live pipeline, backtest spot-round, timings |
 
-Total estimate: 2–2.5 focused sessions. Every change is additive; rollback = revert commit.
-**Milestone 0 remains the hotfix (7), immediately followed by the contract tests (8e)** —
-8e is the regression net that makes every later step safer. Schema v7 lands once,
-containing: 7a meta representation + 8a/8d feature/rank integrity + 5b standings fallback +
-6c–6f weather rework + I3 device-key. Recommended first milestone: **7 → 8e → 2 + 5a + 5c + 1**.
+Total estimate: ~3 focused sessions. Rollback = revert commits.
+Recommended sequence: **7 → 9-criticals → 8e → 2+5a+5c+1 → rest**, with schema v7 landing once
+after 7a + 8a/8d + 5b + 6c–6f are all merged (single retrain).
 
 ---
 
@@ -660,6 +707,12 @@ containing: 7a meta representation + 8a/8d feature/rank integrity + 5b standings
 | X3b | 47 silent `except: pass/continue` sites masking failures (the pattern that hid root cause A) | Repo-wide sweep to logged warnings; acceptance grep enforces zero (8c) |
 | X4b | Meta rank inputs shift with field size (20 historical vs 22-23 live) | Normalized ranks rank/(N+1) in train+inference+backtest via shared helper (8d) |
 | E1 | Incident-class regressions recur unnoticed | Golden contract tests: micro e2e, meta-representation equality, price honesty, payload keys (8e) |
+| P1b | 2026 22-car grids never page-align (100 % 5×20) → DNF positions corrupt for every boundary race of the CURRENT season | Per-round pagination or cross-page running counter + dedupe (9-C1) — verified live against API |
+| P2b | Cross-season prediction files validated against wrong season; accuracy log + bias loop poisoned | Explicit season saved at report time; season threaded through validators (9-C2) |
+| P3b | R16 Sepang gets Sakhir config + desert weather forecast; calendar rounds drift | Exact-name entry + renumbering (9-C3) |
+| S2 | Rebuild deletes cache dirs under a running pipeline (observed in production logs) | Mutual-exclusion gate both directions + unique rebuild run_ids (9-H2) |
+| S3 | Scrape roster validated against last year's teams silently drops current drivers | Validate against current-season union (9-H1) |
+| T2 | Duplicate TF trainings on concurrent singleton first-calls | Double-checked locking + atomic model saves (9-M2) |
 
 **Invariants preserved:** model-cache schema semantics (device now part of key); deterministic
 backtest results (backtester doesn't call Monte Carlo); `F1 Fantasy.bat` / CLI entry contracts unchanged; no DB/migrations; all UI additions additive;
