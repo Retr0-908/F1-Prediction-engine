@@ -1437,10 +1437,15 @@ class F1Predictor:
                         ml_entry["q2_time"] = actual_entry.get("q2_time", "")
                         ml_entry["q3_time"] = actual_entry.get("q3_time", "")
                         is_actual = True
-                        
-                if drv in overrides:
+
+                # Plan 9-M12: manual overrides fill GAPS only once real quali
+                # exists — a stale Saturday drag experiment must never outrank
+                # Sunday's actual grid while wearing the LOCKED badge.
+                if drv in overrides and effective_grid == ml_entry["predicted_grid"] \
+                        and not getattr(self, "_actual_grid", []):
                     effective_grid = int(overrides[drv])
                     is_actual = True
+                    overrides.pop(drv, None)   # consumed one-shot per run
                     
                 locked_order.append({
                     **ml_entry,

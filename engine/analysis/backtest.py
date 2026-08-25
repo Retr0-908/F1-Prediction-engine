@@ -384,12 +384,18 @@ def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
                 driver_form = dict(driver_form_prior)
                 ctor_reliability = ctor_reliability_prior
             
-            r = backtest_race(
-                predictor, year, rnd, name,
-                drv_standings, ctor_standings, driver_form, ctor_reliability,
-                is_sprint=is_sprint, year_roster=roster,
-                elo_system=year_elo_sys, ctor_elo=year_ctor_elo,
-            )
+            # Plan 9-M11: one failed fetch must never abort a multi-year run
+            try:
+                r = backtest_race(
+                    predictor, year, rnd, name,
+                    drv_standings, ctor_standings, driver_form, ctor_reliability,
+                    is_sprint=is_sprint, year_roster=roster,
+                    elo_system=year_elo_sys, ctor_elo=year_ctor_elo,
+                )
+            except Exception as race_err:
+                console.print(f"  [red]Error {year} R{rnd}: {race_err}[/red]")
+                table.add_row(str(rnd), type_str, name, "-", "-", "-", "-", "[red]Error[/red]")
+                continue
             if r:
                 results.append(r)
                 wicon = "[green]✓[/green]" if r["winner_correct"] else "✗"
