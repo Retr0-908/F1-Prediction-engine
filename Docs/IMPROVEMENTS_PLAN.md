@@ -449,10 +449,91 @@ air density; in-race dynamic weather.
 
 ---
 
+## 🔴 Improvement 7 — Prediction Integrity Hotfix (PRIORITY 0)
+
+**Incident:** finishing order contained **23 drivers** (field limit 22); ordering nonsensical
+(Bearman/Hulkenberg P1–P2, top performers outside top 10). Two independent regressions,
+**both introduced by recent changes**, interacting with each other:
+
+### Root cause A — meta-learner representation mismatch (CRITICAL)
+The ensemble-rank refactor changed *inference* to feed the Ridge meta-model
+`[rank_rf, rank_xgb, rank_lgb]` (per-field integer ranks 1..N), but `_train_meta_learner`
+still builds its out-of-fold training matrix as
+`[raw_rf_prediction, 25.0 − xgb_margin, 25.0 − lgb_margin]`.
+The Ridge coefficients were learned on margin-scale inputs and are applied to rank-scale
+inputs → the blend output is statistically meaningless → arbitrary ordering. Verified by
+code inspection: `oof_preds[...,1] = 25.0 - xgb_clone.predict(...)` vs inference
+`vals = [r_rf[i], r_xgb[i], r_lgb[i]]`. Schema bumps v4→v6 did NOT fix this because they
+invalidate the tree models, while the meta model was *retrained on the same wrong
+representation* each time.
+
+### Root cause B — phantom driver via blind roster union
+Pipeline merge `{scrape ∪ api_standings}` produced a 23-driver field: Jolpica season
+standings retain drivers who left the seat mid-season (phantom), and the merge adds them as
+prediction subjects. Knock-ons: ranks clamp at 22 with ties, `RACE_POSITION_POINTS[>22]=0`,
+MC grid collisions, optimizer sees a non-existent asset. Compounded by an earlier mistake:
+the static 2026 config seed was "synced" to the 23-entry standings view instead of staying
+a curated 22-seat table.
+
+### Fixes
+
+#### 7a. Unify the meta-learner representation (root cause A)
+- Extract a shared module-level `to_rank(scores)` helper (already exists inside
+  `_ensemble_rank_predictions`; hoist it).
+- `_train_meta_learner`: per fold, convert OOF predictions of ALL THREE models to per-race
+  ranks via `to_rank` before stacking — meta trains on exactly what inference feeds.
+- Backtest race path already feeds ranks ✓ consistent after this change.
+- No user-visible behavior until retrain → bundled into the single schema v7 bump.
+
+#### 7b. Authoritative field list with integrity validation (root cause B)
+Precedence rule, replacing the blind union:
+1. **Field authority = fantasy game entry list** (the scrape defines who can score points).
+2. Gaps are backfilled ONLY from the curated static seed (`DRIVER_TEAMS_2026`, restored to
+   exactly 22 curated seats), never from raw standings rows.
+3. Standings are used solely for TEAM attribution of drivers already accepted by 1–2.
+4. Anyone present in standings but absent from (scrape ∪ seed) is logged as
+   `"excluded phantom: <name>"` and dropped — this is the Tsunoda-class case.
+5. Hard validation gates in pipeline + `predict_finishing_order()`:
+   - `18 <= len(field) <= 24` else raise (fail loudly, no predictions);
+   - warn when `!= 22`;
+   - assert unique driver names;
+   - emit new SSE event `FIELD_VALIDATION {size, backfilled:[], excluded_phantoms:[]}`.
+6. Config seed hygiene: restore curated-22 seed; any future "sync from API" must go through
+   rule 4's filter, never wholesale copy.
+
+#### 7c. Downstream hardening (defense in depth)
+- Monte Carlo: assert `len(set(effective_grid.values())) == field_size` before simulating.
+- `estimate_fantasy_points`: explicit guard/error if `race_pos > 22` or `grid_pos > 22`.
+- Final-gate addition: prediction run must produce `len(race_order) == len(field)` and all
+  ranks contiguous 1..N.
+
+#### 7d. Immediate remediation sequence (executed with the fix)
+1. Land 7a+7b+7c → bump `MODEL_SCHEMA_VERSION = "7"` (was already earmarked; this adds
+   root-cause A as mandatory content of that bump).
+2. `Remove-Item cache\models\*.pkl` (force clean retrain).
+3. Run one analysis; verify: 22 drivers, contiguous ranks, plausible top-5 vs standings,
+   backtest spot-round MAE within historical band.
+4. Until deployed: treat current predictions as invalid.
+
+### Files touched
+`engine/models/predictor.py` (7a, 7b gates, 7c), `engine/serving/pipeline.py` (7b merge
+rewrite + FIELD_VALIDATION event), `engine/core/config.py` (curated seed restore),
+`engine/models/monte_carlo.py` (7c assertion), `engine/tools/sanity_check.py`
+(new field-integrity section).
+
+### Risk
+Low-to-moderate: 7a changes meta inputs → full retrain required anyway under v7 (no extra
+cost). 7b changes pipeline data flow — covered by FIELD_VALIDATION logging during the
+verification gate. Residual ambiguity: which specific driver is the 23rd phantom requires
+one manual confirmation against the real 2026 entry list during implementation.
+
+---
+
 ## Execution Order & Risk
 
 | Step | Depends on | Risk | Effort |
 |---|---|---|---|
+| **7. PREDICTION HOTFIX (meta unification + field integrity)** | none — **do first** | medium | 2–3 h |
 | 2. count fix | none | none | 15 min |
 | **5a/5c. pacer + Session** | none | low | 1–2 h |
 | **5b. derived standings** | none | medium (tie-break fidelity) | 2 h |
@@ -464,12 +545,13 @@ air density; in-race dynamic weather.
 | 3d. concurrent prelude | 5d | low | 1 h |
 | **6a/6b. race-hour slice + anchored forecast** | none | low | 1–2 h |
 | **6c. backfill real weather labels** | none | low (~70 archive calls, one-time) | 1–2 h |
-| **6d/6e/6f. temp-tires + rain_prob + LSTM align (schema v7)** | 6c | medium (retrain + EV shifts) | 2 h |
+| **6d/6e/6f. temp-tires + rain_prob + LSTM align (schema v7)** | 6c, **7a** | medium (retrain + EV shifts) | 2 h |
 | Final gates | all | — | compile, sanity_check, one live pipeline, backtest spot-round, timings vs baseline |
 
-Total estimate: 1.5–2 focused sessions. Every change is additive; rollback = revert commit.
-Recommended first milestone: **2 + 5a + 5c + 1** — directly addresses the observed rate-limit pain
-with the smallest blast radius.
+Total estimate: 2 focused sessions. Every change is additive; rollback = revert commit.
+**Milestone 0 is now the hotfix (Improvement 7)** — predictions are invalid until it ships.
+Schema v7 lands once, containing: 7a meta representation + 5b standings fallback + 6c–6f
+weather rework + I3 device-key. Recommended first milestone: **7 → then 2 + 5a + 5c + 1**.
 
 ---
 
