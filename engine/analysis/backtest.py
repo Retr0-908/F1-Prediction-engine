@@ -33,7 +33,7 @@ from engine.core.data_fetcher import (
     get_driver_standings, get_constructor_standings,
     get_circuit_history,
     compute_multiseason_driver_form, compute_multiseason_constructor_stats,
-    get_sprint_rounds, get_season_roster,
+    get_sprint_rounds, get_season_roster, standings_asof,
 )
 from engine.models.predictor import F1Predictor, _match_circuit_cfg, to_rank
 
@@ -368,7 +368,7 @@ def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
             # standings once and reused them for every round — direct leakage.
             prev_rnd = rnd - 1
             if prev_rnd >= 1:
-                drv_standings  = get_driver_standings(year, prev_rnd)
+                drv_standings  = standings_asof(year, prev_rnd)
                 ctor_standings = get_constructor_standings(year, prev_rnd)
             else:
                 drv_standings  = get_driver_standings(year - 1)
@@ -376,7 +376,7 @@ def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
 
             if rnd >= 2:
                 # Current-season form truncated at the previous round
-                curr_form   = _compute_form_asof(year, prev_rnd)
+                curr_form   = _compute_form_asof(year, rnd)   # 9-M9: until_round is EXCLUSIVE — rnd covers through rnd-1, matching the standings snapshot
                 curr_ctor   = None
                 driver_form = {**driver_form_prior, **curr_form}
                 ctor_reliability = ctor_reliability_prior

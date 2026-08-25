@@ -22,6 +22,7 @@ import re
 import time
 import datetime
 import threading
+import random
 import requests
 import fastf1
 import pandas as pd
@@ -242,6 +243,18 @@ def _parse_result_position(r: dict, order_index: int, kind: str, did_not_finish:
     return order_index
 
 
+# ── Plan 5c: pooled HTTP session (thread-safe via urllib3 adapter pool) ─────
+# One session per host family; headers set once at construction and never
+# mutated (requests.Session itself is not documented thread-safe).
+_http_session = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8)
+_http_session.mount("https://", _adapter)
+_http_session.mount("http://", _adapter)
+_http_session.headers.update({
+    "User-Agent": "F1-Fantasy-Prediction-Engine/1.0 (personal project)",
+})
+
+
 def _throttle() -> None:
     global _last_request_time
     with _throttle_lock:
@@ -249,6 +262,53 @@ def _throttle() -> None:
         if elapsed < _MIN_REQUEST_GAP:
             time.sleep(_MIN_REQUEST_GAP - elapsed)
         _last_request_time = time.time()
+
+
+# ── Plan 5a: Adaptive AIMD pacer with global 429 cooldown ───────────────────
+# All workers share ONE slot queue; any 429 puts the WHOLE fleet into a
+# cooldown (kills thundering-herd retries) and raises the gap multiplicatively.
+# Gap decays back toward the floor after a run of clean successes.
+class _JolpicaPacer:
+    FLOOR = 2.1
+    CAP = 10.0
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.gap = self.FLOOR
+        self._next_slot = 0.0
+        self.cooldown_until = 0.0
+        self.consecutive_ok = 0
+        self.http_429_count = 0
+
+    def slot(self) -> float:
+        """Reserve the next send time. Blocks until it is our turn."""
+        with self.lock:
+            now = time.time()
+            start = max(now, self.cooldown_until,
+                        getattr(self, "_last_send", 0.0) + self.gap)
+            self._last_send = start
+            return start
+
+    def on_429(self, retry_after: int) -> float:
+        with self.lock:
+            self.http_429_count += 1
+            self.cooldown_until = max(
+                self.cooldown_until,
+                time.time() + max(retry_after, self.gap * 3),
+            )
+            self.gap = min(self.CAP, max(self.FLOOR, self.gap * 1.5))
+            self.consecutive_ok = 0
+            return self.cooldown_until - time.time()
+
+    def on_success(self) -> None:
+        with self.lock:
+            self.consecutive_ok += 1
+            if self.consecutive_ok >= 25 and self.gap > self.FLOOR:
+                self.gap = max(self.FLOOR, self.gap * 0.9)
+                self.consecutive_ok = 0
+
+
+_pacer = _JolpicaPacer()
 
 
 # ── FastF1 throttle ─────────────────────────────────────────────
@@ -290,26 +350,32 @@ def _jolpica_get(endpoint: str, params: dict = None, cache_hours: float = 6) -> 
     last_error = None
     for attempt in range(4):
         try:
-            _throttle()
-            # connect=10s, read=60s — Jolpica can be slow under load
-            resp = requests.get(url, params=params or {}, timeout=(10, 60))
+            # Plan 5a: shared AIMD pacer slot (global 429 cooldown included)
+            send_at = _pacer.slot()
+            time.sleep(max(0.0, send_at - time.time()))
+            # Plan 5c: pooled session — no TCP+TLS handshake per call
+            resp = _http_session.get(url, params=params or {}, timeout=(10, 60))
             if resp.status_code == 429:
                 retry_after = _safe_retry_after(resp.headers.get("Retry-After"))
-                # Start at 5s (not 2s) — Jolpica 429s clear quickly but not instantly
-                wait = max(retry_after, 5 * (2 ** attempt))
-                print(f"    [rate limit 429] waiting {wait}s (attempt {attempt + 1}/4)...")
+                cooldown_s = _pacer.on_429(retry_after)
+                wait = max(cooldown_s, 5 * (2 ** attempt))
+                jitter = random.uniform(0.8, 1.2)   # de-synchronize workers
+                wait *= jitter
+                print(f"    [rate limit 429] pacer cooldown {wait:.1f}s "
+                      f"(attempt {attempt + 1}/4)...")
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
             data = resp.json()
-            
+            _pacer.on_success()
+
             # Avoid permanently caching empty responses (e.g. race results before race finishes)
             total_str = data.get("MRData", {}).get("total", "1")
             if str(total_str) == "0" and effective_cache_hours <= 0:
                 pass # Do not cache empty responses permanently
             else:
                 _save_cache(cache_key, data)
-                
+
             return data
         except requests.exceptions.HTTPError as e:
             last_error = e
@@ -472,6 +538,49 @@ def get_next_race(year: int = CURRENT_SEASON) -> Optional[dict]:
         last_race["circuit_config"] = _match_circuit_config(last_race["name"])
         return last_race
     return None
+
+
+def _derive_standings_from_results(rows: list[dict]) -> list[dict]:
+    """Accumulate championship standings from result rows (points incl.
+    fastest-lap bonus are official in each row). Tie-break: wins desc, then
+    best single finish. Same dict shape as get_driver_standings."""
+    acc: dict[str, dict] = {}
+    for r in rows:
+        d = acc.setdefault(r["name"], {
+            "name": r["name"], "driver_id": r["driver_id"],
+            "constructor": r["constructor"], "points": 0.0, "wins": 0,
+        })
+        d["points"] += r.get("points", 0.0)
+        if r.get("position") == 1:
+            d["wins"] += 1
+    out = []
+    for pos, (_, d) in enumerate(
+            sorted(acc.items(), key=lambda kv: (-kv[1]["points"], -kv[1]["wins"])), start=1):
+        out.append({
+            "position": pos,
+            "driver_id": d["driver_id"],
+            "name": d["name"],
+            "points": round(d["points"], 1),
+            "wins": d["wins"],
+            "constructor": d["constructor"],
+        })
+    return out
+
+
+def standings_asof(year: int, round_num: int) -> list[dict]:
+    """Driver standings after `round_num` of `year` (plan 5b / 9-M9).
+
+    1) If the per-round API payload is already cached → serve it verbatim.
+    2) Else DERIVE from cached season results up to round_num (zero network).
+       Derived output matches the API shape; exotic tie-breaks may differ in
+       rare edge cases, so the API remains authoritative whenever present."""
+    cached_api = _load_cache(f"jolpica_/{year}/{round_num}/driverStandings.json_{{}}", 3)
+    if cached_api:
+        return get_driver_standings(year, round_num)
+    rows = [r for r in get_season_results(year) if r["round"] <= round_num]
+    if not rows:
+        return []
+    return _derive_standings_from_results(rows)
 
 
 def get_race_by_round(round_num: int, year: int = CURRENT_SEASON) -> Optional[dict]:
@@ -684,7 +793,15 @@ def get_season_roster(year: int, round_num: int = None) -> dict[str, str]:
             "get_season_roster(%s): only %d drivers derived — season may not have started",
             year, len(roster),
         )
-        if len(roster) < 10:
+        # Plan 9-M14: a partial API response must never become THE lineup —
+        # callers fall back to the curated seed on {}. Real fields are 20
+        # (2019-2025) or 22 (2026+); accept nothing materially below that.
+        min_seats = 22 if year >= 2026 else 20
+        if len(roster) < min_seats:
+            logger.warning(
+                "get_season_roster(%s): %d drivers < expected %d seats — rejecting",
+                year, len(roster), min_seats,
+            )
             return {}
     return roster
 
@@ -720,8 +837,23 @@ def compare_rosters(primary: dict[str, str], secondary: dict[str, str],
 # RACE RESULTS (HISTORICAL)
 # ─────────────────────────────────────────────
 def get_race_results(year: int, round_num: int) -> list[dict]:
-    # Race results never change once posted — cache permanently (cache_hours=0)
-    data = _jolpica_get(f"/{year}/{round_num}/results.json", cache_hours=0)
+    # Plan 9-M8: results are permanent EXCEPT for very recent current-season
+    # rounds — Jolpica serves partial running orders mid-race, and a lap-30
+    # snapshot cached forever poisoned every downstream consumer. Use a 3h
+    # TTL until the round is >1 day old, then treat as immutable.
+    cache_hours = 0
+    if year >= CURRENT_SEASON:
+        try:
+            schedule = get_season_schedule(year)
+            race_date = next((r["date"] for r in schedule if r["round"] == round_num), None)
+            if race_date:
+                age_days = (datetime.date.today()
+                            - datetime.date.fromisoformat(race_date)).days
+                if age_days < 1:
+                    cache_hours = 3
+        except Exception:
+            cache_hours = 3   # unsure → stay refreshable
+    data = _jolpica_get(f"/{year}/{round_num}/results.json", cache_hours=cache_hours)
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
     if not races:
         return []

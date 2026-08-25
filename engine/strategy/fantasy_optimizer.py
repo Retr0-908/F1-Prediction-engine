@@ -517,32 +517,50 @@ def _get_ctor_pts(name: str, ctor_pts: list[dict]) -> float:
     return 0.0
 
 
+import logging
+
+logger = logging.getLogger("f1_predictor.optimizer")
+
+
 def _get_driver_price(name: str, prices: dict) -> float:
+    """Price for a driver, or 0.0 when unmatchable (caller excludes the
+    candidate). Plan 8b: NEVER fabricate a price — invented values silently
+    entered budget/LP math."""
     matched = _fuzzy_match(name, prices)
     if matched:
         return float(prices[matched].get("price", 0))
-    return 5.0
+    logger.warning("No price match for driver %r — candidate excluded", name)
+    return 0.0
 
 
 def _get_ctor_price(name: str, prices: dict) -> float:
     matched = _fuzzy_match(name, prices)
     if matched:
         return float(prices[matched].get("price", 0))
-    return 8.0
+    logger.warning("No price match for constructor %r — candidate excluded", name)
+    return 0.0
 
 
 def _fuzzy_match(name: str, data: dict) -> Optional[str]:
+    """Exact-normalized match first; then FULL-surname-token equality.
+    Bidirectional substring matching removed (plan 8b): 'sainz' inside a
+    longer string, or partial tokens, must not resolve to the wrong player.
+    Ambiguous surname ties are rejected rather than first-picked."""
     name_l = name.lower().strip()
+    # 1. exact
     for key in data:
         if key.lower() == name_l:
             return key
-    for key in data:
-        if name_l in key.lower() or key.lower() in name_l:
-            return key
+    # 2. full surname-token equality (unique only)
     last = name_l.split()[-1] if name_l.split() else name_l
-    for key in data:
-        if key.lower().split()[-1] == last:
-            return key
+    hits = [key for key in data
+            if key.lower().split()[-1] == last]
+    if len(hits) == 1:
+        logger.info("Fuzzy price match: %r -> %r (surname token)", name, hits[0])
+        return hits[0]
+    if len(hits) > 1:
+        logger.warning("Ambiguous price match for %r (candidates: %s) — rejected",
+                       name, hits)
     return None
 
 

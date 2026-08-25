@@ -62,7 +62,7 @@ from engine.core.data_fetcher import (
     get_pitstop_data,
     compute_multiseason_driver_form, compute_multiseason_constructor_stats,
     compute_practice_pace, get_best_practice_pace, get_qualifying_sector_times, get_grid_penalties,
-    get_actual_qualifying_results, get_season_roster,
+    get_actual_qualifying_results, get_season_roster, standings_asof,
 )
 from engine.core.paths import MODEL_CACHE_DIR, BIAS_CORRECTIONS, WEIGHT_ADJUSTMENTS
 from engine.models.elo_ratings import (
@@ -977,7 +977,7 @@ class F1Predictor:
                     name = race["name"]
                     try:
                         # Dynamic features to prevent dataset lookahead bias
-                        drv_standings  = get_driver_standings(year, max(1, rnd - 1))
+                        drv_standings  = standings_asof(year, max(1, rnd - 1))
                         ctor_standings = get_constructor_standings(year, max(1, rnd - 1))
                         curr_form      = compute_driver_form(year, num_races=5, until_round=rnd)
                         drv_form       = {**multi_form, **curr_form}
