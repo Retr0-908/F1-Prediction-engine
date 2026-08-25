@@ -292,13 +292,17 @@ def _daily_summary_openmeteo(day_data: dict) -> dict:
 
 def _hourly_summary_openmeteo(hour_data: dict) -> dict:
     """Create standard hourly dict compatible with frontend requirements."""
-    temp = hour_data.get("temp") or 20.0
-    humidity = hour_data.get("humidity") or 50.0
-    wind_speed = hour_data.get("wind_speed") or 10.0
+    # Plan 9-LOW: None-checks, not truthiness — genuine 0 °C / 0 kph must
+    # survive (mirrors _daily_summary_openmeteo policy).
+    def _or(v, default):
+        return v if v is not None else default
+    temp = _or(hour_data.get("temp"), 20.0)
+    humidity = _or(hour_data.get("humidity"), 50.0)
+    wind_speed = _or(hour_data.get("wind_speed"), 10.0)
     precip = hour_data.get("precip") or 0.0
     pop = hour_data.get("pop") or 0.0
     code = hour_data.get("weather_code") or 0
-    visibility = hour_data.get("visibility") or 10000.0
+    visibility = _or(hour_data.get("visibility"), 10000.0)
     
     condition = _wmo_to_condition(code, precip)
     return {
@@ -319,7 +323,14 @@ def _hourly_summary_openmeteo(hour_data: dict) -> dict:
     }
 
 
-def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
+def get_race_weekend_weather(race_name: str, race_date_str: str,
+                             race_info: dict = None) -> dict:
+    """
+    race_info: optional schedule dict (carries sprint_date). Plan 9-M7 —
+    sprint weekends use the real session layout (Fri: FP1+Q, Sat: Sprint,
+    Sun: Race) instead of the classic Thu/Fri/Sat offsets that produced
+    Thursday forecasts and a missing Sprint session.
+    """
     """
     Fetch weather forecast for the race venue and return per-session forecasts.
     Uses live 16-day forecast if available, otherwise queries historical archive.
@@ -414,15 +425,40 @@ def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
     if daily_by_date and race_date_str in daily_by_date:
         use_live_forecast = True
 
+    # Plan 9-M7: sprint-weekend session layout. The fantasy-relevant sessions
+    # on a sprint weekend are FP1 + Qualifying (Fri, −2), Sprint (Sat, −1),
+    # Race (Sun). We keep the five canonical labels for UI compatibility,
+    # mapping them to the REAL session days.
+    is_sprint_weekend = bool((race_info or {}).get("sprint_date"))
+    if is_sprint_weekend:
+        offsets = {
+            "Free Practice 1":  -2,
+            "Free Practice 2":  -2,   # no separate FP2 — Friday conditions
+            "Free Practice 3":  -1,   # Saturday = sprint day proxy
+            "Qualifying":       -2,   # quali moves to FRIDAY on sprints
+            "Race":              0,
+        }
+    else:
+        offsets = SESSION_DAY_OFFSETS
+
     if use_live_forecast:
-        for session, day_offset in SESSION_DAY_OFFSETS.items():
+        for session, day_offset in offsets.items():
             session_date_str = (race_date + datetime.timedelta(days=day_offset)).isoformat()
             if session_date_str in daily_by_date:
                 session_forecasts[session] = _daily_summary_openmeteo(daily_by_date[session_date_str])
+                if is_sprint_weekend:
+                    session_forecasts[session]["note"] = (
+                        "Sprint weekend layout" if session != "Race" else "")
             else:
                 fallback = _DRY_FALLBACK.copy()
                 fallback["note"] = "Outside live forecast window"
                 session_forecasts[session] = fallback
+        # Sprint-day forecast surfaced explicitly for consumers that want it
+        sprint_day_str = (race_date + datetime.timedelta(days=-1)).isoformat()
+        if is_sprint_weekend and sprint_day_str in daily_by_date:
+            sf = _daily_summary_openmeteo(daily_by_date[sprint_day_str])
+            sf["note"] = "Sprint session day"
+            session_forecasts["Sprint"] = sf
     else:
         # Fall back to historical averages
         hist_data = _open_meteo_historical_fallback(lat, lon, race_date)

@@ -592,6 +592,13 @@ def get_race_by_round(round_num: int, year: int = CURRENT_SEASON) -> Optional[di
     return None
 
 
+def _coerce_grid(raw, r: dict) -> int:
+    """Grid 0 is a sentinel (pit lane / DNS), not a position. Coerce to a
+    back-of-field value so LSTM sequences and pos-gain math stay bounded."""
+    g = int(raw) if str(raw).strip().isdigit() else 0
+    return g if g > 0 else 20
+
+
 def _match_circuit_config(race_name: str) -> dict:
     """Match a Jolpica race name to its CIRCUITS config.
 
@@ -871,7 +878,7 @@ def get_race_results(year: int, round_num: int) -> list[dict]:
             "driver_id":      drv["driverId"],
             "name":           _normalize_driver_name(drv['givenName'], drv['familyName']),
             "constructor":    _normalize_constructor_name(r["Constructor"]["name"]),
-            "grid":           int(r.get("grid", 0)),
+            "grid":           _coerce_grid(r.get("grid", 0), r),
             "laps":           int(r.get("laps", 0)),
             "status":         status,
             "classification": kind,
@@ -1028,7 +1035,7 @@ def get_season_results(year: int) -> list[dict]:
             "driver_id":      drv["driverId"],
             "name":           _normalize_driver_name(drv['givenName'], drv['familyName']),
             "constructor":    _normalize_constructor_name(r["Constructor"]["name"]),
-            "grid":           int(r.get("grid", 0)),
+            "grid":           _coerce_grid(r.get("grid", 0), r),
             "laps":           int(r.get("laps", 0)),
             "classification": kind,
             "dnf":            did_not_finish,
@@ -1064,7 +1071,7 @@ def get_circuit_history(circuit_id: str, seasons: list[int] = None) -> pd.DataFr
                         "driver_id":   drv["driverId"],
                         "name":        _normalize_driver_name(drv['givenName'], drv['familyName']),
                         "constructor": _normalize_constructor_name(r["Constructor"]["name"]),
-                        "grid":        int(r.get("grid", 0)),
+                        "grid":        _coerce_grid(r.get("grid", 0), r),
                         "dnf":         did_not_finish,
                     })
         except Exception:

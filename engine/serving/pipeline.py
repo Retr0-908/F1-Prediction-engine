@@ -56,7 +56,7 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
 
         # 2. Weather
         progress_callback(run_id, "WEATHER", "loading", "Fetching weather...")
-        weather = get_race_weekend_weather(race["name"], race["date"])
+        weather = get_race_weekend_weather(race["name"], race["date"], race_info=race)
         
         # Safely extract temp, rain_risk, and summary from the weather dict to avoid NoneType errors
         temp_val = weather.get("temp_c")
@@ -404,7 +404,7 @@ def calculate_lookahead_ev(
                 circuit_cfg = race.get("circuit_config", {})
         except Exception:
             circuit_cfg = race.get("circuit_config", {})
-        weather = get_race_weekend_weather(race["name"], race["date"])
+        weather = get_race_weekend_weather(race["name"], race["date"], race_info=race)
         
         # Load context for this future race (roster/overrides carried through so
         # mid-season substitutions aren't ignored in future-round predictions)

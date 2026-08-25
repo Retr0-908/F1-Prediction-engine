@@ -97,7 +97,10 @@ class DistributionStats:
         self.p50_pts  = _quantile(0.50)
         self.p90_pts  = _quantile(0.90)
 
-        # Upside: how often the driver scores in the top quartile of their own distribution
+        # Upside: share of sims landing in the driver's own top quartile.
+        # NOTE: by construction this is ~25% for every driver (tautological) —
+        # it measures tail-shape consistency only. Kept for UI compat; do NOT
+        # use it for cross-driver ranking.
         q75 = _quantile(0.75)
         self.upside_pct = sum(1 for p in pts_list if p >= q75) / n * 100
 
@@ -270,7 +273,9 @@ def _simulate_one_race(
 
     # ── 5. Re-rank to integer positions ──
     active_drivers = [d for d in positions if d not in dnf_set]
-    dnf_drivers    = list(dnf_set)
+    # Deterministic ordering: set iteration is PYTHONHASHSEED-dependent, which
+    # would break the seeded-reproducibility contract across processes.
+    dnf_drivers    = sorted(dnf_set, key=lambda d: positions.get(d, 99))
     active_sorted  = sorted(active_drivers, key=lambda d: positions[d])
 
     # Assign integer race positions

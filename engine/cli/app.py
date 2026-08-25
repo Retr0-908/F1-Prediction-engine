@@ -188,7 +188,7 @@ def _team_color(team: str) -> str:
 
 
 def _medal(pos: int) -> str:
-    return {1: "", 2: "", 3: ""}.get(pos, f"P{pos}")
+    return {1: "🥇", 2: "🥈", 3: "🥉"}.get(pos, f"P{pos}")
 
 
 # ─────────────────────────────────────────────
@@ -1019,6 +1019,19 @@ def main():
     logger.info(f"F1 Fantasy Prediction Tool started at {datetime.datetime.now().isoformat()}")
     logger.info(f"Args: refresh={args.refresh}, no_train={args.no_train}, auto={args.auto}, race={args.race}")
 
+    # Plan 9-LOW: --report-only was parsed but never implemented
+    if getattr(args, "report_only", False):
+        latest = None
+        for f in OUTPUT_DIR.glob("race_*.json"):
+            if latest is None or f.stat().st_mtime > latest.stat().st_mtime:
+                latest = f
+        if latest:
+            console.print(f"[cyan]Latest report: {latest.name}[/cyan]")
+            console.print_json(latest.read_text(encoding="utf-8"))
+        else:
+            console.print("[yellow]No saved reports found.[/yellow]")
+        return
+
     # ══════════════════════════════════════════════════════════
     # HEADER
     # ══════════════════════════════════════════════════════════
@@ -1029,7 +1042,6 @@ def main():
     ))
 
     # ══════════════════════════════════════════════════════════
-    # ══════════════════════════════════════════════════════════
     # NEXT RACE
     # ══════════════════════════════════════════════════════════
     section_heading("NEXT RACE", style="bold green", rule_style="green")
@@ -1037,6 +1049,17 @@ def main():
     with Progress(TextColumn("[cyan]{task.description}"), console=console) as prog:
         t = prog.add_task("Detecting next race...", total=None)
         race = get_next_race(CURRENT_SEASON)
+
+    # Plan 9-LOW: --race override now actually filters the schedule
+    if getattr(args, "race", None):
+        from engine.core.data_fetcher import get_season_schedule
+        matches = [r for r in get_season_schedule(CURRENT_SEASON)
+                   if args.race.lower() in r["name"].lower()]
+        if matches:
+            race = matches[0]
+            race["circuit_config"] = {}
+        else:
+            console.print(f"[yellow]--race {args.race!r}: no schedule match — using next race.[/yellow]")
 
     if not race:
         console.print("Could not determine next race. Check season schedule.")
@@ -1059,7 +1082,7 @@ def main():
     # ══════════════════════════════════════════════════════════
     section_heading("RACE WEEKEND", style="bold blue", rule_style="blue")
 
-    weather = get_race_weekend_weather(race["name"], race["date"])
+    weather = get_race_weekend_weather(race["name"], race["date"], race_info=race)
     if "error" not in weather:
         _print_slow(Panel(
             format_weather_display(weather),
@@ -1100,13 +1123,9 @@ def main():
     _print_slow(f"  [green][+] Fetched {len(driver_prices)} driver prices, {len(constructor_prices)} constructor prices[/green]")
     logger.info(f"Fetched {len(driver_prices)} driver prices, {len(constructor_prices)} constructor prices")
 
-    # Record prices & ownership for tracking
-    try:
-        record_prices(race["round"], driver_prices, constructor_prices)
-        record_ownership(race["round"], driver_prices, constructor_prices)
-    except Exception:
-        logger.warning("Suppressed error", exc_info=True)
-        pass
+    # Plan 9-M5: recording moved AFTER --prices-file overrides and the manual
+    # correction prompt (below) so movement baselines never mix estimates
+    # with corrected values.
 
     # (Prices table is now displayed in the HTML Dashboard)
     # Show price movements and sell-high/buy-low
@@ -1240,6 +1259,13 @@ def main():
             else:
                 console.print(f"  Could not find '{target}'. Try again.")
 
+    # Plan 9-M5: record AFTER all corrections so movement baselines are clean
+    try:
+        record_prices(race["round"], driver_prices, constructor_prices)
+        record_ownership(race["round"], driver_prices, constructor_prices)
+    except Exception:
+        logger.warning("Price snapshot recording failed", exc_info=True)
+
     # ══════════════════════════════════════════════════════════
     # CRUNCHING NUMBERS (Predictions + Points + MC + Differentials)
     # ══════════════════════════════════════════════════════════
@@ -1338,6 +1364,12 @@ def main():
         else:
             transfers = int(Prompt.ask("  Free transfers available", default="1"))
     else:
+        if args.auto:
+            # Plan 9-LOW: --auto with no saved team previously HUNG on
+            # interactive prompts. Fail with actionable guidance instead.
+            console.print("[red]--auto requires a saved team. "
+                          "Run once interactively to create one.[/red]")
+            return
         if auto_team:
             console.print("\nYou can press Enter to keep your previous selections.")
             

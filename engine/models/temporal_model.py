@@ -30,6 +30,7 @@ Cost & data notes:
 """
 
 import os
+import threading
 import pickle
 import warnings
 from pathlib import Path
@@ -374,10 +375,16 @@ class TemporalFormModel:
     #   Persistence  
 
     def save(self):
+        # Plan 9-M2: atomic saves — a reader mid-write previously got a
+        # half-written .keras/.pkl and triggered spurious retrains.
         MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(MODEL_PATH))
-        with open(SCALER_PATH, "wb") as f:
+        tmp_model = Path(str(MODEL_PATH) + ".tmp")
+        tmp_scaler = Path(str(SCALER_PATH) + ".tmp")
+        self.model.save(str(tmp_model))
+        with open(tmp_scaler, "wb") as f:
             pickle.dump(self.scaler, f, protocol=5)
+        os.replace(str(tmp_model), str(MODEL_PATH))
+        os.replace(str(tmp_scaler), str(SCALER_PATH))
         print(f"  [temporal_model] Saved to {MODEL_PATH}")
 
     def load(self) -> bool:
@@ -512,10 +519,17 @@ class TemporalFormModel:
 _temporal_model_instance: Optional[TemporalFormModel] = None
 
 
+_model_init_lock = threading.Lock()
+
+
 def get_temporal_model(verbose: bool = False, force: bool = False) -> TemporalFormModel:
-    # Returns singleton TemporalFormModel instance
+    # Singleton with double-checked locking (plan 9-M2): concurrent first
+    # calls previously raced into DUPLICATE TF trainings.
     global _temporal_model_instance
     if _temporal_model_instance is None:
-        _temporal_model_instance = TemporalFormModel()
-        _temporal_model_instance.load_or_train(verbose=verbose, force=force)
+        with _model_init_lock:
+            if _temporal_model_instance is None:
+                m = TemporalFormModel()
+                m.load_or_train(verbose=verbose, force=force)
+                _temporal_model_instance = m   # publish only after fully fitted
     return _temporal_model_instance

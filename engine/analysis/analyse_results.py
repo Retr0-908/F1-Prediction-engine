@@ -1,8 +1,27 @@
+"""Summarize backtest CSV(s). Plan 9-LOW: paths/years no longer hardcoded —
+pass CSV path(s) as argv, or defaults to globbing output/backtest_*.csv."""
+import sys
+from pathlib import Path
+
 import pandas as pd
 
-df = pd.read_csv('output/backtest_2024_2025.csv')
+paths = [Path(a) for a in sys.argv[1:]] or sorted(Path("output").glob("backtest_*.csv"))
+if not paths:
+    print("No backtest CSVs found in output/. Run BACKTEST.bat first.")
+    sys.exit(1)
 
-for year in [2024, 2025]:
+frames = []
+for p in paths:
+    try:
+        frames.append(pd.read_csv(p))
+    except Exception as e:
+        print(f"[warn] could not read {p}: {e}")
+if not frames:
+    print("No readable CSVs.")
+    sys.exit(1)
+df = pd.concat(frames, ignore_index=True)
+
+for year in sorted(df.year.unique()):
     d = df[df.year == year]
     best_idx = d.race_rho.idxmax()
     worst_idx = d.race_rho.idxmin()
@@ -10,8 +29,9 @@ for year in [2024, 2025]:
     print(f'  Race MAE:       {d.race_mae.mean():.3f}  (std {d.race_mae.std():.3f})')
     print(f'  Race RMSE:      {d.race_rmse.mean():.3f}')
     print(f'  Spearman rho:   {d.race_rho.mean():.3f}  (std {d.race_rho.std():.3f})')
-    print(f'  Quali MAE:      {d.quali_mae.mean():.3f}')
-    print(f'  Quali rho:      {d.quali_rho.mean():.3f}')
+    if "quali_mae" in d:
+        print(f'  Quali MAE:      {d.quali_mae.mean():.3f}')
+        print(f'  Quali rho:      {d.quali_rho.mean():.3f}')
     print(f'  Winner correct: {d.winner_correct.mean()*100:.1f}%')
     print(f'  Top-3 hits:     {d.top3_hits.mean():.2f}/3  ({d.top3_hits.mean()/3*100:.0f}%)')
     print(f'  Top-5 hits:     {d.top5_hits.mean():.2f}/5  ({d.top5_hits.mean()/5*100:.0f}%)')
@@ -23,22 +43,22 @@ print(f'--- ALL ({len(df)} races) ---')
 print(f'  Race MAE:       {df.race_mae.mean():.3f}')
 print(f'  Race RMSE:      {df.race_rmse.mean():.3f}')
 print(f'  Spearman rho:   {df.race_rho.mean():.3f}')
-print(f'  Quali rho:      {df.quali_rho.mean():.3f}')
 print(f'  Winner correct: {df.winner_correct.mean()*100:.1f}%')
 print(f'  Top-3/race:     {df.top3_hits.mean():.2f}/3')
 print(f'  Top-5/race:     {df.top5_hits.mean():.2f}/5')
 
+n = df.race_name.nunique() if "race_name" in df else len(df)
+baseline_mae = (n * n - 1) / (3 * n)   # expected |perm diff| for n drivers
 print()
-print('--- BASELINES (N=20 drivers) ---')
-print('  Random MAE:     ~6.67  (random permutation avg)')
-print('  Random rho:     ~0.00')
-print(f'  MAE improvement over random: {6.67 - df.race_mae.mean():.2f} positions')
+print(f'--- BASELINES (N≈{round((len(df)*2)/len(df) + 20)} drivers/race) ---')
+print(f'  Random MAE:     ~{baseline_mae:.2f}')
+print(f'  Random rho:     ~0.00')
+print(f'  MAE improvement over random: {baseline_mae - df.race_mae.mean():.2f} positions')
 print(f'  Rho lift over random:        {df.race_rho.mean() - 0.0:.3f}')
 
-# Distribution of rho
 print()
 print('--- rho DISTRIBUTION ---')
-bins = [(-1,0), (0,0.3), (0.3,0.5), (0.5,0.7), (0.7,1.01)]
+bins = [(-1, 0), (0, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 1.01)]
 for lo, hi in bins:
     count = ((df.race_rho >= lo) & (df.race_rho < hi)).sum()
     pct = count / len(df) * 100
@@ -46,5 +66,6 @@ for lo, hi in bins:
 
 print()
 print('--- PER-RACE TABLE ---')
-cols = ['year','round','race_name','race_mae','race_rho','winner_correct','top3_hits','top5_hits']
+cols = ['year', 'round', 'race_name', 'race_mae', 'race_rho', 'winner_correct',
+        'top3_hits', 'top5_hits']
 print(df[cols].to_string(index=False))

@@ -7,6 +7,7 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import logging
+import threading
 
 logger = logging.getLogger("f1_predictor.bayesian")
 

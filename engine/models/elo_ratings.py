@@ -349,6 +349,12 @@ class Glicko2RatingSystem:
                     by_round[r["round"]].append(r)
 
                 for rnd in sorted(by_round.keys()):
+                    # Plan 9-M3: Glickman §missing-periods — drivers who did
+                    # NOT race this round must have RD inflated (φ* = √(φ²+c²))
+                    # before the period is processed, so returning drivers
+                    # carry honest uncertainty instead of veteran-level RD.
+                    participants = {r["name"] for r in by_round[rnd]}
+                    self._inflate_absent(participants, c2_fraction=0.35)
                     self.process_race(by_round[rnd], year, rnd)
 
                 self.seasons_processed.append(year)
@@ -377,6 +383,20 @@ class Glicko2RatingSystem:
             phi_int = d.phi_internal
             new_phi_int = math.sqrt(phi_int ** 2 + tau_between ** 2)
             d.phi = min(ROOKIE_INITIAL_PHI, new_phi_int * GLICKO2_SCALE)
+
+    def _inflate_absent(self, participants: set, c2_fraction: float = 0.35):
+        """Plan 9-M3: per-period RD inflation for drivers who did NOT race
+        (Glickman 2012 §missing periods): φ* = √(φ² + c²), capped at the
+        rookie ceiling. c scaled down from the off-season τ for mid-season
+        absences (injury/substitute gaps)."""
+        tau_absent = (BETWEEN_PERIOD_PHI_INCREASE / GLICKO2_SCALE) * math.sqrt(c2_fraction)
+        for name, d in self.drivers.items():
+            if name in participants:
+                continue
+            phi_int = d.phi_internal
+            new_phi_int = min(math.sqrt(phi_int ** 2 + tau_absent ** 2),
+                              ROOKIE_INITIAL_PHI / GLICKO2_SCALE)
+            d.phi = new_phi_int * GLICKO2_SCALE
 
 
 # ─────────────────────────────────────────────
@@ -515,10 +535,12 @@ def get_elo_system(
     g2._cache_key = cache_key
 
     try:
-        with open(cache_path, "wb") as f:
+        import os
+        tmp = cache_path.with_suffix(".tmp")
+        with open(tmp, "wb") as f:
             pickle.dump(g2, f)
+        os.replace(str(tmp), str(cache_path))
     except Exception:
-        logger.warning("Suppressed error", exc_info=True)
         pass
 
     _cached_elo = g2

@@ -31,6 +31,7 @@ Cost & rate-limit notes:
 """
 
 import os
+import threading
 import pickle
 import warnings
 from pathlib import Path
@@ -351,10 +352,15 @@ class TireDegradationModel:
     # ── Persistence ──────────────────────────────────────────────────────────
 
     def save(self):
+        # Plan 9-M2: atomic saves (tmp + os.replace)
         MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(DEG_MODEL_PATH))
-        with open(DEG_SCALER_PATH, "wb") as f:
+        tmp_model = Path(str(DEG_MODEL_PATH) + ".tmp")
+        tmp_scaler = Path(str(DEG_SCALER_PATH) + ".tmp")
+        self.model.save(str(tmp_model))
+        with open(tmp_scaler, "wb") as f:
             pickle.dump(self.scaler, f, protocol=5)
+        os.replace(str(tmp_model), str(DEG_MODEL_PATH))
+        os.replace(str(tmp_scaler), str(DEG_SCALER_PATH))
         print(f"  [tire_model] Saved to {DEG_MODEL_PATH}")
 
     def load(self) -> bool:
@@ -497,7 +503,12 @@ class TireDegradationModel:
 
         deg = float(preds["deg_output"][0, 0])
         alt_mult = 1.0 + 0.04 * (alt_val / 1000.0)
-        return max(0.001, deg * alt_mult)
+        # Plan 9-M4: the NN input vector carries no track-physics scalars, so
+        # without this the trained path returned IDENTICAL deg for Bahrain
+        # (tire_degradation=5) and Silverstone (=2). Apply the same physics
+        # multiplier the fallback path uses, symmetric and documented.
+        physics_mult = 1.0 + 0.15 * (deg_val - 3.0)
+        return max(0.001, deg * alt_mult * physics_mult)
 
     def predict_strategy(
         self,
@@ -544,13 +555,19 @@ class TireDegradationModel:
 _tire_model_instance: Optional[TireDegradationModel] = None
 
 
+_model_init_lock = threading.Lock()
+
+
 def get_tire_model(verbose: bool = False, force: bool = False) -> TireDegradationModel:
     """
     Returns the singleton TireDegradationModel, loading from cache or training.
-    Call this from predictor.py / monte_carlo.py to avoid repeated model loads.
+    Double-checked locking per plan 9-M2.
     """
     global _tire_model_instance
     if _tire_model_instance is None:
-        _tire_model_instance = TireDegradationModel()
-        _tire_model_instance.load_or_train(verbose=verbose, force=force)
+        with _model_init_lock:
+            if _tire_model_instance is None:
+                m = TireDegradationModel()
+                m.load_or_train(verbose=verbose, force=force)
+                _tire_model_instance = m
     return _tire_model_instance
