@@ -437,13 +437,12 @@ class PlannedFixProbes(unittest.TestCase):
         from engine.core.config import DRIVER_TEAMS_2026
         self.assertEqual(len(DRIVER_TEAMS_2026), 22)
 
-    @unittest.expectedFailure  # Plan 8b: no fabricated fallback prices
     def test_unknown_driver_price_is_not_fabricated(self):
-        from engine.strategy.fantasy_optimizer import _get_driver_price
-        with self.assertRaises(Exception):
-            _get_driver_price("Definitely Not A Driver", {})
+        # Plan 8b (implemented): unmatched -> 0.0 (caller excludes), never $5M
+        from engine.strategy.fantasy_optimizer import _get_driver_price, _get_ctor_price
+        self.assertEqual(_get_driver_price("Definitely Not A Driver", {}), 0.0)
+        self.assertEqual(_get_ctor_price("Not A Team", {}), 0.0)
 
-    @unittest.expectedFailure  # Plan 9-M14: partial rosters rejected outright
     def test_partial_roster_rejected(self):
         from engine.core import data_fetcher as df
         orig = df._latest_completed_round_num
@@ -451,13 +450,16 @@ class PlannedFixProbes(unittest.TestCase):
         try:
             # Simulate standings returning 12 entries by monkeypatching the getter
             real = df.get_driver_standings
+            real_results = df.get_race_results
             df.get_driver_standings = lambda *a, **k: [
                 {"name": f"P{i}", "constructor": "T", "position": i} for i in range(1, 13)
             ]
+            df.get_race_results = lambda *a, **k: []
             try:
                 self.assertEqual(df.get_season_roster(2026), {})
             finally:
                 df.get_driver_standings = real
+                df.get_race_results = real_results
         finally:
             df._latest_completed_round_num = orig
 
