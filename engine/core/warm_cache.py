@@ -71,7 +71,8 @@ def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
     print("Checking historical seasons to ensure all API data is locally cached.")
     print("Using bulk season endpoints and parallel thread pool for max speed.\n")
 
-    seasons_to_check = HISTORICAL_SEASONS + [CURRENT_SEASON]
+    # Plan 9-LOW: dedupe seasons (CURRENT_SEASON already in HISTORICAL_SEASONS)
+    seasons_to_check = sorted(set(HISTORICAL_SEASONS) | {CURRENT_SEASON})
     total_races_cached = 0
     failed_races = 0
 
@@ -126,9 +127,6 @@ def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
                 except Exception as exc:
                     failed_races += 1
                     logger.error("[%s R%s] warm task crashed: %s", year, r_num, exc)
-
-    if progress_callback:
-        progress_callback("DONE", "DONE", "Bulk Cache Warming Complete!")
 
     summary = (f"CACHE WARMING COMPLETE: {total_races_cached} races fully cached"
                + (f", {failed_races} with partial failures (see warnings)" if failed_races else ""))

@@ -1134,8 +1134,11 @@ def main():
                 for _drv in list(driver_prices.keys()):
                     if _drv == _name or _drv.split()[-1] == _name.split()[-1]:
                         driver_prices[_drv]["price"] = float(_data.get("price", driver_prices[_drv].get("price", 0)))
-                        if "ownership" in _data:
-                            driver_prices[_drv]["ownership"] = float(_data["ownership"])
+                        if "ownership_pct" in _data or "ownership" in _data:
+                            # Plan 9-M13: consumers read ownership_pct — the old
+                            # "ownership" key was a silent no-op
+                            driver_prices[_drv]["ownership_pct"] = float(
+                                _data.get("ownership_pct", _data.get("ownership", 0)))
                         driver_prices[_drv]["source"] = "manual_file"
                         _applied += 1
                         break

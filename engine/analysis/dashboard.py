@@ -69,10 +69,11 @@ def generate_html_dashboard(
     country    = race.get("country", "")
     circuit    = race.get("circuit", "")
 
+    race_session = weather.get("sessions", {}).get("Race", {})
     wx_cond    = weather.get("summary_condition", weather.get("condition", "Unknown"))
-    wx_temp    = weather.get("race_day_temp_c", weather.get("temp_c", "?"))
+    wx_temp    = race_session.get("temp_day_c") or weather.get("temp_c") or "?"
     wx_rain    = weather.get("rain_risk", weather.get("rain_chance_pct", "?"))
-    wx_wind    = weather.get("race_day_wind_kmh", weather.get("wind_kmh", "?"))
+    wx_wind    = race_session.get("wind_speed_kph") or weather.get("wind_kmh") or "?"
     wx_icon    = _weather_icon(str(wx_cond))
 
     # ── Sorted driver fantasy pts ────────────────────────────────────────────
@@ -176,14 +177,21 @@ def generate_html_dashboard(
 
     def _dream_rows() -> str:
         rows = ""
+        turbo = optimal.get("turbo_driver")
         for d in optimal.get("drivers", []):
             col = _tc(d.get("team", ""))
+            # Plan 9-M10: turbo driver scores 2x — mark and double the row so
+            # TOTAL == sum(parts) and the assignment is visible
+            is_turbo = d.get("name") == turbo
+            pts_disp = d.get("pts", 0) * 2.0 if is_turbo else d.get("pts", 0)
+            badge = f'{pts_disp:.1f} <span class="badge">TURBO ×2</span>' if is_turbo \
+                else f'{pts_disp:.1f}'
             rows += f"""
             <tr>
               <td class="type-cell">Driver</td>
               <td><span class="dot" style="background:{col}"></span>{d.get("name","")}</td>
               <td class="dim-cell">{d.get("team","")}</td>
-              <td><span class="badge badge-green">{d.get("pts",0):.1f}</span></td>
+              <td><span class="badge badge-green">{badge}</span></td>
               <td class="dim-cell">${d.get("price",0):.1f}M</td>
             </tr>"""
         for c in optimal.get("constructors", []):
@@ -202,7 +210,8 @@ def generate_html_dashboard(
         tags = ""
         for n in names:
             info = prices_dict.get(n, {})
-            col  = _tc(info.get("team", ""))
+            # For constructors, `n` IS the team name — entries carry no "team" key
+            col = _tc(info.get("team", "") or n)
             tags += f'<span class="player-tag" style="border-left:4px solid {col}">{n}<span class="player-price">${info.get("price",0):.1f}M</span></span>'
         return tags
 
