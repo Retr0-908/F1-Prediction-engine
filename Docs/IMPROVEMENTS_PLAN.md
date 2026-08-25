@@ -340,6 +340,76 @@ panel shows a live "API health" row. Users SEE the pacer adapting instead of sta
 
 ---
 
+## Improvement 6 — Weather Intelligence (audit-driven)
+
+### Audit findings (verified against code, Aug 2026)
+| # | Finding | Where | Severity |
+|---|---|---|---|
+| W1 | Hourly race-day slice hardcodes `12 <= hour <= 18` venue-local → **empty/wrong window for night races** (Vegas 22:00, Singapore 20:30, Middle-East evenings) | weather.py:465 | 🔴 |
+| W2 | Forecast request not anchored to race weekend (fetches today→+16d); >16-day races silently degrade to climatology | weather.py:60–74, 406–409 | 🟡 |
+| W3 | Training weather labels are a 17-entry hardcoded list (`_KNOWN_WET_RACES`) covering ~26 % of train races incl. dead 2019/2020 entries; all other races train as `"dry"` | predictor.py:96 | 🔴 |
+| W4 | Inference emits `"overcast"` (from live WMO codes) — an encoding **training never sees** | predictor vs weather | 🟠 |
+| W5 | Tire-degradation model called with hardcoded `track_temp=35.0` although the forecast carries real temps and the model accepts them | predictor.py:702 | 🔴 |
+| W6 | Race-day PoP % / precip mm present in payload but never used; rain_risk is a 3-bucket count of wet *sessions* | weather.py:411–420 | 🠔 |
+| W7 | LSTM context `rain_enc` fed at inference but trained as constant 0.0 | temporal_model | 🟠 |
+
+Verdict: **location correct; date correct within 16 days; factor-into-prediction currently
+superficial** — encodings exist but are trained on sparse synthetic labels, and the strongest
+physical signal (temperature → tire degradation) is discarded.
+
+### Fixes
+
+#### 6a. Race-hour-aware hourly slice (W1)
+Parse the schedule's race `time` (e.g. `"15:00:00Z"`), convert UTC → venue-local via the
+Open-Meteo echoed timezone, slice `[start−3h, start+3h]`; fall back to 12–18 when no time
+is published. Removes empty hourly payloads for night races.
+
+#### 6b. Anchored forecast request + quality flag (W2)
+Pass explicit `start_date=today, end_date=race_date+1` (capped at 16 d) so the payload is
+manifestly the race window. Payload gains `"quality": "live_forecast" | "climatology"` and
+`"forecast_horizon_days"` — surfaced in telemetry/UI so degraded forecasts are visible.
+
+#### 6c. Real training labels from the immutable archive (W3 + W4)
+One-time backfill script (`engine/tools/backfill_weather_labels.py`): for every
+`(season, round)` in training seasons, fetch archive-api daily data for the race date at the
+venue coords (~70 calls, permanent cache `cache/weather/training_labels.json`), map through
+the SAME `_wmo_to_condition` used at inference → conditions include overcast/mixed/wet/dry
+with realistic frequencies. `_KNOWN_WET_RACES` stays as a manual override layer. Eliminates
+both the sparsity and the encoding-mismatch problems; also deletes the dead 2019/2020 entries.
+
+#### 6d. Temperature-aware tire degradation (W5)
+In `_build_features`, replace `track_temp=35.0` with the forecast race-day temp:
+`track_temp ≈ 0.65·temp_max + 0.35·temp_min − 3` (air→track offset), falling back to 35.0
+under climatology. This feeds the existing Keras input — no model change, just honest input.
+
+#### 6e. Continuous rain probability (W6)
+New derived value `rain_prob ∈ [0,1] = clamp(0.6·PoP_race + 0.25·(precip_mm>0) + 0.15·wet_session_fraction)`
+emitted in the weather payload; replaces the bucketed `rain_enc` in features, DNF modifier,
+and MC noise scaling (noise magnitude ∝ rain_prob instead of 3 tiers).
+
+#### 6f. LSTM rain-context alignment (W7)
+Pass the same `rain_prob`-derived encoding in the temporal context vector; requires schema
+bump → **MODEL_SCHEMA_VERSION v7**, one retrain (~3–4 min post-I3) plus deletion of stale
+temporal/tire caches.
+
+#### Deferred (documented non-goals)
+Wind-direction/humidity features (low expected signal, adds dimensions); elevation-adjusted
+air density; in-race dynamic weather.
+
+### Files touched
+`engine/core/weather.py` (6a/6b), new `engine/tools/backfill_weather_labels.py` (6c),
+`engine/models/predictor.py` (6c consumption + 6d + 6f), `engine/models/monte_carlo.py`
+(6e noise scaling), `engine/serving/pipeline.py` (payload passthrough).
+
+### Risks & mitigations
+- Archive API gaps for some venues/years → label falls back to `"dry"` + `quality:"unlabelled"`
+  flag rather than fabricating.
+- v7 retrain invalidates cached models once — acceptable, scheduled with I3 rollout.
+- PoP-based rain_prob shifts EV distributions modestly; before/after comparison captured in
+  the standard backtest spot-round gate.
+
+---
+
 ## Execution Order & Risk
 
 | Step | Depends on | Risk | Effort |
@@ -353,6 +423,9 @@ panel shows a live "API health" row. Users SEE the pacer adapting instead of sta
 | 3a/3b. hardware detect + XGB CUDA | none | medium (fallback path tested with GPU absent) | 1–2 h |
 | 3c. MC multiprocessing | 3a | medium (Windows spawn pickling) | 2–3 h |
 | 3d. concurrent prelude | 5d | low | 1 h |
+| **6a/6b. race-hour slice + anchored forecast** | none | low | 1–2 h |
+| **6c. backfill real weather labels** | none | low (~70 archive calls, one-time) | 1–2 h |
+| **6d/6e/6f. temp-tires + rain_prob + LSTM align (schema v7)** | 6c | medium (retrain + EV shifts) | 2 h |
 | Final gates | all | — | compile, sanity_check, one live pipeline, backtest spot-round, timings vs baseline |
 
 Total estimate: 1.5–2 focused sessions. Every change is additive; rollback = revert commit.
