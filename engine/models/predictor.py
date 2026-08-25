@@ -777,65 +777,72 @@ class F1Predictor:
         track_power_sensitivity = (6 - downforce_level) * _power_enc_val / 10.0
         track_power_sensitivity = max(0.0, min(2.0, track_power_sensitivity))
 
-        return np.array([
-            _clamp(drv_pos,  1, 22),
-            drv_pts,
-            _clamp(ctor_pos, 1, 11),
-            ctor_pts,
-            elo_rating,
-            elo_zscore,
-            _clamp(elo_rank, 1, 22),
-            c_elo,
-            max(VETERAN_PHI_FLOOR, min(350.0, elo_rd)),
-            max(0.0, min(0.15, elo_vol)),
-            max(0.0, min(1.0, elo_conf)),
-            _clamp(form_avg_pos, 1, 22),
-            form_avg_pts,
-            form_dnf_rate,
-            form_score,
-            max(-3.0, min(3.0, momentum_trend)),
-            _clamp(circ_avg, 1, 22),
-            circ_dnf,
-            ctor_dnf,
-            ctor_trend,
-            track_enc,
-            over_enc,
-            power_enc,
-            df_enc,
-            weather_enc,
-            rain_enc,
-            sc_prob,
-            float(grid_pen),
-            tm_delta,
-            wins,
-            _clamp(quali_pos_val, 1, 22),   # qualifying_position
-            team_form_delta,                 # team_form_delta
-            is_rookie_flag,                  # is_rookie
-            float(lstm_momentum_pos),        # lstm_momentum_pos     (Phase 3)
-            float(tire_efficiency_score),    # driver_tire_efficiency_score (Phase 3)
-            float(lap_1_risk),               # lap_1_risk            (Phase 4)
-            float(fresh_tires_avail),        # fresh_tires_avail     (Phase 4)
-            # Phase 5: Track-specific features
-            float(circuit_length_km),        # circuit_length_km
-            float(num_turns),                # num_turns
-            float(circuit_altitude_m),       # circuit_altitude_m
-            float(longest_straight_m),       # longest_straight_m
-            float(track_width_m),            # track_width_m
-            float(sm_zones),                 # sm_zones
-            float(downforce_level),          # downforce_level
-            float(overtake_difficulty),      # overtake_difficulty
-            float(tire_deg_track),           # tire_degradation_track
-            float(sc_prob_track),            # sc_prob_track
-            float(first_lap_risk),           # first_lap_incident_risk
-            float(quali_importance),         # quali_importance
-            float(weather_variability),      # weather_variability
-            float(pit_time_loss_s),          # pit_time_loss_s
-            float(deg_compound_delta),       # deg_compound_delta
-            float(overtake_mode_eff),        # overtake_mode_efficiency
-            float(track_power_sensitivity),  # track_power_sensitivity
-            float(overtake_delta),           # driver_overtake_delta
-            float(driver_dnf_risk),          # driver_dnf_risk
-        ], dtype=float)
+                # Plan 8a: name-bound construction — every value is keyed to its
+        # FEATURE_NAMES entry, so schema drift fails loudly instead of
+        # silently training/predicting on permuted features.
+        feat = {
+            "drv_champ_pos": _clamp(drv_pos, 1, 22),
+            "drv_champ_pts": drv_pts,
+            "ctor_champ_pos": _clamp(ctor_pos, 1, 11),
+            "ctor_champ_pts": ctor_pts,
+            "elo_rating": elo_rating,
+            "elo_zscore": elo_zscore,
+            "elo_rank": _clamp(elo_rank, 1, 22),
+            "ctor_elo": c_elo,
+            "elo_rd": max(VETERAN_PHI_FLOOR, min(350.0, elo_rd)),
+            "elo_volatility": max(0.0, min(0.15, elo_vol)),
+            "elo_confidence": max(0.0, min(1.0, elo_conf)),
+            "form_avg_pos": _clamp(form_avg_pos, 1, 22),
+            "form_avg_pts": form_avg_pts,
+            "form_dnf_rate": form_dnf_rate,
+            "form_score": form_score,
+            "momentum_trend": max(-3.0, min(3.0, momentum_trend)),
+            "circuit_avg_pos": _clamp(circ_avg, 1, 22),
+            "circuit_dnf_rate": circ_dnf,
+            "ctor_dnf_rate": ctor_dnf,
+            "ctor_pts_trend": ctor_trend,
+            "track_type_enc": track_enc,
+            "overtaking_enc": over_enc,
+            "power_unit_enc": power_enc,
+            "downforce_enc": df_enc,
+            "weather_enc": weather_enc,
+            "rain_risk_enc": rain_enc,
+            "sc_prob": sc_prob,
+            "grid_penalty": float(grid_pen),
+            "teammate_delta": tm_delta,
+            "wins_this_season": wins,
+            "qualifying_position": _clamp(quali_pos_val, 1, 22),
+            "team_form_delta": team_form_delta,
+            "is_rookie": is_rookie_flag,
+            "lstm_momentum_pos": float(lstm_momentum_pos),
+            "driver_tire_efficiency_score": float(tire_efficiency_score),
+            "lap_1_risk": float(lap_1_risk),
+            "fresh_tires_avail": float(fresh_tires_avail),
+            "circuit_length_km": float(circuit_length_km),
+            "num_turns": float(num_turns),
+            "circuit_altitude_m": float(circuit_altitude_m),
+            "longest_straight_m": float(longest_straight_m),
+            "track_width_m": float(track_width_m),
+            "sm_zones": float(sm_zones),
+            "downforce_level": float(downforce_level),
+            "overtake_difficulty": float(overtake_difficulty),
+            "tire_degradation_track": float(tire_deg_track),
+            "sc_prob_track": float(sc_prob_track),
+            "first_lap_incident_risk": float(first_lap_risk),
+            "quali_importance": float(quali_importance),
+            "weather_variability": float(weather_variability),
+            "pit_time_loss_s": float(pit_time_loss_s),
+            "deg_compound_delta": float(deg_compound_delta),
+            "overtake_mode_efficiency": float(overtake_mode_eff),
+            "track_power_sensitivity": float(track_power_sensitivity),
+            "driver_overtake_delta": float(overtake_delta),
+            "driver_dnf_risk": float(driver_dnf_risk),
+        }
+        if set(feat.keys()) != set(FEATURE_NAMES):
+            missing = set(FEATURE_NAMES) - set(feat.keys())
+            extra = set(feat.keys()) - set(FEATURE_NAMES)
+            raise RuntimeError(f"Feature drift: missing={missing}, extra={extra}")
+        return np.array([feat[n] for n in FEATURE_NAMES], dtype=float)
 
     # ─────────────────────────────────────────
     # TRAINING (with disk cache)

@@ -380,20 +380,19 @@ PRED_SRC = (ROOT / "engine" / "models" / "predictor.py").read_text(encoding="utf
 
 class StructuralInvariantTests(unittest.TestCase):
     def test_feature_name_and_value_widths_align(self):
-        tree = ast.parse(PRED_SRC)
-        n_values = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_build_features":
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Call):
-                        if getattr(sub.value.func, "attr", "") == "array":
-                            n_values = len(sub.value.args[0].elts)
+        # Plan 8a: features are now DICT-BOUND — every value is keyed by its
+        # FEATURE_NAMES entry with a runtime drift guard, so positional drift
+        # is structurally impossible. Assert the mechanism + count instead of
+        # the old positional-width check.
         i = PRED_SRC.find("FEATURE_NAMES = [")
         j = PRED_SRC.find("]\n", i)
         n_names = len(re.findall(r'"[^"]+"', PRED_SRC[i:j]))
-        self.assertEqual(n_names, n_values,
-                         "FEATURE_NAMES vs feature vector width drift")
         self.assertEqual(n_names, 56)
+        self.assertIn("feat = {", PRED_SRC,
+                      "_build_features must construct a name-keyed feature dict")
+        self.assertIn("set(feat.keys()) != set(FEATURE_NAMES)", PRED_SRC,
+                      "drift guard missing")
+        self.assertIn("[feat[n] for n in FEATURE_NAMES]", PRED_SRC)
 
     def test_model_cache_key_embeds_schema_version_and_device_ready(self):
         self.assertIn('MODEL_SCHEMA_VERSION = "', PRED_SRC)
