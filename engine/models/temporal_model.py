@@ -277,12 +277,16 @@ def build_training_dataset(
                 )
 
                 # Race-day context: [quali_pos, track_temp, rain_enc, sc_prob, ctor_elo_z]
-                # quali_pos = actual grid (varies); sc_prob = real per-circuit value
-                # from local JSON/config (no API hit). rain/temp/ctor-elo stay at
-                # neutral placeholders — predictor.py feeds the same encodings at
-                # inference so the two never diverge structurally.
+                # Plan 6c/6f: rain_enc now VARIES in training using the real
+                # archived condition (labels backfill); predictor.py feeds the
+                # same binary encoding from live forecast at inference.
                 grid_pos = float(r.get("grid", 11.0))
-                rain_enc = 0.0
+                try:
+                    from engine.core.weather import historical_race_condition
+                    _cond = historical_race_condition(year, rnd)
+                    rain_enc = 1.0 if _cond in ("wet", "mixed") else 0.0
+                except Exception:
+                    rain_enc = 0.0
                 try:
                     from engine.core.data_fetcher import _match_circuit_config as _mcc
                     from engine.core.config import SC_PROBABILITY as _SC_PROB

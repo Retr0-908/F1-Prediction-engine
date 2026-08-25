@@ -93,6 +93,23 @@ except ImportError:
 # the Jolpica "status" field which doesn't reliably encode weather conditions.
 # Format: {(year, round): "wet" | "mixed"}
 # ─────────────────────────────────────────────
+_TRAINING_LABELS: dict | None = None
+
+
+def _historical_weather_label(year: int, rnd: int) -> dict | None:
+    """Plan 6c: real archived condition for a training race, from the
+    one-time backfill (cache/weather/training_labels.json). None if absent."""
+    global _TRAINING_LABELS
+    if _TRAINING_LABELS is None:
+        try:
+            from engine.core.paths import WEATHER_CACHE_DIR
+            f = WEATHER_CACHE_DIR / "training_labels.json"
+            _TRAINING_LABELS = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        except Exception:
+            _TRAINING_LABELS = {}
+    return _TRAINING_LABELS.get(f"{year}_{rnd}")
+
+
 _KNOWN_WET_RACES: dict[tuple[int, int], str] = {
     # 2019
     (2019, 11): "wet",    # German GP (Hockenheim) — heavy rain, multiple incidents
@@ -156,7 +173,7 @@ FEATURE_NAMES = [
     "downforce_enc",
     # Weather
     "weather_enc",
-    "rain_risk_enc",
+    "rain_prob",
     # Safety car / grid
     "sc_prob",
     "grid_penalty",
@@ -201,7 +218,7 @@ N_FEATURES = len(FEATURE_NAMES)
 # Bump on ANY change to feature construction, target construction, or model
 # hyperparameters. Embedded in the disk-cache key so stale models are never
 # silently loaded after a schema change.
-MODEL_SCHEMA_VERSION = "6"   # v7 bump lands at end of rollout (see plan)
+MODEL_SCHEMA_VERSION = "7"   # v7: 6c labels + 6d temp + 6e rain_prob + 9-M3 elo + device provenance
 
 # Monotonic label ceiling for ranker targets (higher = better). Larger than
 # any possible field position; only ORDER matters for lambdarank/ndcg.
@@ -237,6 +254,24 @@ def _clamp(val, lo=0, hi=20):
 # ─────────────────────────────────────────────
 # MAIN PREDICTOR CLASS
 # ─────────────────────────────────────────────
+def _rain_prob_from(weather: dict | None) -> float:
+    """Plan 6e: continuous rain probability [0,1]. Uses payload rain_prob
+    when present; falls back to bucket mapping for legacy payloads."""
+    if not weather:
+        return 0.15
+    rp = weather.get("rain_prob")
+    if isinstance(rp, (int, float)):
+        return max(0.0, min(1.0, float(rp)))
+    rr = str(weather.get("rain_risk", "low")).lower()
+    return {"low": 0.15, "medium": 0.5, "high": 0.85}.get(rr, 0.15)
+
+
+import os as _os
+
+def _cpu_threads() -> int:
+    return _os.cpu_count() or 2
+
+
 def to_rank(scores: np.ndarray, normalize: bool = True) -> np.ndarray:
     """Raw scores → per-field rank (1 = best), shared by inference, backtest,
     AND meta-learner training so all three use an identical representation.
@@ -620,7 +655,6 @@ class F1Predictor:
 
         # — Weather —
         weather_enc = WEATHER_ENC.get(weather.get("summary_condition", "dry"), 0)
-        rain_enc    = RAIN_RISK_ENC.get(weather.get("rain_risk", "low"), 0)
 
         # — Safety car probability —
         circuit_key = circuit_cfg.get("key", "")
@@ -679,8 +713,11 @@ class F1Predictor:
                 # to those constants here — feeding real values into never-
                 # trained axes shifts momentum output arbitrarily. Unpin via
                 # plan 6c/6f (archive labels + Elo replay) in the v7 retrain.
-                _rain_enc = 0.0    # == build_training_dataset constant
-                _ctor_z = 0.0      # == build_training_dataset constant
+                # Plan 6e/6f: rain now VARIES in training (archive
+                # labels); ctor_elo_z stays pinned both sides.
+                _cond = str((weather or {}).get('summary_condition', 'dry')).lower()
+                _rain_enc = 1.0 if _cond in ('wet', 'mixed') else 0.0
+                _ctor_z = 0.0
                 ctx_vec = np.array(
                     [quali_pos_val, 35.0, _rain_enc,
                      SC_PROBABILITY.get(circuit_key, 0.40), _ctor_z],
@@ -706,6 +743,15 @@ class F1Predictor:
             try:
                 if self._tire_model is None:
                     self._tire_model = _get_tire_model(verbose=False)
+                # Plan 6d: forecast race-day air→track temperature estimate
+                try:
+                    _rs = (weather or {}).get("sessions", {}).get("Race", {})
+                    _tmax = float(_rs.get("temp_max_c", 25.0))
+                    _tmin = float(_rs.get("temp_min_c", 15.0))
+                    track_temp_val = max(5.0, 0.65 * _tmax + 0.35 * _tmin - 3.0)
+                except Exception:
+                    track_temp_val = 35.0
+
                 # Primary compound: derive from the track's tire-degradation
                 # rating (higher deg → harder compound), not overtaking ease.
                 try:
@@ -717,7 +763,7 @@ class F1Predictor:
                 driver_deg = self._tire_model.predict_deg_per_lap(
                     primary_compound,
                     stint_length=20.0,
-                    track_temp=35.0,
+                    track_temp=track_temp_val,   # plan 6d
                     track_type=circuit_cfg.get("track_type", "permanent"),
                 )
                 # Score = -deg (lower degradation = positive score = better)
@@ -807,7 +853,7 @@ class F1Predictor:
             "power_unit_enc": power_enc,
             "downforce_enc": df_enc,
             "weather_enc": weather_enc,
-            "rain_risk_enc": rain_enc,
+            "rain_prob":     _rain_prob_from(weather),
             "sc_prob": sc_prob,
             "grid_penalty": float(grid_pen),
             "teammate_delta": tm_delta,
@@ -1012,7 +1058,12 @@ class F1Predictor:
                         # Use authoritative wet-race lookup instead of the unreliable
                         # Jolpica status field (which records "Finished"/"Accident" etc.,
                         # not weather). Falls back to "dry" for unlisted races.
-                        _wet_label = _KNOWN_WET_RACES.get((year, rnd), "dry")
+                        # Plan 6c: real archive label first; manual list overrides
+                        _arch = _historical_weather_label(year, rnd)
+                        _wet_label = (_KNOWN_WET_RACES.get((year, rnd))
+                                      or (_arch or {}).get("condition")
+                                      or "dry")
+                        _race_temp_max = (_arch or {}).get("temp_max")
                         weather_hist = {
                             "summary_condition": _wet_label,   # "wet" | "mixed" | "dry"
                             "rain_risk": "high" if _wet_label == "wet" else "medium" if _wet_label == "mixed" else "low",
@@ -1170,6 +1221,18 @@ class F1Predictor:
                 print(f"  Quali meta-learner trained.")
 
         self._trained = (self.race_rf is not None)
+        # Plan I4: telemetry stats for pipeline/UI consumption
+        try:
+            from engine.core.hardware import profile as _hw_p
+            _hw_dev = _hw_p()["xgb_device"]
+        except Exception:
+            _hw_dev = "cpu"
+        self._last_train_stats = {
+            "dataset_samples": len(X_race),
+            "skipped_races": skipped_races,
+            "device": _hw_dev,
+            "threads": _cpu_threads(),
+        }
         # Re-enable Phase 3 inference now that training is complete
         self._is_training = False
         if self._trained:
@@ -1520,9 +1583,8 @@ class F1Predictor:
         drv_dnf  = form.get("dnf_rate", 0.07)
         ctor_dnf = ctor_rel.get("dnf_rate", 0.07)
         # Fix: weather dict uses 'summary_condition' not 'condition_enc'
-        summary_cond = self._weather.get("summary_condition", "dry") if self._weather else "dry"
-        weather_enc  = CONDITION_ENC.get(summary_cond, 0)
-        weather_mod  = 1.0 + 0.4 * weather_enc / 3.0
+        # Plan 6e: continuous modifier driven by rain_prob
+        weather_mod = 1.0 + 0.4 * _rain_prob_from(self._weather)
         # SC probability also elevates DNF risk slightly
         circuit_key = self._circuit_config.get("key", "")
         sc_mod = 1.0 + 0.15 * SC_PROBABILITY.get(circuit_key, 0.40)

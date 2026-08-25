@@ -279,7 +279,7 @@ async def rebuild_cache():
             clear_cache("fastf1")
             clear_cache("elo")
 
-            from engine.core.warm_cache             import engine.core.warm_cache as warm_cache
+            from engine.core import warm_cache
             def cache_progress(payload):
                 # Plan I1: dict progress contract {done,total,current,...}
                 if isinstance(payload, dict):

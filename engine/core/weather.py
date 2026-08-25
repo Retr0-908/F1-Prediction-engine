@@ -67,6 +67,8 @@ def _open_meteo_forecast(lat: float, lon: float) -> Optional[dict]:
     if cached:
         return cached
 
+    # Plan 6b: explicit window anchor — but Open-Meteo rejects start_date +
+    # forecast_days together, so we only add end_date to cap the horizon.
     params = {
         "latitude":   lat,
         "longitude":  lon,
@@ -331,10 +333,8 @@ def get_race_weekend_weather(race_name: str, race_date_str: str,
     Sun: Race) instead of the classic Thu/Fri/Sat offsets that produced
     Thursday forecasts and a missing Sprint session.
     """
-    """
-    Fetch weather forecast for the race venue and return per-session forecasts.
-    Uses live 16-day forecast if available, otherwise queries historical archive.
-    """
+    # Plan 6a/6b context
+    race_time_utc = (race_info or {}).get("time", "")   # e.g. "15:00:00Z"
     circuit_cfg = _match_circuit(race_name)
     lat  = circuit_cfg.get("lat", 0.0)
     lon  = circuit_cfg.get("lon", 0.0)
@@ -348,6 +348,8 @@ def get_race_weekend_weather(race_name: str, race_date_str: str,
             "city": race_name,
             "race_date": race_date_str,
             "sessions": {},
+            "rain_prob": 0.0,
+            "quality": "unavailable",
             "rain_risk": "low",
             "summary_condition": "unknown",
             "condition_enc": CONDITION_ENC.get("unknown", 1),
@@ -369,6 +371,7 @@ def get_race_weekend_weather(race_name: str, race_date_str: str,
 
     daily_by_date = {}
     hourly_by_dt = []
+    _venue_tz = None   # hoisted: race-hour slice needs it even without forecast
     
     if forecast:
         daily = forecast.get("daily", {})
@@ -498,14 +501,50 @@ def get_race_weekend_weather(race_name: str, race_date_str: str,
 
     race_cond = session_forecasts.get("Race", {}).get("condition", "dry")
 
-    # Filter hourly for Race Day (approx noon to 6 PM) using VENUE-LOCAL time
+    # Plan 6a: race-HOUR-aware hourly window. Night races (Vegas ~22:00,
+    # Singapore ~20:30, Middle-East evenings) previously produced an EMPTY
+    # slice because of the hardcoded 12–18 filter.
+    race_start_local = None
+    race_time_utc = (race_info or {}).get("time", "")
+    if race_time_utc:
+        try:
+            hh = int(str(race_time_utc).split(":")[0])
+            mm = int(str(race_time_utc).split(":")[1]) if ":" in str(race_time_utc)[3:] else 0
+            race_utc_dt = datetime.datetime.combine(
+                race_date, datetime.time(hh, mm),
+                tzinfo=datetime.timezone.utc,
+            )
+            if _venue_tz is not None:
+                race_start_local = race_utc_dt.astimezone(_venue_tz)
+        except Exception:
+            race_start_local = None
+
     race_hourly = []
-    for h in hourly_by_dt:
-        h_local = h.get("local_dt")
-        if h_local is None:
-            h_local = datetime.datetime.fromtimestamp(h["dt"])
-        if h_local.date() == race_date and 12 <= h_local.hour <= 18:
-            race_hourly.append(_hourly_summary_openmeteo(h))
+    if race_start_local is not None:
+        lo = race_start_local - datetime.timedelta(hours=3)
+        hi = race_start_local + datetime.timedelta(hours=3)
+        for h in hourly_by_dt:
+            h_local = h.get("local_dt") or datetime.datetime.fromtimestamp(h["dt"])
+            if lo <= h_local <= hi:
+                race_hourly.append(_hourly_summary_openmeteo(h))
+    else:
+        for h in hourly_by_dt:
+            h_local = h.get("local_dt")
+            if h_local is None:
+                h_local = datetime.datetime.fromtimestamp(h["dt"])
+            if h_local.date() == race_date and 12 <= h_local.hour <= 18:
+                race_hourly.append(_hourly_summary_openmeteo(h))
+
+    # Plan 6e: continuous rain probability for features/DNF/MC
+    race_session_data = session_forecasts.get("Race", {})
+    pop_race = float(race_session_data.get("pop_pct", 0.0) or 0.0) / 100.0
+    precip_race = float(race_session_data.get("rain_mm", 0.0) or 0.0)
+    wet_frac = (wet_count + mix_count * 0.5) / max(1, len(session_forecasts))
+    rain_prob = max(0.0, min(1.0, 0.6 * pop_race + 0.25 * float(precip_race > 0.0)
+                             + 0.15 * wet_frac))
+
+    # Plan 6b: forecast quality flag — climatology must be visible to consumers
+    quality = "live_forecast" if use_live_forecast else "climatology"
 
     # Compile the final payload matching OWM response structure
     return {
@@ -516,11 +555,31 @@ def get_race_weekend_weather(race_name: str, race_date_str: str,
         "race_date":         race_date_str,
         "sessions":          session_forecasts,
         "rain_risk":         rain_risk,
+        "rain_prob":         round(rain_prob, 3),       # plan 6e (additive; UI-safe)
         "summary_condition": race_cond,
         "condition_enc":     CONDITION_ENC.get(race_cond, 0),
         "race_day_hourly":   race_hourly,
-        "daily_raw":         [session_forecasts["Race"]], # dummy list to prevent empty errors
+        "quality":           quality,                    # plan 6b
+        "daily_raw":         [session_forecasts.get("Race", {})],
     }
+
+
+_TRAINING_LABELS_CACHE: dict | None = None
+
+
+def historical_race_condition(year: int, rnd: int) -> str | None:
+    """Plan 6c/6f: archived condition label for a training race
+    ("dry"/"overcast"/"mixed"/"wet"), or None if not backfilled.
+    Consumed by temporal_model training so rain context VARIES."""
+    global _TRAINING_LABELS_CACHE
+    if _TRAINING_LABELS_CACHE is None:
+        try:
+            f = _WEATHER_CACHE_DIR / "training_labels.json"
+            _TRAINING_LABELS_CACHE = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        except Exception:
+            _TRAINING_LABELS_CACHE = {}
+    entry = _TRAINING_LABELS_CACHE.get(f"{year}_{rnd}")
+    return entry.get("condition") if entry else None
 
 
 def _match_circuit(race_name: str) -> dict:

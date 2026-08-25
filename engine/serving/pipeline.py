@@ -209,7 +209,10 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
         progress_callback(run_id, "ML_MODEL", "done", "Model ready", data={
             "rf_weight": float(round(meta_coefs[0], 2)),
             "xgb_weight": float(round(meta_coefs[1], 2)),
-            "lgb_weight": float(round(meta_coefs[2], 2))
+            "lgb_weight": float(round(meta_coefs[2], 2)),
+            # Plan I4: telemetry payload
+            "device": getattr(predictor, "_train_device", "unknown"),
+            "dataset_samples": getattr(predictor, "_last_dataset_size", None),
         })
 
         # 5. Predictions

@@ -634,6 +634,21 @@ async function startAnalysis() {
     const logEl = document.getElementById('analysis-log');
     logEl.innerHTML = '';
     
+    // Plan I4: Engine Telemetry panel — key/value grid fed by SSE payloads
+    let telPanel = document.getElementById('engine-telemetry');
+    if (!telPanel) {
+        telPanel = document.createElement('div');
+        telPanel.id = 'engine-telemetry';
+        telPanel.style.cssText = 'margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:8px;font-size:11px;color:var(--text-secondary);';
+        telPanel.innerHTML = '<div style="font-weight:bold;margin-bottom:6px;color:var(--text-primary);">⚙ ENGINE TELEMETRY</div><div id="telemetry-kv"></div>';
+        logEl.parentElement.appendChild(telPanel);
+    }
+    const telKv = document.getElementById('telemetry-kv');
+    telKv.innerHTML = '';
+    
+    // Track stage arrival times for duration badges
+    window._stageTimes = {};
+    
     const anim = document.getElementById('analysis-animation-container');
     if (anim) anim.style.display = 'flex';
     
@@ -754,10 +769,62 @@ function connectStream(runId) {
         
         // Update Log
         const line = document.createElement('div');
+        const now = new Date();
+        const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+        
+        // Plan I4: stage duration badge
+        if (window._stageTimes && window._stageTimes[data.stage]) {
+            const dur = ((Date.now() - window._stageTimes[data.stage]) / 1000).toFixed(1);
+            data._dur = dur;
+        }
+        window._stageTimes[data.stage] = Date.now();
+        
         line.className = `log-line ${data.status}`;
-        line.innerText = `[${data.stage}] ${data.message}`;
+        line.innerText = `[${ts} ${data.stage}] ${data.message}`;
+        
+        // Plan I4: collapsible payload details
+        if (data.data && Object.keys(data.data).length > 0) {
+            try {
+                const details = document.createElement('details');
+                details.style.marginLeft = '12px';
+                const summary = document.createElement('summary');
+                summary.innerText = '▸ payload';
+                summary.style.cursor = 'pointer';
+                summary.style.fontSize = '10px';
+                summary.style.color = 'var(--text-secondary)';
+                const pre = document.createElement('pre');
+                pre.style.cssText = 'font-size:9px;margin:2px 0;white-space:pre-wrap;color:var(--text-secondary);';
+                pre.innerText = JSON.stringify(data.data, null, 1);
+                details.appendChild(summary);
+                details.appendChild(pre);
+                line.appendChild(details);
+            } catch (e) { /* non-critical */ }
+        }
+        
         logEl.appendChild(line);
         logEl.scrollTop = logEl.scrollHeight;
+        
+        // Plan I4: telemetry panel — merge any arriving payload keys into kv grid
+        const telKvEl = document.getElementById('telemetry-kv');
+        if (telKvEl && data.data) {
+            for (const [k, v] of Object.entries(data.data)) {
+                let el = telKvEl.querySelector(`[data-tk="${k}"]`);
+                if (!el) {
+                    el = document.createElement('div');
+                    el.dataset.tk = k;
+                    el.style.cssText = 'display:flex;justify-content:space-between;';
+                    el.innerHTML = `<span>${k.replace(/_/g,' ')}</span><span style="color:var(--text-primary)" data-tv></span>`;
+                    telKvEl.appendChild(el);
+                }
+                el.querySelector('[data-tv]').innerText =
+                    typeof v === 'number' ? v.toFixed(2).replace(/\.00$/,'') : String(v);
+            }
+        }
+        // Stage duration badge
+        const stageBadge = telKvEl?.querySelector('[data-tk="stage_duration"]');
+        if (stageBadge && data._dur) {
+            stageBadge.querySelector('[data-tv]').innerText = `${data._dur}s`;
+        }
         
         const statusTextEl = document.getElementById('animation-status-text');
         if (statusTextEl && data.stage) {
