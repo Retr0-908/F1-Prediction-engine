@@ -78,13 +78,28 @@ def _rmse(pred: list[float], actual: list[float]) -> float:
 # ─────────────────────────────────────────────
 
 def _find_prediction_file(round_num: int) -> Path | None:
-    """Find the most recent prediction file for a given round."""
+    """Find the most recently GENERATED prediction file for a round.
+
+    Lexicographic filename order has no relation to generation time (multiple
+    runs create same-pattern files), so rank candidates by their embedded
+    `generated_at` timestamp instead."""
     pattern = f"race_{round_num}_*.json"
-    matches = sorted(OUTPUT_DIR.glob(pattern))
-    if matches:
-        return matches[-1]
-    # Also try zero-padded
-    return None
+    best_path, best_ts = None, ""
+    for f in OUTPUT_DIR.glob(pattern):
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                ts = json.load(fh).get("generated_at", "") or ""
+        except Exception:
+            ts = ""
+        if not ts:
+            # Fall back to filesystem mtime for legacy files without a stamp
+            try:
+                ts = datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+            except Exception:
+                continue
+        if ts >= best_ts:
+            best_ts, best_path = ts, f
+    return best_path
 
 
 # ─────────────────────────────────────────────
@@ -138,13 +153,20 @@ def validate_specific_prediction(pred_file: Path) -> dict | None:
         pred_pos = pred_entry.get("predicted_rank", 99)
         act_pos  = actual_pos.get(driver)
         if act_pos is None:
-            # Try partial match
+            # Exact normalized-surname-token match only — substring containment
+            # misattributed results ("Sainz" inside "... Sainz Jr", first-name
+            # fragments, etc.). Unmatched drivers are flagged, NOT fabricated
+            # as DNFs.
+            pred_surname = driver.split()[-1].lower()
             for k, v in actual_pos.items():
-                if driver.split()[-1].lower() in k.lower():
+                if k.split()[-1].lower() == pred_surname:
                     act_pos = v
                     break
-        if act_pos is None:
-            act_pos = 99  # DNF / not in results
+        unmatched = act_pos is None
+        if unmatched:
+            console.print(f"[yellow]  [?] {driver}: no exact match in actual results "
+                          f"— excluded from metrics[/yellow]")
+            act_pos = 99
 
         comparison.append({
             "driver":    driver,
@@ -152,6 +174,7 @@ def validate_specific_prediction(pred_file: Path) -> dict | None:
             "predicted": pred_pos,
             "actual":    act_pos,
             "delta":     act_pos - pred_pos,
+            "unmatched": unmatched,
         })
 
     # Sort by actual position for display

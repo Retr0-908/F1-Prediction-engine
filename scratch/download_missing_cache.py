@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 # Add project root to sys.path
-sys.path.append("c:/Users/Retr0-908/Desktop/Tools/f1-predictor")
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from data_fetcher import (
     get_season_schedule,

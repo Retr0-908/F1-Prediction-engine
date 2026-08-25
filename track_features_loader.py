@@ -39,9 +39,14 @@ _REQUIRED_KEYS = {
     "overtake_mode_efficiency": (int, float),
 }
 
-# In-memory cache: circuit_key -> dict
-_cache: Dict[str, Dict[str, Any]] = {}
+# In-memory cache: circuit_key -> dict | None.
+# None is cached too (negative cache) so an invalid file isn't re-read and
+# re-validated on every single feature-build call. `None` values are excluded
+# from load_all_track_features() results via the sentinel below.
+_CACHE_MISS = object()
+_cache: Dict[str, Any] = {}
 _validation_errors: list = []
+_all_loaded: bool = False
 
 
 def _validate(data: dict, filepath: str) -> bool:
@@ -50,7 +55,8 @@ def _validate(data: dict, filepath: str) -> bool:
     for key, expected_type in _REQUIRED_KEYS.items():
         if key not in data:
             errors.append(f"Missing key: {key}")
-        elif not isinstance(data[key], expected_type):
+        elif isinstance(data[key], bool) or not isinstance(data[key], expected_type):
+            # bool is a subclass of int — reject it for numeric fields
             errors.append(
                 f"Key '{key}': expected {expected_type}, got {type(data[key]).__name__}"
             )
@@ -63,8 +69,16 @@ def _validate(data: dict, filepath: str) -> bool:
         errors.append("tire_degradation must be 1-5")
     if "sc_probability" in data and not (0 <= data["sc_probability"] <= 1):
         errors.append("sc_probability must be 0.0-1.0")
+    if "vsc_probability" in data and not (0 <= data.get("vsc_probability", 0) <= 1):
+        errors.append("vsc_probability must be 0.0-1.0")
+    if "first_lap_incident_risk" in data and not (0 <= data["first_lap_incident_risk"] <= 1):
+        errors.append("first_lap_incident_risk must be 0.0-1.0")
+    if "overtake_mode_efficiency" in data and not (0 <= data["overtake_mode_efficiency"] <= 1):
+        errors.append("overtake_mode_efficiency must be 0.0-1.0")
     if errors:
-        _validation_errors.append(f"{filepath}: {'; '.join(errors)}")
+        msg = f"{filepath}: {'; '.join(errors)}"
+        if msg not in _validation_errors:
+            _validation_errors.append(msg)
         return False
     return True
 
@@ -72,17 +86,23 @@ def _validate(data: dict, filepath: str) -> bool:
 def load_track_features(circuit_key: str) -> Optional[Dict[str, Any]]:
     """Load track features for a given circuit_key. Returns None if not found."""
     if circuit_key in _cache:
-        return _cache[circuit_key]
+        cached = _cache[circuit_key]
+        return None if cached is _CACHE_MISS else cached
     filepath = _TRACK_DIR / f"{circuit_key}.json"
     if not filepath.exists():
+        _cache[circuit_key] = _CACHE_MISS
         return None
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        _validation_errors.append(f"{filepath}: {e}")
+        msg = f"{filepath}: {e}"
+        if msg not in _validation_errors:
+            _validation_errors.append(msg)
+        _cache[circuit_key] = _CACHE_MISS   # negative cache: don't re-parse per call
         return None
     if not _validate(data, str(filepath)):
+        _cache[circuit_key] = _CACHE_MISS
         return None
     _cache[circuit_key] = data
     return data
@@ -90,13 +110,15 @@ def load_track_features(circuit_key: str) -> Optional[Dict[str, Any]]:
 
 def load_all_track_features() -> Dict[str, Dict[str, Any]]:
     """Load all track features from the track_features/ directory."""
-    if _cache and len(_cache) >= 24:
-        return dict(_cache)
+    global _all_loaded
+    if _all_loaded:
+        return {k: v for k, v in _cache.items() if v is not _CACHE_MISS}
     for json_file in sorted(_TRACK_DIR.glob("*.json")):
         circuit_key = json_file.stem
         if circuit_key not in _cache:
             load_track_features(circuit_key)
-    return dict(_cache)
+    _all_loaded = True
+    return {k: v for k, v in _cache.items() if v is not _CACHE_MISS}
 
 
 def get_track_feature(circuit_key: str, feature_name: str, default=None):
@@ -114,5 +136,7 @@ def get_validation_errors() -> list:
 
 def clear_cache():
     """Clear the in-memory cache."""
+    global _all_loaded
     _cache.clear()
     _validation_errors.clear()
+    _all_loaded = False

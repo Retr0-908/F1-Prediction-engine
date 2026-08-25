@@ -23,6 +23,9 @@ Research backing:
 """
 
 import json
+import os
+import copy as _copy
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -39,6 +42,7 @@ from track_features_loader import get_track_feature
 # ─────────────────────────────────────────────
 
 _CHIP_STATE_PATH = Path(__file__).parent / "cache" / "chip_state.json"
+_chip_state_lock = threading.RLock()   # reentrant: mark/reset call load/save
 
 ALL_CHIPS = ["Limitless", "No Negative", "3x Boost", "Wildcard", "Final Fix"]
 
@@ -50,45 +54,60 @@ _DEFAULT_STATE = {
 }
 
 
+def _fresh_default_state() -> dict:
+    """Deep copy — a shallow dict() shares nested dicts with _DEFAULT_STATE,
+    which let mark_chip_used() permanently pollute the module-level default."""
+    return _copy.deepcopy(_DEFAULT_STATE)
+
+
 def load_chip_state() -> dict:
     """Load persisted chip state. Returns default (all unused) if no file or wrong season."""
-    _CHIP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if _CHIP_STATE_PATH.exists():
-        try:
-            with open(_CHIP_STATE_PATH, "r", encoding="utf-8") as f:
-                state = json.load(f)
-            # Reset if season changed
-            if state.get("season") != CURRENT_SEASON:
-                return dict(_DEFAULT_STATE)
-            return state
-        except Exception:
-            pass
-    return dict(_DEFAULT_STATE)
+    with _chip_state_lock:
+        _CHIP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if _CHIP_STATE_PATH.exists():
+            try:
+                with open(_CHIP_STATE_PATH, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                # Reset if season changed
+                if state.get("season") != CURRENT_SEASON:
+                    return _fresh_default_state()
+                return state
+            except json.JSONDecodeError as e:
+                # Corrupt state file (e.g. interrupted write) — do NOT silently
+                # pretend all chips are unused; surface the problem.
+                print(f"  [WARN] chip_state.json corrupt ({e}); using defaults")
+        return _fresh_default_state()
 
 
 def save_chip_state(state: dict) -> None:
-    """Persist chip state to disk."""
-    _CHIP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    state["season"] = CURRENT_SEASON
-    with open(_CHIP_STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    """Persist chip state to disk (atomic write)."""
+    with _chip_state_lock:
+        _CHIP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        state["season"] = CURRENT_SEASON
+        tmp = _CHIP_STATE_PATH.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, _CHIP_STATE_PATH)
 
 
 def mark_chip_used(chip: str, round_num: int, circuit_name: str) -> dict:
-    """Load state, mark chip as used, save, and return updated state."""
-    state = load_chip_state()
-    state["used"][chip] = True
-    state["used_on_round"][chip] = round_num
-    state["used_on_circuit"][chip] = circuit_name
-    save_chip_state(state)
-    return state
+    """Load state, mark chip as used, save, and return updated state.
+    Lock-protected read-modify-write so concurrent requests can't lose updates."""
+    with _chip_state_lock:
+        state = load_chip_state()
+        state["used"][chip] = True
+        state["used_on_round"][chip] = round_num
+        state["used_on_circuit"][chip] = circuit_name
+        save_chip_state(state)
+        return state
 
 
 def reset_chip_state() -> dict:
     """Reset all chips to unused (new season / manual override)."""
-    state = dict(_DEFAULT_STATE)
-    save_chip_state(state)
-    return state
+    with _chip_state_lock:
+        state = _fresh_default_state()
+        save_chip_state(state)
+        return state
 
 
 # ─────────────────────────────────────────────
@@ -111,7 +130,7 @@ def _circuit_value_score(circuit_key: str, is_sprint: bool) -> float:
     return round(sc_prob * 3.0 + sprint_bonus * 4.0 + overtaking_score, 2)
 
 
-def _season_urgency(current_round: int, total_rounds: int = 22) -> float:
+def _season_urgency(current_round: int, total_rounds: int = None) -> float:
     """
     Returns a score bonus (0.0–3.0) that escalates as the season runs out.
     This prevents chips from being held forever and wasted at season end.
@@ -123,7 +142,13 @@ def _season_urgency(current_round: int, total_rounds: int = 22) -> float:
       70–85% elapsed → 2.0  (high — few good windows left)
       > 85%  elapsed → 3.0  (critical — almost no races remaining)
     """
-    pct = current_round / total_rounds
+    if total_rounds is None:
+        try:
+            from data_fetcher import get_season_schedule
+            total_rounds = len(get_season_schedule(CURRENT_SEASON))
+        except Exception:
+            total_rounds = 24   # documented fallback
+    pct = current_round / max(1, total_rounds)
     if pct < 0.33:
         return 0.0
     elif pct < 0.55:
@@ -602,7 +627,7 @@ def _score_wildcard(
         chip="Wildcard",
         raw_score=round(score, 1),
         use_now=use_now,
-        hold_until="when team needs a major reshuffle (price crash, injury, regulation shift)",
+        hold_until=None if use_now else "when team needs a major reshuffle (price crash, injury, regulation shift)",
         reason=" · ".join(reasons) if reasons else "Save for a full squad reset when prices shift",
         urgency="high" if score >= 5 else ("medium" if use_now else "low"),
         expected_gain=18.0 if use_now else 0.0,

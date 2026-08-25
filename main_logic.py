@@ -99,6 +99,31 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
 
         progress_callback(run_id, "PRICES", "done", f"{len(driver_prices)} drivers loaded")
 
+        # Record price/ownership snapshots so web-UI users accumulate movement
+        # history too (previously only the CLI recorded these).
+        try:
+            import price_tracker
+            price_tracker.record_prices(race.get("round", 0), driver_prices, constructor_prices)
+            price_tracker.record_ownership(race.get("round", 0), driver_prices, constructor_prices)
+        except Exception as e:
+            logger.warning("Price snapshot recording failed: %s", e)
+
+        # Cross-check the scraped fantasy roster against Jolpica standings —
+        # surfaces mid-season seat swaps / stale scrapes automatically.
+        try:
+            from data_fetcher import get_season_roster, compare_rosters
+            api_roster = get_season_roster(CURRENT_SEASON)
+            if api_roster and dynamic_roster:
+                diffs = compare_rosters(
+                    dynamic_roster, api_roster,
+                    "fantasy-scrape", "jolpica-standings",
+                )
+                if diffs:
+                    progress_callback(run_id, "PRICES", "loading",
+                                      f"Roster drift detected ({len(diffs)} differences) — see logs")
+        except Exception as e:
+            logger.debug("Roster cross-check skipped: %s", e)
+
         # 4. ML Model
         progress_callback(run_id, "ML_MODEL", "loading", "Training ML ensemble...")
         predictor = F1Predictor()
@@ -147,7 +172,8 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             
         mc_results = simulate_race_weekend(
             race_order, quali_order, circuit_cfg, weather, sims, is_sprint, sprint_order,
-            progress_callback=mc_progress
+            progress_callback=mc_progress,
+            grid_penalties=getattr(predictor, "_grid_penalties", {})
         )
         mc_ev_pts = get_expected_value_pts(mc_results)
         from config import DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS
@@ -168,7 +194,8 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
         # Calculate 3-race lookahead Expected Value
         lookahead_ev_pts = calculate_lookahead_ev(
             predictor, race.get("round", 1), options, sims,
-            run_id=run_id, progress_callback=progress_callback
+            run_id=run_id, progress_callback=progress_callback,
+            roster=dynamic_roster, grid_overrides=grid_overrides,
         ) if race.get("round") else mc_ev_pts
         
         # Restore predictor context for the current race just in case
@@ -204,6 +231,7 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             "urgency":      cs.urgency,
             "reason":       cs.reason,
             "hold_until":   cs.hold_until,
+            "hold_until_round": getattr(cs, "hold_until_round", None),
             "expected_gain": cs.expected_gain,
             "already_used": cs.already_used,
             "used_on":      cs.used_on,
@@ -265,21 +293,35 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
         logger.error("Pipeline failed", exc_info=True)
         progress_callback(run_id, "ERROR", "error", str(e))
         return None
-import copy
 
-def calculate_lookahead_ev(predictor, current_race_round, options, sims, run_id=None, progress_callback=None):
+
+def calculate_lookahead_ev(
+    predictor, current_race_round, options, sims,
+    run_id=None, progress_callback=None,
+    roster=None, grid_overrides=None,
+):
+    """
+    Sum of MC expected values over the next 3 races.
+
+    NOTE on scales: the returned totals are PER-RACE AVERAGES, not 3-race sums —
+    the transfer optimizer and dream-team LP operate on single-race point scales
+    ($-per-point tradeoffs), so feeding them a 3x-summed EV distorted value
+    rankings by construction.
+    """
     from data_fetcher import get_race_by_round, is_sprint_weekend
     from weather import get_race_weekend_weather
     from config import CURRENT_SEASON, CONSTRUCTORS_2025, DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS
     from monte_carlo import simulate_race_weekend, get_expected_value_pts
     
     total_ev = {}
-    
+    rounds_simulated = 0
+
     # We will do 3 races: round, round+1, round+2
     for r in range(current_race_round, current_race_round + 3):
         race = get_race_by_round(r, CURRENT_SEASON)
         if not race:
             break
+        rounds_simulated += 1
             
         if progress_callback and run_id:
             progress_callback(run_id, "ANALYSIS", "loading", f"Simulating Round {r} lookahead ({race['name'].replace(' Grand Prix', '')})...")
@@ -294,21 +336,30 @@ def calculate_lookahead_ev(predictor, current_race_round, options, sims, run_id=
             circuit_cfg = race.get("circuit_config", {})
         weather = get_race_weekend_weather(race["name"], race["date"])
         
-        # Load context for this future race
-        predictor.load_context(circuit_cfg, weather, mode="pre-quali", race_info=race)
+        # Load context for this future race (roster/overrides carried through so
+        # mid-season substitutions aren't ignored in future-round predictions)
+        predictor.load_context(
+            circuit_cfg, weather, roster=roster,
+            mode="pre-quali", race_info=race, grid_overrides=grid_overrides,
+        )
         
         race_order = predictor.predict_finishing_order()
         quali_order = predictor.predict_qualifying_order()
         sprint_order = predictor.predict_sprint_order() if is_sprint else None
         
         # Pass None as progress_callback for lookahead MC to keep it quiet and fast
-        mc_results = simulate_race_weekend(race_order, quali_order, circuit_cfg, weather, sims, is_sprint, sprint_order)
+        mc_results = simulate_race_weekend(
+            race_order, quali_order, circuit_cfg, weather, sims, is_sprint, sprint_order,
+            grid_penalties=getattr(predictor, "_grid_penalties", {})
+        )
         ev_pts = get_expected_value_pts(mc_results)
         
         for name, points in ev_pts.items():
             total_ev[name] = total_ev.get(name, 0.0) + points
             
-        # Calculate constructor expected values for this round
+        # Calculate constructor expected values for this round.
+        # ev_pts already contains MC-integrated driver points (including sprint when is_sprint=True).
+        # Constructor points = sum of both drivers' EV minus DOTD (driver-only bonus) + pit stop bonus.
         from config import DRIVER_OF_DAY_BONUS
         for ctor in CONSTRUCTORS_2025:
             drv_list = [d for d, c in DRIVER_TEAMS_2025.items() if c == ctor]
@@ -326,6 +377,11 @@ def calculate_lookahead_ev(predictor, current_race_round, options, sims, run_id=
                 ctor_ev += ev_pts.get(d, 0.0) - dotd_ev
             ctor_ev += pit_pts
             total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev
-            
+
+    # Normalize to a PER-RACE average — consumers (suggest_team_changes /
+    # find_optimal_team) compare against single-race prices and budgets.
+    if rounds_simulated > 1:
+        total_ev = {name: pts / rounds_simulated for name, pts in total_ev.items()}
+
     return total_ev
 

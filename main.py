@@ -1301,7 +1301,10 @@ def main():
     pause_and_clear(args)
     section_heading("YOUR TEAM", style="bold cyan", rule_style="cyan")
 
-    team_cache_file = OUTPUT_DIR.parent / "cache" / "my_team.json"
+    # Shared with the web server via config.MY_TEAM_PATH — team edits in either
+    # mode are visible in the other.
+    from config import MY_TEAM_PATH
+    team_cache_file = Path(MY_TEAM_PATH)
     auto_team = None
     if team_cache_file.exists():
         try:
@@ -1385,6 +1388,7 @@ def main():
     # ══════════════════════════════════════════════════════════
     section_heading("CHIP STRATEGY", style="bold white", rule_style="dim")
     try:
+        chip_state = load_chip_state()
         chip_recs = advise_chips(
             race_info=race, circuit_config=circuit_cfg,
             weather=weather, driver_pts=driver_pts,

@@ -140,7 +140,17 @@ async def override_prices(request: Request):
 
 @app.get("/api/team")
 def get_team():
-    team_cache_file = Path("output/cache/my_team.json")
+    from config import MY_TEAM_PATH
+    team_cache_file = Path(MY_TEAM_PATH)
+    if not team_cache_file.exists():
+        # Migrate legacy location (output/cache/) on first read
+        legacy = Path("output/cache/my_team.json")
+        if legacy.exists():
+            try:
+                team_cache_file.parent.mkdir(parents=True, exist_ok=True)
+                team_cache_file.write_text(legacy.read_text(encoding="utf-8"), encoding="utf-8")
+            except Exception:
+                pass
     if team_cache_file.exists():
         try:
             with open(team_cache_file, "r") as f:
@@ -156,8 +166,9 @@ def get_team():
 
 @app.post("/api/team")
 async def save_team(request: Request):
+    from config import MY_TEAM_PATH
     data = await request.json()
-    team_cache_file = Path("output/cache/my_team.json")
+    team_cache_file = Path(MY_TEAM_PATH)
     team_cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(team_cache_file, "w") as f:
         json.dump(data, f)
@@ -231,25 +242,28 @@ def clear_cache(cache_type: str):
 
 @app.post("/api/cache/rebuild")
 async def rebuild_cache():
-    # clear cache first
-    clear_cache("api")
-    clear_cache("weather")
-    clear_cache("fastf1")
-    clear_cache("elo")
-    
-    # trigger background thread
+    # Trigger background thread — heavy rmtree clearing runs OFF the event loop
     run_id = "cache_rebuild"
     run_queues[run_id] = asyncio.Queue()
+    _job_begin()
     
     def _bg():
         try:
+            clear_cache("api")
+            clear_cache("weather")
+            clear_cache("fastf1")
+            clear_cache("elo")
+
             import warm_cache
             def cache_progress(year, round_num, msg):
                 sync_progress_callback(run_id, "DOWNLOADING", "loading", msg)
             warm_cache.verify_and_download_caches(progress_callback=cache_progress)
-            sync_progress_callback(run_id, "_TERMINATE", "done", "")
+            # Client-visible terminal event (app.js reloads on COMPLETE)
+            sync_progress_callback(run_id, "COMPLETE", "done", "Cache rebuild complete")
         except Exception as e:
             sync_progress_callback(run_id, "ERROR", "error", str(e))
+        finally:
+            _job_end()
             sync_progress_callback(run_id, "_TERMINATE", "done", "")
 
     t = threading.Thread(target=_bg, daemon=True)
@@ -333,16 +347,45 @@ import webbrowser
 # ── Browser-close watchdog ──────────────────────────────────────────────────
 # The frontend sends POST /api/heartbeat every 5 s while the page is open.
 # If no heartbeat arrives within HEARTBEAT_TIMEOUT seconds after the first
-# one, we assume the tab was closed and shut down the server process.
+# one — AND no background jobs are active — we assume the tab was closed and
+# shut down the server gracefully.
 _last_heartbeat: float = 0.0
 _heartbeat_received: bool = False
 _HEARTBEAT_TIMEOUT: int  = 20  # seconds — 4 missed beats before exit
-_pipeline_running: bool  = False  # block watchdog while ML is in flight
+_pipeline_running: bool  = False  # block duplicate /api/run while ML is in flight
+
+# Job-aware shutdown guard: EVERY long-running background job (pipeline,
+# cache rebuild, post-race check) registers here for its lifetime so a
+# browser close mid-download can't hard-kill the process.
+_active_jobs: int = 0
+_jobs_lock = threading.Lock()
+# Set to the running uvicorn.Server so the watchdog can request graceful exit
+_uvicorn_server = None
+
+def _job_begin():
+    global _active_jobs
+    with _jobs_lock:
+        _active_jobs += 1
+
+def _job_end():
+    global _active_jobs
+    with _jobs_lock:
+        _active_jobs = max(0, _active_jobs - 1)
+
+def _request_shutdown():
+    srv = globals().get("_uvicorn_server")
+    if srv is not None:
+        try:
+            srv.should_exit = True
+            return
+        except Exception:
+            pass
+    os._exit(0)   # last resort if no server handle
 # ────────────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global main_loop
+    global main_loop, _uvicorn_server
     main_loop = asyncio.get_running_loop()
 
     # 1. Open browser
@@ -354,12 +397,21 @@ async def lifespan(app: FastAPI):
     # 3. Watchdog
     def watchdog():
         """Shut down server when browser tab is closed (heartbeat stops)."""
+        missed_required = 2   # require N consecutive timed-out ticks (refresh safety)
+        missed = 0
         while True:
             time.sleep(5)
-            if _heartbeat_received and not _pipeline_running:
+            with _jobs_lock:
+                busy = _active_jobs > 0
+            if _heartbeat_received and not busy:
                 if time.time() - _last_heartbeat > _HEARTBEAT_TIMEOUT:
-                    print("\n[F1 Engine] Browser disconnected — shutting down. Goodbye!")
-                    os._exit(0)
+                    missed += 1
+                    if missed >= missed_required:
+                        print("\n[F1 Engine] Browser disconnected — shutting down. Goodbye!")
+                        _request_shutdown()
+                        return
+                else:
+                    missed = 0
     threading.Thread(target=watchdog, daemon=True).start()
     
     yield
@@ -405,6 +457,7 @@ async def trigger_run(request: Request):
     data = await request.json()
     run_id = str(uuid.uuid4())
     run_queues[run_id] = asyncio.Queue()
+    _job_begin()          # registered synchronously: no watchdog race window
     
     my_drivers = data.get("drivers", [])
     my_ctors = data.get("constructors", [])
@@ -420,9 +473,12 @@ async def trigger_run(request: Request):
             res = run_full_pipeline(
                 run_id, my_drivers, my_ctors, budget, points, transfers, options, sync_progress_callback
             )
-            run_results[run_id] = res
+            with _results_lock:
+                run_results[run_id] = res
+                _prune_run_results()
         finally:
             _pipeline_running = False
+            _job_end()
             sync_progress_callback(run_id, "_TERMINATE", "done", "")
 
     thread = threading.Thread(target=background_task)
@@ -436,35 +492,53 @@ async def event_generator(run_id: str):
         yield f"data: {json.dumps({'error': 'Invalid run_id'})}\n\n"
         return
         
-    while True:
-        try:
-            event = await queue.get()
-            if event.get("stage") == "_TERMINATE":
+    try:
+        while True:
+            try:
+                event = await queue.get()
+                if event.get("stage") == "_TERMINATE":
+                    break
+                # Deep-sanitize to handle numpy types, __slots__ objects, etc.
+                safe_event = sanitize_for_json(event)
+                yield f"data: {json.dumps(safe_event)}\n\n"
+                if event.get("stage") in ("COMPLETE", "ERROR"):
+                    break
+            except Exception as e:
+                import traceback
+                err_event = {"stage": "ERROR", "message": f"Serialization error: {e}", "detail": traceback.format_exc()}
+                yield f"data: {json.dumps(err_event)}\n\n"
                 break
-            # Deep-sanitize to handle numpy types, __slots__ objects, etc.
-            safe_event = sanitize_for_json(event)
-            yield f"data: {json.dumps(safe_event)}\n\n"
-            if event.get("stage") in ("COMPLETE", "ERROR"):
-                break
-        except Exception as e:
-            import traceback
-            err_event = {"stage": "ERROR", "message": f"Serialization error: {e}", "detail": traceback.format_exc()}
-            yield f"data: {json.dumps(err_event)}\n\n"
-            break
+    finally:
+        # Free the queue + buffered events once this stream is done
+        run_queues.pop(run_id, None)
 
 @app.get("/api/run/stream/{run_id}")
 async def run_stream(run_id: str):
     return StreamingResponse(event_generator(run_id), media_type="text/event-stream")
 
+# Keep only the most recent N pipeline payloads (each can be multi-MB)
+_MAX_RUN_RESULTS = 10
+_results_lock = threading.Lock()
+
+def _prune_run_results():
+    while len(run_results) > _MAX_RUN_RESULTS:
+        oldest = next(iter(run_results))
+        run_results.pop(oldest, None)
+
 @app.get("/api/results/{run_id}")
 def get_results(run_id: str):
-    if run_id in run_results:
-        return {"status": "ok", "data": run_results[run_id]}
+    with _results_lock:
+        res = run_results.get(run_id)
+    if res is not None:
+        # Sanitize: raw payload contains numpy scalars FastAPI can't encode
+        return {"status": "ok", "data": sanitize_for_json(res)}
     return {"status": "not_found"}
+
 @app.post("/api/post-race/{round_num}")
 async def trigger_post_race(round_num: int):
     run_id = str(uuid.uuid4())
     run_queues[run_id] = asyncio.Queue()
+    _job_begin()
     
     def background_task():
         try:
@@ -479,6 +553,7 @@ async def trigger_post_race(round_num: int):
         except Exception as e:
             sync_progress_callback(run_id, "ERROR", "error", str(e))
         finally:
+            _job_end()
             sync_progress_callback(run_id, "_TERMINATE", "done", "")
 
     thread = threading.Thread(target=background_task)
@@ -551,8 +626,12 @@ def get_circuits():
 
 @app.delete("/api/shutdown")
 def shutdown():
-    os._exit(0)
+    # Respond FIRST, then request graceful shutdown (os._exit before returning
+    # meant the client never received a response).
+    threading.Thread(target=lambda: (time.sleep(0.3), _request_shutdown()), daemon=True).start()
     return {"status": "shutting_down"}
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="127.0.0.1", port=5762)
+    config = uvicorn.Config("server:app", host="127.0.0.1", port=5762)
+    _uvicorn_server = uvicorn.Server(config)
+    _uvicorn_server.run()

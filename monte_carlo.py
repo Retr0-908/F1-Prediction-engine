@@ -23,6 +23,12 @@ import math
 import os
 from typing import Optional, Dict, List
 
+# Julia engine is DISABLED until behavioral parity with the Python path is
+# achieved: it currently omits rain/sprint/circuit-feature effects and uses
+# EV-style (not Bernoulli) FL/DOTD bonuses. Flip to True only after validating
+# distribution equivalence against the Python engine.
+USE_JULIA_ENGINE = False
+
 try:
     from juliacall import Main as jl
     # Load the high-performance Julia engine
@@ -37,7 +43,7 @@ except Exception as e:
 
 from config import (
     RACE_POSITION_POINTS, QUALI_POSITION_POINTS,
-    QUALI_Q2_BONUS, QUALI_Q3_BONUS,
+    QUALI_Q2_BONUS, QUALI_Q3_BONUS, POLE_BONUS,
     POSITIONS_GAINED_PER, POSITIONS_LOST_PER, DNF_PENALTY,
     FASTEST_LAP_BONUS, DRIVER_OF_DAY_BONUS,
     SPRINT_RACE_POINTS, SC_PROBABILITY, VSC_PROBABILITY,
@@ -65,25 +71,36 @@ class DistributionStats:
     def __init__(self, driver: str, team: str, pts_list: list[float]):
         self.driver  = driver
         self.team    = team
+        pts_list     = list(pts_list)
         self.n_sims  = len(pts_list)
+        if self.n_sims == 0:
+            # Empty merge path (e.g. Julia counts all-zero) — neutral stats
+            self.mean_pts = self.std_pts = 0.0
+            self.p10_pts = self.p50_pts = self.p90_pts = 0.0
+            self.upside_pct = self.p_top3 = self.p_points_finish = self.p_dnf = 0.0
+            return
+
         sorted_pts   = sorted(pts_list)
         n            = len(sorted_pts)
+
+        def _quantile(q: float) -> float:
+            return sorted_pts[max(0, min(n - 1, int(q * (n - 1))))]
 
         self.mean_pts = sum(pts_list) / n
         variance      = sum((p - self.mean_pts) ** 2 for p in pts_list) / n
         self.std_pts  = math.sqrt(variance)
-        self.p10_pts  = sorted_pts[int(0.10 * n)]
-        self.p50_pts  = sorted_pts[int(0.50 * n)]
-        self.p90_pts  = sorted_pts[int(0.90 * n)]
+        self.p10_pts  = _quantile(0.10)
+        self.p50_pts  = _quantile(0.50)
+        self.p90_pts  = _quantile(0.90)
 
         # Upside: how often the driver scores in the top quartile of their own distribution
-        q75 = sorted_pts[int(0.75 * n)]
+        q75 = _quantile(0.75)
         self.upside_pct = sum(1 for p in pts_list if p >= q75) / n * 100
 
-        # Probability of top-3 finish (approximated from pts > 15 threshold)
+        # Probability of a top-3-equivalent points haul (P3 + typical extras ≈ 15+)
         self.p_top3 = sum(1 for p in pts_list if p >= 15.0) / n * 100
 
-        # Points finish probability (race pts > 0)
+        # Points finish probability (a genuine points finish usually clears 5)
         self.p_points_finish = sum(1 for p in pts_list if p > 5.0) / n * 100
 
         # DNF probability (pts < -5 — negative from DNF penalty)
@@ -119,6 +136,7 @@ def _simulate_one_race(
     sprint_order: Optional[list[dict]],
     rng: random.Random,
     circuit_features: Optional[dict] = None,  # NEW: dict from track_features_loader
+    grid_penalties: Optional[dict] = None,   # {driver_name: penalty_positions_int}
 ) -> dict[str, float]:
     """
     Run one simulation of the race weekend.
@@ -129,7 +147,16 @@ def _simulate_one_race(
     # ── 1. Build initial grid/race order positions ──
     # race_order already sorted by predicted_rank
     positions = {d["driver"]: d["predicted_rank"] for d in race_order}
-    grid      = {q["driver"]: q["predicted_grid"] for q in quali_order}
+    effective_grid: dict[str, int] = {}
+    for q in quali_order:
+        drv_name = q["driver"]
+        # Post-quali mode: predicted_grid already reflects penalties (locked
+        # actual grid). Only add penalties to a raw pre-quali prediction.
+        if q.get("is_actual", False):
+            effective_grid[drv_name] = q["predicted_grid"]
+        else:
+            effective_grid[drv_name] = q["predicted_grid"] + (grid_penalties or {}).get(drv_name, 0)
+    grid      = effective_grid
     dnf_probs = {d["driver"]: d.get("dnf_prob_pct", 7.0) / 100.0 for d in race_order}
 
     # ── 2. Apply DNF events (probabilistic) ──
@@ -219,14 +246,13 @@ def _simulate_one_race(
     vsc_triggered = (not sc_triggered) and (rng.random() < vsc_prob)
 
     if sc_triggered or vsc_triggered:
-        # Safety car benefits back-markers who haven't pitted yet
-        # and allows "free" pit stops: drivers P5-P15 gain ~1-3 positions
-        sc_lap = rng.randint(10, RACE_LAPS_TYPICAL - 10)
-        
-        # SC benefit: gain 1-3 positions for drivers P6-P20 (strategic pit)
-        sorted_drivers = sorted([d for d in positions if d not in dnf_set],
-                                 key=lambda d: positions[d])
-        n_active = len(sorted_drivers)
+        # SC compresses the field and enables cheap pit stops: mid-field
+        # (P6–P15 of the live order) gains; front-runners may lose slightly.
+        # Tie-break deterministically so equal positions resolve by pace.
+        sorted_drivers = sorted(
+            [d for d in positions if d not in dnf_set],
+            key=lambda d: (positions[d], -dnf_probs.get(d, 0.0)),
+        )
         for i, drv in enumerate(sorted_drivers):
             rank = i + 1  # 1-indexed rank among active drivers
             if rank > 5 and rank <= 15:
@@ -262,9 +288,13 @@ def _simulate_one_race(
         is_dnf  = drv in dnf_set
         pts     = 0.0
 
-        # Qualifying points (already set before race — not affected by SC)
+        # Qualifying points — F1 Fantasy rules: top-10 → Q3 bonus (+ pole),
+        # P11–15 → Q2 bonus only (never both). grid_p here is the effective
+        # grid; bonus eligibility follows it as an approximation.
         if grid_p <= 10:
-            pts += QUALI_POSITION_POINTS.get(grid_p, 0) + QUALI_Q3_BONUS + QUALI_Q2_BONUS
+            pts += QUALI_POSITION_POINTS.get(grid_p, 0) + QUALI_Q3_BONUS
+            if grid_p == 1:
+                pts += POLE_BONUS
         elif grid_p <= 15:
             pts += float(QUALI_Q2_BONUS)
 
@@ -281,9 +311,9 @@ def _simulate_one_race(
             else:
                 pts += abs(delta) * POSITIONS_LOST_PER
 
-            # Fastest lap (random ~8% chance for P1-3, decays)
+            # Fastest lap — only top-10 finishers are eligible
             fl_threshold = max(0.0, 0.09 - (race_p - 1) * 0.006)
-            if rng.random() < fl_threshold:
+            if race_p <= 10 and rng.random() < fl_threshold:
                 pts += FASTEST_LAP_BONUS
 
             # Driver of the Day (random ~10% for top finishers)
@@ -318,6 +348,7 @@ def simulate_race_weekend(
     sprint_order: Optional[list[dict]] = None,
     seed: int = 42,
     progress_callback = None,
+    grid_penalties: Optional[dict] = None,
 ) -> dict[str, DistributionStats]:
     """
     Run N Monte Carlo simulations of the race weekend.
@@ -331,6 +362,8 @@ def simulate_race_weekend(
         is_sprint:      True for sprint weekends
         sprint_order:   predictor.predict_sprint_order() output (if sprint)
         seed:           random seed for reproducibility
+        progress_callback: callback function for simulation progress
+        grid_penalties: dict of {driver_name: penalty_int}
 
     Returns:
         Dict {driver_name: DistributionStats}
@@ -350,7 +383,9 @@ def simulate_race_weekend(
     driver_teams = {d["driver"]: d.get("team", "") for d in race_order}
 
     # ── Julia-Accelerated Simulation (Phase 5) ──
-    if _JULIA_AVAILABLE and n_simulations >= 5000:
+    # NOTE: gated behind USE_JULIA_ENGINE — see constant comment. When enabled,
+    # Julia arrays are 1-BASED: convert to numpy before indexing.
+    if USE_JULIA_ENGINE and _JULIA_AVAILABLE and n_simulations >= 5000:
         print(f"  [monte_carlo] Running {n_simulations} iterations via Julia engine...")
         
         # Prepare driver data for Julia
@@ -364,7 +399,12 @@ def simulate_race_weekend(
             # Glicko-2 rating for overtaking probability
             glicko = d.get("elo_rating", 1500.0)
             dnf_p = d.get("dnf_prob_pct", 7.0) / 100.0
-            grid_p = next((q["predicted_grid"] for q in quali_order if q["driver"] == drv_name), 10)
+            q_entry = next((q for q in quali_order if q["driver"] == drv_name), None)
+            raw_grid = q_entry["predicted_grid"] if q_entry else 10
+            if q_entry is not None and q_entry.get("is_actual", False):
+                grid_p = int(raw_grid)          # already penalty-adjusted
+            else:
+                grid_p = int(raw_grid) + (grid_penalties or {}).get(drv_name, 0)
             
             jl_drivers.append({
                 "name": drv_name,
@@ -382,14 +422,23 @@ def simulate_race_weekend(
         α_overtake = 0.15   # base overtaking scaling
         
         try:
+            # Seed the Julia RNG so results are reproducible like the Python path
+            try:
+                jl.seval(f"import Random; Random.seed!({int(seed)})")
+            except Exception:
+                pass
+
             # Call Julia: returns (rank_counts_matrix, dnf_counts_vector)
-            # rank_counts[driver_idx, rank]
-            rank_counts, dnf_counts = jl.run_batch_simulation(
+            # rank_counts[driver_idx, rank] — JULIA ARRAYS ARE 1-BASED
+            rank_counts_jl, dnf_counts_jl = jl.run_batch_simulation(
                 jl_drivers, 
                 57, # laps
                 δ_vals, γ_vals, λ_fuel, α_overtake, sc_prob,
                 n_simulations
             )
+            import numpy as np
+            rank_counts = np.asarray(rank_counts_jl)   # copy out of juliacall
+            dnf_counts  = np.asarray(dnf_counts_jl)
             
             results = {}
             for i, d in enumerate(jl_drivers):
@@ -397,19 +446,22 @@ def simulate_race_weekend(
                 pts_list = []
                 grid_p = d["grid"]
                 
-                # Base qualifying points
+                # Base qualifying points — same rules as the Python engine
                 quali_pts = 0.0
                 if grid_p <= 10:
-                    quali_pts += QUALI_POSITION_POINTS.get(grid_p, 0) + QUALI_Q3_BONUS + QUALI_Q2_BONUS
+                    quali_pts += QUALI_POSITION_POINTS.get(grid_p, 0) + QUALI_Q3_BONUS
+                    if grid_p == 1:
+                        quali_pts += POLE_BONUS
                 elif grid_p <= 15:
                     quali_pts += float(QUALI_Q2_BONUS)
                 
-                dnf_count = int(dnf_counts[i])
+                dnf_count = int(dnf_counts[i])       # numpy: 0-based OK
                 remaining_dnfs = dnf_count
                 
-                # Traverse ranks from worst (len(jl_drivers)) to best (1)
-                # Since Julia engine sorts DNFs to the back, DNF runs are in the worst ranks
-                for rank in range(len(jl_drivers), 0, -1):
+                n_field = rank_counts.shape[1]
+                # Traverse ranks from worst (n_field) to best (1);
+                # column j holds count for finishing position j+1
+                for rank in range(n_field, 0, -1):
                     count = int(rank_counts[i, rank-1])
                     if count == 0:
                         continue
@@ -433,8 +485,10 @@ def simulate_race_weekend(
                             pts_finish += abs(delta) * POSITIONS_LOST_PER
                             
                         # Average fastest lap/DOTD probability for this rank
-                        fl_prob = max(0.0, 0.09 - (rank - 1) * 0.006)
-                        pts_finish += FASTEST_LAP_BONUS * fl_prob
+                        # (FL only for top-10 finishers, matching Python engine)
+                        if rank <= 10:
+                            fl_prob = max(0.0, 0.09 - (rank - 1) * 0.006)
+                            pts_finish += FASTEST_LAP_BONUS * fl_prob
                         dotd_prob = max(0.0, 0.10 - (rank - 1) * 0.008)
                         pts_finish += DRIVER_OF_DAY_BONUS * dotd_prob
                         
@@ -457,6 +511,7 @@ def simulate_race_weekend(
             is_sprint, sprint_order,
             rng,
             circuit_features=_track_data,  # NEW: per-circuit variance parameters
+            grid_penalties=grid_penalties,
         )
         for drv, pts in sim_result.items():
             if drv in driver_pts_lists:

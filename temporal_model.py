@@ -157,9 +157,9 @@ def build_temporal_model(
 
     # Multi-head self-attention over race sequence
     attn_out = layers.MultiHeadAttention(
-        num_heads=NUM_ATTENTION_HEADS,
-        key_dim=KEY_DIM,
-        dropout=DROPOUT_ATTENTION,
+        num_heads=ATTN_HEADS,
+        key_dim=ATTN_KEY_DIM,
+        dropout=DROPOUT_TEMPORAL,
         name="sequence_mha",
     )(seq_input, seq_input)
     attn_add = layers.Add(name="seq_residual")([seq_input, attn_out])
@@ -167,7 +167,7 @@ def build_temporal_model(
 
     # Bi-LSTM feature extraction
     bilstm = layers.Bidirectional(
-        layers.LSTM(LSTM_UNITS, return_sequences=False, dropout=DROPOUT_LSTM),
+        layers.LSTM(LSTM_UNITS, return_sequences=False, dropout=DROPOUT_TEMPORAL),
         name="bilstm_extractor",
     )(attn_norm)
 
@@ -271,14 +271,22 @@ def build_training_dataset(
                     seq_length=SEQ_LENGTH,
                 )
 
-                # Race-day context: [quali_pos, track_temp, rain_enc, sc_prob, 0.0]
-                # Track temp and SC prob fetched from circuit config (no extra API calls)
-                # We use simple proxies here - predictor.py enriches these at inference
+                # Race-day context: [quali_pos, track_temp, rain_enc, sc_prob, ctor_elo_z]
+                # quali_pos = actual grid (varies); sc_prob = real per-circuit value
+                # from local JSON/config (no API hit). rain/temp/ctor-elo stay at
+                # neutral placeholders — predictor.py feeds the same encodings at
+                # inference so the two never diverge structurally.
                 grid_pos = float(r.get("grid", 11.0))
-                rain_enc = 0.0   # no weather lookup during training (avoids API hit)
-                sc_prob  = 0.40  # circuit-average fallback
-                track_temp = 35.0  # seasonal average (enriched at inference via FastF1)
-                ctor_elo_z = 0.0   # enriched at inference via Glicko-2
+                rain_enc = 0.0
+                try:
+                    from data_fetcher import _match_circuit_config as _mcc
+                    from config import SC_PROBABILITY as _SC_PROB
+                    _ckey = (_mcc(race["name"]) or {}).get("key", "")
+                    sc_prob = float(_SC_PROB.get(_ckey, 0.40))
+                except Exception:
+                    sc_prob = 0.40
+                track_temp = 35.0   # neutral placeholder (same at inference)
+                ctor_elo_z = 0.0    # neutral placeholder (same at inference)
 
                 ctx = np.array([grid_pos, track_temp, rain_enc, sc_prob, ctor_elo_z], dtype=np.float32)
 
@@ -475,15 +483,16 @@ class TemporalFormModel:
             driver_name, recent_race_results, tire_data_by_round, SEQ_LENGTH
         )
         if context_vec is None:
-            context_vec = np.array([11.0, 35.0, 0.0, 0.40, 0.0, 0.0, 0.7, 0.5, 0.6, 0.25], dtype=np.float32)
+            # 5 features matching CONTEXT_DIM: [quali_pos, track_temp, rain_enc, sc_prob, ctor_elo_z]
+            context_vec = np.array([11.0, 35.0, 0.0, 0.40, 0.0], dtype=np.float32)
 
         seq_n = self.scaler.transform_seq(seq[np.newaxis])
         ctx_n = self.scaler.transform_ctx(context_vec[np.newaxis])
 
-        # Build a sub-model that outputs the temporal_dense layer (32-dim)
+        # Build a sub-model that outputs the history_dense layer (32-dim)
         tensor_model = keras.Model(
             inputs=self.model.inputs,
-            outputs=self.model.get_layer("temporal_dense").output,
+            outputs=self.model.get_layer("history_dense").output,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

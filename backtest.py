@@ -25,14 +25,15 @@ from rich import box
 console = Console()
 
 from config import (
-    DRIVER_TEAMS_2025, CURRENT_SEASON, HISTORICAL_SEASONS,
-    CONSTRUCTORS_2025, SPRINT_ROUNDS,
+    CURRENT_SEASON, HISTORICAL_SEASONS,
+    CONSTRUCTORS_2025,
 )
 from data_fetcher import (
     get_season_schedule, get_race_results, get_qualifying_results,
     get_driver_standings, get_constructor_standings,
     get_circuit_history,
     compute_multiseason_driver_form, compute_multiseason_constructor_stats,
+    get_sprint_rounds, get_season_roster,
 )
 from predictor import F1Predictor, _match_circuit_cfg
 
@@ -40,9 +41,53 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from scipy.stats import spearmanr
 
 # ─────────────────────────────────────────────
-# ROSTER PER YEAR (handles driver changes)
+# ROSTER RESOLUTION — dynamic first, static fallback
+# Lineups are auto-derived from championship standings each season; the tables
+# below are ONLY used offline or before a season's data exists in the API.
+# Team names use config-canonical names ("Audi", "Racing Bulls") so they match
+# _normalize_constructor_name output. predictor.train() raises KeyError rather
+# than silently using a wrong-year roster.
 # ─────────────────────────────────────────────
 DRIVER_TEAMS_BY_YEAR = {
+    2021: {
+        "Lewis Hamilton": "Mercedes",   "Valtteri Bottas": "Mercedes",
+        "Max Verstappen": "Red Bull",   "Sergio Perez": "Red Bull",
+        "Lando Norris": "McLaren",      "Daniel Ricciardo": "McLaren",
+        "Charles Leclerc": "Ferrari",   "Carlos Sainz": "Ferrari",
+        "Esteban Ocon": "Alpine",       "Fernando Alonso": "Alpine",
+        "Pierre Gasly": "Racing Bulls", "Yuki Tsunoda": "Racing Bulls",
+        "Sebastian Vettel": "Aston Martin", "Lance Stroll": "Aston Martin",
+        "George Russell": "Williams",   "Nicholas Latifi": "Williams",
+        "Kimi Raikkonen": "Audi",       "Antonio Giovinazzi": "Audi",
+        "Robert Kubica": "Audi",
+        "Mick Schumacher": "Haas",      "Nikita Mazepin": "Haas",
+    },
+    2022: {
+        "Max Verstappen": "Red Bull",   "Sergio Perez": "Red Bull",
+        "Charles Leclerc": "Ferrari",   "Carlos Sainz": "Ferrari",
+        "Lewis Hamilton": "Mercedes",   "George Russell": "Mercedes",
+        "Lando Norris": "McLaren",      "Daniel Ricciardo": "McLaren",
+        "Esteban Ocon": "Alpine",       "Fernando Alonso": "Alpine",
+        "Pierre Gasly": "Racing Bulls", "Yuki Tsunoda": "Racing Bulls",
+        "Sebastian Vettel": "Aston Martin", "Lance Stroll": "Aston Martin",
+        "Alexander Albon": "Williams",  "Nicholas Latifi": "Williams",
+        "Valtteri Bottas": "Audi",      "Zhou Guanyu": "Audi",
+        "Kevin Magnussen": "Haas",      "Mick Schumacher": "Haas",
+        "Nico Hulkenberg": "Haas",
+    },
+    2023: {
+        "Max Verstappen": "Red Bull",   "Sergio Perez": "Red Bull",
+        "Charles Leclerc": "Ferrari",   "Carlos Sainz": "Ferrari",
+        "Lewis Hamilton": "Mercedes",   "George Russell": "Mercedes",
+        "Lando Norris": "McLaren",      "Oscar Piastri": "McLaren",
+        "Fernando Alonso": "Aston Martin", "Lance Stroll": "Aston Martin",
+        "Pierre Gasly": "Alpine",       "Esteban Ocon": "Alpine",
+        "Alexander Albon": "Williams",  "Logan Sargeant": "Williams",
+        "Yuki Tsunoda": "Racing Bulls", "Daniel Ricciardo": "Racing Bulls",
+        "Liam Lawson": "Racing Bulls",  "Nyck De Vries": "Racing Bulls",
+        "Valtteri Bottas": "Audi",      "Zhou Guanyu": "Audi",
+        "Nico Hulkenberg": "Haas",      "Kevin Magnussen": "Haas",
+    },
     2024: {
         "Max Verstappen": "Red Bull",   "Sergio Perez": "Red Bull",
         "Lando Norris": "McLaren",      "Oscar Piastri": "McLaren",
@@ -53,20 +98,21 @@ DRIVER_TEAMS_BY_YEAR = {
         "Yuki Tsunoda": "Racing Bulls", "Daniel Ricciardo": "Racing Bulls",
         "Liam Lawson": "Racing Bulls",  "Alexander Albon": "Williams",
         "Logan Sargeant": "Williams",   "Franco Colapinto": "Williams",
-        "Valtteri Bottas": "Kick Sauber", "Zhou Guanyu": "Kick Sauber",
+        "Valtteri Bottas": "Audi",      "Zhou Guanyu": "Audi",
         "Nico Hulkenberg": "Haas",      "Kevin Magnussen": "Haas",
         "Oliver Bearman": "Ferrari",
     },
     2025: {
-        "Max Verstappen": "Red Bull",   "Liam Lawson": "Red Bull",
+        "Max Verstappen": "Red Bull",   "Yuki Tsunoda": "Red Bull",
         "Lando Norris": "McLaren",      "Oscar Piastri": "McLaren",
         "Charles Leclerc": "Ferrari",   "Lewis Hamilton": "Ferrari",
         "George Russell": "Mercedes",   "Kimi Antonelli": "Mercedes",
         "Fernando Alonso": "Aston Martin", "Lance Stroll": "Aston Martin",
         "Pierre Gasly": "Alpine",       "Jack Doohan": "Alpine",
-        "Yuki Tsunoda": "Racing Bulls", "Isack Hadjar": "Racing Bulls",
+        "Franco Colapinto": "Alpine",
+        "Isack Hadjar": "Racing Bulls", "Liam Lawson": "Racing Bulls",
         "Alexander Albon": "Williams",  "Carlos Sainz": "Williams",
-        "Nico Hulkenberg": "Kick Sauber", "Gabriel Bortoleto": "Kick Sauber",
+        "Nico Hulkenberg": "Audi",      "Gabriel Bortoleto": "Audi",
         "Oliver Bearman": "Haas",       "Esteban Ocon": "Haas",
     },
     2026: {
@@ -84,11 +130,31 @@ DRIVER_TEAMS_BY_YEAR = {
     },
 }
 
-SPRINT_ROUNDS_BY_YEAR = {
-    2024: {2, 5, 13, 18, 19, 21},   # China, Miami, Belgium, USA, Brazil, Qatar
-    2025: {2, 6, 9, 13, 19, 22},    # China, Miami, Spain, Belgium, USA, Las Vegas
-    2026: {2, 6, 10, 11, 15, 18},   # China, Miami, Canada, Britain, Netherlands, Singapore
-}
+# Sprint rounds now come from the authoritative schedule `sprint_date` field
+# via data_fetcher.get_sprint_rounds() (with a verified static fallback inside
+# data_fetcher). The old local table disagreed with every other source.
+
+
+def _get_year_roster(year: int) -> dict[str, str]:
+    """
+    Resolve a season's lineup: auto-derive from standings when the API has it,
+    fall back to the static table offline / pre-season. Raises KeyError only
+    when NEITHER source can produce a roster.
+    """
+    try:
+        derived = get_season_roster(year)
+        if len(derived) >= 16:
+            return derived
+    except Exception:
+        pass
+    static = DRIVER_TEAMS_BY_YEAR.get(year)
+    if static is None:
+        raise KeyError(
+            f"No roster for {year}: API derivation failed and no static "
+            "entry in DRIVER_TEAMS_BY_YEAR"
+        )
+    print(f"  [roster] {year}: using static fallback table (API derivation unavailable)")
+    return static
 
 
 def backtest_race(
@@ -103,7 +169,7 @@ def backtest_race(
     if not actual_race:
         return None
 
-    roster = year_roster or DRIVER_TEAMS_2025
+    roster = year_roster or _get_year_roster(year)
     circuit_cfg = _match_circuit_cfg(race_name)
     circuit_id  = circuit_cfg.get("key", "")
     circ_hist   = get_circuit_history(circuit_id, [year - 1, year - 2]) if circuit_id else pd.DataFrame()
@@ -113,14 +179,17 @@ def backtest_race(
     actual_team      = {r["name"]: r["constructor"] for r in actual_race}
 
     all_drivers  = list(actual_race_pos.keys())
-    driver_preds = []
-    quali_preds  = []
 
+    # Build all feature vectors first, then predict the whole field at once.
+    # Ranker outputs are unbounded margins — converting to per-field RANKS
+    # puts them on the same scale as the RF output before blending (matches
+    # predictor._ensemble_rank_predictions).
+    feats, valid_drivers = [], []
     for drv in all_drivers:
         team = actual_team.get(drv, roster.get(drv, ""))
         if not team:
             continue
-        feat = predictor._build_features(
+        feats.append(predictor._build_features(
             driver_name=drv,
             drv_standings=drv_standings,
             ctor_standings=ctor_standings,
@@ -132,38 +201,50 @@ def backtest_race(
             roster=roster,
             elo=elo_system,
             ctor_elo=ctor_elo,
-        )
-        # Race prediction
-        if predictor._trained and getattr(predictor, "race_rf", None) is not None:
-            fs = predictor.scaler_race.transform(feat.reshape(1, -1))
-            rf_p = predictor.race_rf.predict(fs)[0]
-            xgb_p = predictor.race_xgb.predict(fs)[0]
-            lgb_p = predictor.race_lgb.predict(fs)[0]
-            if getattr(predictor, "race_meta_model", None) is not None:
-                meta_X = np.array([[rf_p, xgb_p, lgb_p]])
-                pr = float(predictor.race_meta_model.predict(meta_X)[0])
-            else:
-                pr = float(0.35 * rf_p + 0.35 * xgb_p + 0.30 * lgb_p)
-        else:
-            f  = driver_form.get(drv, {})
-            dr = next((d for d in drv_standings if d["name"] == drv), None)
-            pr = 0.4 * (dr["position"] if dr else 10) + 0.6 * f.get("avg_position", 10)
-        driver_preds.append({"driver": drv, "pred_pos": float(pr)})
+        ))
+        valid_drivers.append(drv)
 
-        # Qualifying prediction
-        if predictor._trained and getattr(predictor, "quali_rf", None) is not None:
-            fq = predictor.scaler_quali.transform(feat.reshape(1, -1))
-            rf_q = predictor.quali_rf.predict(fq)[0]
-            xgb_q = predictor.quali_xgb.predict(fq)[0]
-            lgb_q = predictor.quali_lgb.predict(fq)[0]
-            if getattr(predictor, "quali_meta_model", None) is not None:
-                meta_X_q = np.array([[rf_q, xgb_q, lgb_q]])
-                pq = float(predictor.quali_meta_model.predict(meta_X_q)[0])
+    def _field_ranks(raw_scores):
+        order = np.argsort(np.argsort(-np.asarray(raw_scores, dtype=float)))
+        return order.astype(float) + 1.0
+
+    driver_preds, quali_preds = [], []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        if predictor._trained and getattr(predictor, "race_rf", None) is not None and feats:
+            fs = predictor.scaler_race.transform(np.array(feats))
+            s_rf  = np.asarray(predictor.race_rf.predict(fs), dtype=float)
+            s_xgb = _field_ranks(predictor.race_xgb.predict(fs))
+            s_lgb = _field_ranks(predictor.race_lgb.predict(fs))
+            fq = predictor.scaler_quali.transform(np.array(feats))
+            q_rf  = np.asarray(predictor.quali_rf.predict(fq), dtype=float)
+            q_xgb = _field_ranks(predictor.quali_xgb.predict(fq))
+            q_lgb = _field_ranks(predictor.quali_lgb.predict(fq))
+
+        for i, drv in enumerate(valid_drivers):
+            # Race prediction
+            if predictor._trained and getattr(predictor, "race_rf", None) is not None and feats:
+                if getattr(predictor, "race_meta_model", None) is not None:
+                    meta_X = np.array([[s_rf[i], s_xgb[i], s_lgb[i]]])
+                    pr = float(predictor.race_meta_model.predict(meta_X)[0])
+                else:
+                    pr = float((s_rf[i] + s_xgb[i] + s_lgb[i]) / 3.0)
             else:
-                pq = float(0.35 * rf_q + 0.35 * xgb_q + 0.30 * lgb_q)
-        else:
-            pq = float(pr) * 0.95
-        quali_preds.append({"driver": drv, "pred_quali": float(pq)})
+                f  = driver_form.get(drv, {})
+                dr = next((d for d in drv_standings if d["name"] == drv), None)
+                pr = 0.4 * (dr["position"] if dr else 10) + 0.6 * f.get("avg_position", 10)
+            driver_preds.append({"driver": drv, "pred_pos": float(pr)})
+
+            # Qualifying prediction
+            if predictor._trained and getattr(predictor, "quali_rf", None) is not None and feats:
+                if getattr(predictor, "quali_meta_model", None) is not None:
+                    meta_X_q = np.array([[q_rf[i], q_xgb[i], q_lgb[i]]])
+                    pq = float(predictor.quali_meta_model.predict(meta_X_q)[0])
+                else:
+                    pq = float((q_rf[i] + q_xgb[i] + q_lgb[i]) / 3.0)
+            else:
+                pq = float(pr) * 0.95
+            quali_preds.append({"driver": drv, "pred_quali": float(pq)})
 
     if not driver_preds:
         return None
@@ -226,6 +307,16 @@ def backtest_race(
     }
 
 
+def _compute_form_asof(year: int, as_of_round: int) -> dict:
+    """Current-season rolling form truncated at `as_of_round` — mirrors the
+    per-round form the live predictor uses, with zero end-of-season leakage."""
+    from data_fetcher import compute_driver_form
+    try:
+        return compute_driver_form(year, num_races=5, until_round=as_of_round)
+    except Exception:
+        return {}
+
+
 def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
     """Run one year's backtest using the already-trained predictor."""
     schedule = get_season_schedule(year)
@@ -237,13 +328,13 @@ def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
         console.print(f"  [yellow]No completed races for {year}.[/yellow]")
         return []
 
-    roster  = DRIVER_TEAMS_BY_YEAR.get(year, DRIVER_TEAMS_2025)
-    sprints = SPRINT_ROUNDS_BY_YEAR.get(year, set())
+    roster = _get_year_roster(year)
+    sprints = get_sprint_rounds(year)   # authoritative: schedule sprint_date
 
-    drv_standings    = get_driver_standings(year)
-    ctor_standings   = get_constructor_standings(year)
-    driver_form      = compute_multiseason_driver_form(year, [year - 1, year - 2])
-    ctor_reliability = compute_multiseason_constructor_stats(year, [year - 1, year - 2])
+    # Multi-season aggregates restricted to PRIOR seasons only; the current-year
+    # component is computed per-round with as_of_round below (no lookahead).
+    driver_form_prior      = compute_multiseason_driver_form(year, [year - 1, year - 2])
+    ctor_reliability_prior = compute_multiseason_constructor_stats(year, [year - 1, year - 2])
 
     from elo_ratings import EloRatingSystem, ConstructorEloSystem
     from config import HISTORICAL_SEASONS
@@ -270,6 +361,28 @@ def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
             name = race["name"]
             is_sprint = rnd in sprints
             type_str = "[yellow]SPRINT[/yellow]" if is_sprint else "[dim]RACE[/dim]"
+
+            # ── POINT-IN-TIME data only (no end-of-season knowledge) ──
+            # Standings as of the PREVIOUS round; round 1 uses the prior
+            # season's final championship. The old code fetched season-FINAL
+            # standings once and reused them for every round — direct leakage.
+            prev_rnd = rnd - 1
+            if prev_rnd >= 1:
+                drv_standings  = get_driver_standings(year, prev_rnd)
+                ctor_standings = get_constructor_standings(year, prev_rnd)
+            else:
+                drv_standings  = get_driver_standings(year - 1)
+                ctor_standings = get_constructor_standings(year - 1)
+
+            if rnd >= 2:
+                # Current-season form truncated at the previous round
+                curr_form   = _compute_form_asof(year, prev_rnd)
+                curr_ctor   = None
+                driver_form = {**driver_form_prior, **curr_form}
+                ctor_reliability = ctor_reliability_prior
+            else:
+                driver_form = dict(driver_form_prior)
+                ctor_reliability = ctor_reliability_prior
             
             r = backtest_race(
                 predictor, year, rnd, name,
@@ -362,15 +475,13 @@ def main():
     # Build predictor and train
     predictor = F1Predictor()
 
-    import config as cfg_module
-    original = cfg_module.HISTORICAL_SEASONS[:]
-    cfg_module.HISTORICAL_SEASONS = [y for y in original if y <= train_up_to]
-
-    # Set up context with dummy values (training doesn't need circuit/weather)
-    predictor._driver_standings = get_driver_standings(min(years))
-    predictor._ctor_standings   = get_constructor_standings(min(years))
-    predictor._driver_form      = compute_multiseason_driver_form(min(years))
-    predictor._ctor_reliability = compute_multiseason_constructor_stats(min(years))
+    # Train on seasons STRICTLY BEFORE the first test year via the explicit
+    # parameter — no monkey-patching of config.HISTORICAL_SEASONS.
+    train_seasons = [y for y in HISTORICAL_SEASONS if y <= train_up_to]
+    predictor._driver_standings = []
+    predictor._ctor_standings   = []
+    predictor._driver_form      = {}
+    predictor._ctor_reliability = {}
     predictor._circuit_history  = pd.DataFrame()
     predictor._circuit_config   = {}
     predictor._weather          = {"summary_condition": "dry", "rain_risk": "low", "condition_enc": 0}
@@ -383,8 +494,7 @@ def main():
             pass
 
     console.print(f"\n[bold]Training model on historical data (up to {train_up_to})...[/bold]")
-    predictor.train(verbose=True)
-    cfg_module.HISTORICAL_SEASONS = original
+    predictor.train(verbose=True, seasons=train_seasons)
 
     all_results = []
     for year in test_years:

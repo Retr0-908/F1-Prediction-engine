@@ -205,16 +205,15 @@ def scrape_driver_prices(force_refresh: bool = False) -> tuple[dict[str, dict], 
             return cached, roster
 
     # Attempt 1: Playwright headless browser (Public SPA)
-    print("    [dim]Launching headless browser to scrape DOM...[/dim]")
     result = _try_playwright_scrape(is_constructor=False)
-    if result:
+    if isinstance(result, tuple) and result:
         prices, roster = result
         _save_cache(cache_key, prices)
         return prices, roster
 
     # Attempt 2: Public feed (no auth)
     result = _try_public_feed()
-    if result:
+    if isinstance(result, tuple) and result:
         prices, roster = result
         _save_cache(cache_key, prices)
         return prices, roster
@@ -222,14 +221,14 @@ def scrape_driver_prices(force_refresh: bool = False) -> tuple[dict[str, dict], 
     # Attempt 3: Cookie auth
     if F1_FANTASY_COOKIE:
         result = _try_cookie_auth_api()
-        if result:
+        if isinstance(result, tuple) and result:
             prices, roster = result
             _save_cache(cache_key, prices)
             return prices, roster
 
     # Attempt 4: HTML scrape
     result = _try_html_scrape()
-    if result:
+    if isinstance(result, tuple) and result:
         prices, roster = result
         _save_cache(cache_key, prices)
         return prices, roster
@@ -299,8 +298,10 @@ def _try_cookie_auth_api() -> Optional[dict]:
     return None
 
 
-def _try_html_scrape() -> Optional[dict]:
-    """BeautifulSoup scrape of the fantasy page."""
+def _try_html_scrape() -> Optional[tuple]:
+    """BeautifulSoup scrape of the fantasy page. ALWAYS returns (prices, roster)
+    or None — the embedded-JSON path used to return a bare dict, crashing the
+    caller's tuple unpacking."""
     try:
         url  = f"{FANTASY_BASE}/en/game/pick-team"
         resp = requests.get(url, headers=HEADERS_BASE, timeout=15)
@@ -315,7 +316,13 @@ def _try_html_scrape() -> Optional[dict]:
                 # Try to extract JSON sub-objects
                 json_matches = re.findall(r'\{[^{}]+?"(?:price|playerPrice)"[^{}]+?\}', text)
                 if json_matches:
-                    return _parse_embedded_json(json_matches)
+                    parsed = _parse_embedded_json(json_matches)
+                    if parsed:
+                        roster = {
+                            n: d.get("team", "") for n, d in parsed.items()
+                            if isinstance(d, dict)
+                        }
+                        return parsed, roster
 
         # Look for data- attributes
         cards = soup.find_all(attrs={"data-price": True})
@@ -367,12 +374,7 @@ def _parse_driver_feed(data: dict | list) -> Optional[dict]:
         # Price in items is often in 0.1M units (e.g. 250 = $25.0M)
         raw_price = (item.get("Price") or item.get("price") or
                      item.get("value") or item.get("PlayerPrice") or 0)
-        try:
-            price = float(raw_price)
-            if price > 100:       # likely in 0.1M units
-                price = price / 10
-        except (ValueError, TypeError):
-            price = 0.0
+        price = _normalize_price(raw_price)
 
         team = (item.get("TeamName") or item.get("team_name") or
                 item.get("constructorName") or item.get("team") or "")
@@ -415,9 +417,7 @@ def _parse_embedded_json(json_strings: list[str]) -> Optional[dict]:
         try:
             obj = json.loads(js)
             name  = obj.get("name") or obj.get("driver") or ""
-            price = float(obj.get("price") or obj.get("playerPrice") or 0)
-            if price > 100:
-                price /= 10
+            price = _normalize_price(obj.get("price") or obj.get("playerPrice") or 0)
             if name and price > 0:
                 drivers[_clean_name(name)] = {
                     "price":         round(price, 1),
@@ -488,10 +488,10 @@ def scrape_constructor_prices(force_refresh: bool = False) -> dict[str, dict]:
             _save_cache(cache_key, prices)
             return prices
 
-    # Fallback hardcoded
-    result = _fallback_constructor_prices()
-    _save_cache(cache_key, result)
-    return result
+    # Fallback hardcoded estimates — deliberately NOT cached: fabricated prices
+    # served from cache for 72h would silently drive budget math and LP
+    # optimization while looking like live market data.
+    return _fallback_constructor_prices()
 
 
 def _extract_constructors(data) -> Optional[dict]:
@@ -505,6 +505,23 @@ def _extract_constructors(data) -> Optional[dict]:
     return None
 
 
+def _normalize_price(raw) -> float:
+    """Coerce feed prices into $M units with sanity validation.
+
+    Handles feeds storing 0.1M units (e.g. 55 = $5.5M) and rejects values
+    outside the plausible F1 Fantasy asset range instead of letting an absurd
+    price silently exclude a driver from the optimizer."""
+    try:
+        price = float(raw)
+    except (ValueError, TypeError):
+        return 0.0
+    if price > 100:          # stored as 0.1M units
+        price /= 10.0
+    if not (2.0 <= price <= 40.0):
+        return 0.0
+    return price
+
+
 def _parse_constructor_list(items: list) -> Optional[dict]:
     out = {}
     for item in items:
@@ -512,12 +529,7 @@ def _parse_constructor_list(items: list) -> Optional[dict]:
             continue
         name = (item.get("Name") or item.get("name") or item.get("TeamName") or "")
         raw  = (item.get("Price") or item.get("price") or item.get("value") or 0)
-        try:
-            price = float(raw)
-            if price > 100:
-                price /= 10
-        except (ValueError, TypeError):
-            price = 0
+        price = _normalize_price(raw)
         own  = float(item.get("PercentageSelected") or item.get("ownership") or 0)
         if name and price > 0:
             out[_clean_name(name)] = {

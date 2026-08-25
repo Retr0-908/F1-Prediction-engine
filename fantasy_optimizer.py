@@ -18,6 +18,10 @@ from config import (
     CONSTRUCTORS_2025, DRIVER_TEAMS_2025,
 )
 
+# A top-5 driver / top-3 constructor may only be swapped out for a replacement
+# projected to score at least this much MORE than the star (30%).
+TOP_PERFORMER_GAIN_THRESHOLD = 0.30
+
 
 def get_current_team_value(
     drivers: list[str],
@@ -97,7 +101,6 @@ def suggest_team_changes(
     )
     top_driver_names = {name for name, _ in all_d_pts_sorted[:5]}
     top_ctor_names   = {name for name, _ in all_c_pts_sorted[:3]}
-    TOP_PERFORMER_GAIN_THRESHOLD = 0.30  # replacement must score >30% more than the star
 
     # Prepare candidate pools (players NOT currently in team)
     d_candidates = []
@@ -154,7 +157,8 @@ def suggest_team_changes(
 
                 remaining_drivers = [d for d in current_drivers if d not in out_d]
                 trial_drivers = remaining_drivers + [d["name"] for d in in_d]
-                if max(_count_team_drivers(trial_drivers).values(), default=0) > 2:
+                remaining_ctors = [c for c in current_constructors if c not in out_c]
+                if max(_count_team_assets(trial_drivers, remaining_ctors).values(), default=0) > 2:
                     continue
 
                 in_c_combos = itertools.combinations(c_candidates, len(out_c)) if len(out_c) > 0 else [()]
@@ -163,6 +167,9 @@ def suggest_team_changes(
                     total_in_cost = in_d_cost + sum(c["price"] for c in in_c)
                     if total_in_cost > budget_for_in:
                         continue
+                    final_ctors = remaining_ctors + [c["name"] for c in in_c]
+                    if max(_count_team_assets(trial_drivers, final_ctors).values(), default=0) > 2:
+                        continue
                     new_team_total = total_current_cost - cash_freed + total_in_cost
                     if new_team_total > FANTASY_BUDGET:
                         continue
@@ -170,12 +177,29 @@ def suggest_team_changes(
                     pts_gained = sum(d["pts"] for d in in_d) + sum(c["pts"] for c in in_c)
                     net_gain = pts_gained - pts_lost - penalty
 
-                    # Top-performer protection
+                    # Top-performer protection: a star may only be swapped out
+                    # for a replacement projected to score (1+THRESHOLD)x more.
                     justified = True
-                    if any(od in top_driver_names for od in out_d) or any(oc in top_ctor_names for oc in out_c):
-                        # Ensure the whole transaction is a significant upgrade
-                        if pts_gained < pts_lost * 1.15:
-                            justified = False
+                    for od in out_d:
+                        if od in top_driver_names:
+                            od_idx = list(out_d).index(od)
+                            replacement = list(in_d)[od_idx] if od_idx < len(in_d) else None
+                            if replacement:
+                                repl_pts = replacement["pts"]
+                                star_pts = current_d_pts.get(od, 0)
+                                if repl_pts < star_pts * (1.0 + TOP_PERFORMER_GAIN_THRESHOLD):
+                                    justified = False
+                                    break
+                    for oc in out_c:
+                        if oc in top_ctor_names and justified:
+                            oc_idx = list(out_c).index(oc)
+                            replacement = list(in_c)[oc_idx] if oc_idx < len(in_c) else None
+                            if replacement:
+                                repl_pts = replacement["pts"]
+                                star_pts = current_c_pts.get(oc, 0)
+                                if repl_pts < star_pts * (1.0 + TOP_PERFORMER_GAIN_THRESHOLD):
+                                    justified = False
+                                    break
 
                     if not justified:
                         continue
@@ -271,7 +295,7 @@ def find_optimal_team(
         if price > 0:
             constructors.append({
                 "name": name,
-                "pts": c["total_pts"],
+                "pts": get_pts(name, c["total_pts"]),
                 "price": price,
                 "team": name # Team name is the constructor name
             })
@@ -522,9 +546,12 @@ def _fuzzy_match(name: str, data: dict) -> Optional[str]:
     return None
 
 
-def _count_team_drivers(drivers: list[str]) -> dict[str, int]:
+def _count_team_assets(drivers: list[str], constructors: list[str]) -> dict[str, int]:
+    """Count total assets (drivers + constructor) per team for the 2-asset-per-team cap."""
     counts: dict[str, int] = {}
     for drv in drivers:
         team = DRIVER_TEAMS_2025.get(drv, drv)
         counts[team] = counts.get(team, 0) + 1
+    for ctor in constructors:
+        counts[ctor] = counts.get(ctor, 0) + 1
     return counts

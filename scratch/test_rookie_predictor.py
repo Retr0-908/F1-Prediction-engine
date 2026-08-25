@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-sys.path.append(r"c:\Users\Retr0-908\Desktop\Tools\f1-predictor")
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from predictor import F1Predictor
 from data_fetcher import get_next_race

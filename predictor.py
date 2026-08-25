@@ -28,17 +28,19 @@ import warnings
 import datetime
 import json
 import hashlib
+import logging
 import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from typing import Optional
 
+logger = logging.getLogger("f1_predictor.predictor")
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.preprocessing import RobustScaler
-    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.linear_model import Ridge
     from sklearn.metrics import mean_squared_error
     import xgboost as xgb
@@ -50,6 +52,7 @@ from config import (
     RACE_POSITION_POINTS, QUALI_POSITION_POINTS,
     QUALI_Q2_BONUS, QUALI_Q3_BONUS, FASTEST_LAP_BONUS, DRIVER_OF_DAY_BONUS,
     POSITIONS_GAINED_PER, POSITIONS_LOST_PER, DNF_PENALTY, SPRINT_ROUNDS, AVG_PIT_STOP_TEAM_POINTS,
+    POLE_BONUS,
     CIRCUITS, SPRINT_RACE_POINTS, SC_PROBABILITY, VSC_PROBABILITY,
 )
 from data_fetcher import (
@@ -59,7 +62,7 @@ from data_fetcher import (
     get_pitstop_data,
     compute_multiseason_driver_form, compute_multiseason_constructor_stats,
     compute_practice_pace, get_best_practice_pace, get_qualifying_sector_times, get_grid_penalties,
-    get_actual_qualifying_results,
+    get_actual_qualifying_results, get_season_roster,
 )
 from elo_ratings import (
     Glicko2RatingSystem, ConstructorEloSystem, get_elo_system,
@@ -194,6 +197,11 @@ FEATURE_NAMES = [
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
+# Bump on ANY change to feature construction, target construction, or model
+# hyperparameters. Embedded in the disk-cache key so stale models are never
+# silently loaded after a schema change.
+MODEL_SCHEMA_VERSION = "4"
+
 WEATHER_ENC  = {"dry": 0, "overcast": 1, "mixed": 2, "wet": 3, "unknown": 1}
 RAIN_RISK_ENC = {"low": 0, "medium": 1, "high": 2, "unknown": 1}
 
@@ -276,7 +284,7 @@ class F1Predictor:
         self._weather            = {}
         self._elo: Optional[Glicko2RatingSystem] = None
         self._ctor_elo: dict[str, float]         = {}
-        self._roster: dict[str, str]             = DRIVER_TEAMS_2025   # default
+        self._roster: dict[str, str]             = DRIVER_TEAMS_2026   # static seed; load_context auto-detects the live lineup
         self._practice_pace: dict[str, float]    = {}    # FP2 deltas
         self._quali_sectors: dict[str, dict]     = {}    # qualifying sectors
         self._grid_penalties: dict[str, int]     = {}    # grid penalties
@@ -313,9 +321,22 @@ class F1Predictor:
         """
         if roster:
             self._roster = roster
+        else:
+            # No roster supplied (e.g. CLI path) — auto-detect the live lineup
+            # from championship standings instead of trusting the static seed.
+            try:
+                derived = get_season_roster(CURRENT_SEASON)
+                if derived:
+                    print(f"  [roster] Auto-detected lineup from standings ({len(derived)} drivers)")
+                    self._roster = derived
+            except Exception as e:
+                print(f"  [WARN] Roster auto-detection failed ({e}) — using static config lineup")
+        # New context → cached per-field ensemble ranks are stale
+        self._rank_cache = {}
         self._circuit_config = circuit_config
         self._weather        = weather
         self._mode           = mode
+        self._race_info      = race_info or {}
         self._grid_overrides = grid_overrides or {}
         self._actual_grid    = []
 
@@ -464,18 +485,20 @@ class F1Predictor:
         circuit_hist=None, circuit_cfg=None, weather=None,
         roster=None, grid_penalties=None,
     ) -> np.ndarray:
-        """Build the 30-feature vector for a single driver."""
-        # Defaults to instance context
-        drv_standings    = drv_standings   or self._driver_standings
-        ctor_standings   = ctor_standings  or self._ctor_standings
-        driver_form      = driver_form     or self._driver_form
-        ctor_reliability = ctor_reliability or self._ctor_reliability
+        """Build the feature vector for a single driver."""
+        # Defaults to instance context. NOTE: sentinel-based overrides — an
+        # explicitly-passed empty list/dict must stay empty (e.g. pre-round-1
+        # standings), otherwise current-season context leaks into historical rows.
+        drv_standings    = drv_standings   if drv_standings is not None else self._driver_standings
+        ctor_standings   = ctor_standings  if ctor_standings is not None else self._ctor_standings
+        driver_form      = driver_form     if driver_form is not None else self._driver_form
+        ctor_reliability = ctor_reliability if ctor_reliability is not None else self._ctor_reliability
         ctor_elo         = ctor_elo        if ctor_elo is not None else self._ctor_elo
-        elo              = elo             or self._elo
+        elo              = elo             if elo is not None else self._elo
         circuit_hist     = circuit_hist    if circuit_hist is not None else self._circuit_history
-        circuit_cfg      = circuit_cfg     or self._circuit_config
-        weather          = weather         or self._weather
-        roster           = roster          or self._roster
+        circuit_cfg      = circuit_cfg     if circuit_cfg is not None else self._circuit_config
+        weather          = weather         if weather is not None else self._weather
+        roster           = roster          if roster is not None else self._roster
         grid_penalties   = grid_penalties  if grid_penalties is not None else self._grid_penalties
 
         ctor_name = roster.get(driver_name, "")
@@ -490,8 +513,10 @@ class F1Predictor:
         ctor_pos = ctor_entry["position"] if ctor_entry else 6
         ctor_pts = ctor_entry["points"]   if ctor_entry else 0
 
-        # — Glicko-2 features —
-        elo_feats  = elo.get_elo_features(driver_name) if elo else {
+        # — Glicko-2 features (comparison pool restricted to the active roster
+        # so retired drivers don't distort rank/z-score features) —
+        _roster_pool = set(roster.keys()) if roster else None
+        elo_feats  = elo.get_elo_features(driver_name, roster=_roster_pool) if elo else {
             "elo_rating": ELO_BASE, "elo_zscore": 0.0, "elo_rank": 11,
             "elo_rd": 350.0, "elo_volatility": 0.06, "elo_confidence": 0.0,
         }
@@ -597,10 +622,18 @@ class F1Predictor:
 
         # — NEW: qualifying position proxy —
         # post-quali mode: real grid pos from quali_sectors; pre-quali: form proxy
+        # Gated off during training: the instance-level _quali_sectors dict holds
+        # TODAY'S session ranking — using it for historical samples would inject
+        # future knowledge into training labels.
         quali_sectors_self = getattr(self, "_quali_sectors", {})
-        if quali_sectors_self and driver_name in quali_sectors_self:
+        if quali_sectors_self and driver_name in quali_sectors_self \
+                and not getattr(self, '_is_training', False):
             # Rank by q_lap_delta (lower delta = better); approximates grid position
-            sorted_q = sorted(quali_sectors_self.items(), key=lambda x: x[1].get("q_lap_delta", 999))
+            sorted_q = sorted(
+                quali_sectors_self.items(),
+                key=lambda x: (x[1].get("q_lap_delta") is None,
+                               x[1].get("q_lap_delta") if x[1].get("q_lap_delta") is not None else 999),
+            )
             quali_pos_val = float(next((i + 1 for i, (n, _) in enumerate(sorted_q) if n == driver_name), form_avg_pos))
         else:
             quali_pos_val = _clamp(form_avg_pos, 1, 22)  # pre-quali proxy
@@ -620,14 +653,28 @@ class F1Predictor:
             try:
                 if self._temporal_model is None:
                     self._temporal_model = _get_temporal_model(verbose=False)
+                # Build the real race-day context vector. The model was trained
+                # with a VARYING grid position — freezing it at the training
+                # median (11.0) would discard the strongest context signal.
+                _rain_risk = str(weather.get("rain_risk", "low")).lower()
+                _rain_enc = 1.0 if _rain_risk in ("medium", "high") else 0.0
+                _sc_p = SC_PROBABILITY.get(circuit_key, 0.40)
+                _elo_vals = list(ctor_elo.values()) if ctor_elo else []
+                _elo_mean = float(np.mean(_elo_vals)) if _elo_vals else ELO_BASE
+                _elo_std = float(np.std(_elo_vals)) if len(_elo_vals) > 1 else 1.0
+                _ctor_z = (c_elo - _elo_mean) / (_elo_std or 1.0)
+                ctx_vec = np.array(
+                    [quali_pos_val, 35.0, _rain_enc, _sc_p, _ctor_z],
+                    dtype=np.float32,
+                )
                 lstm_momentum_pos = self._temporal_model.predict_driver_momentum(
                     driver_name,
                     self._recent_race_results,
                     self._tire_data_by_round,
-                    context_vec=None,   # predictor enriches at load_context time
+                    context_vec=ctx_vec,
                 )
             except Exception:
-                pass
+                logger.exception("LSTM momentum prediction failed for %s", driver_name)
         lstm_momentum_pos = _clamp(lstm_momentum_pos, 1, 22)
 
         # ── Phase 3: Tire efficiency score ───────────────────────────────────
@@ -640,8 +687,14 @@ class F1Predictor:
             try:
                 if self._tire_model is None:
                     self._tire_model = _get_tire_model(verbose=False)
-                # Primary compound heuristic: soft for low-downforce circuits, medium otherwise
-                primary_compound = "SOFT" if over_enc >= 3 else "MEDIUM"
+                # Primary compound: derive from the track's tire-degradation
+                # rating (higher deg → harder compound), not overtaking ease.
+                try:
+                    from track_features_loader import load_track_features as _ltf2
+                    _deg_track = int((_ltf2(circuit_key) or {}).get("tire_degradation", 3))
+                except Exception:
+                    _deg_track = 3
+                primary_compound = "SOFT" if _deg_track <= 2 else "MEDIUM"
                 driver_deg = self._tire_model.predict_deg_per_lap(
                     primary_compound,
                     stint_length=20.0,
@@ -668,8 +721,10 @@ class F1Predictor:
         
         fresh_tires_avail = 13.0
         if not getattr(self, '_is_training', False):
-            # We must figure out the current round
-            current_round = self._circuit_config.get("round", 0)
+            # Round comes from race_info — circuit-config "round" is 0 for
+            # placeholder circuits (Bahrain/Saudi/Imola), which would never match.
+            current_round = getattr(self, "_race_info", {}).get(
+                "round", self._circuit_config.get("round", 0))
             allocs = getattr(self, "_tire_allocs_by_round", {}).get(current_round, {})
             if driver_name in allocs:
                 fresh_tires_avail = float(allocs[driver_name].get("total_fresh", 13.0))
@@ -769,21 +824,21 @@ class F1Predictor:
     _MODEL_CACHE_DIR = Path(__file__).parent / "cache" / "models"
 
     def _model_cache_key(self) -> str:
-        """Hash of training seasons and feature count only.
+        """Hash of training seasons, the FULL feature schema, and a schema version.
 
-        The ML training loop explicitly skips CURRENT_SEASON (2026), so completed
-        race rounds never change the training data or model weights.  Only two things
-        genuinely invalidate the model:
-          1. A new historical season is added to HISTORICAL_SEASONS (e.g. end-of-year)
-          2. N_FEATURES changes (new features added to the ensemble)
-        Removing the round-count suffix stops the costly 5-minute full retrain that
-        was being triggered after every race weekend for no accuracy benefit.
+        Invalidated by:
+          1. A change in the effective training season list (incl. backtests
+             training on a subset via train(seasons=...))
+          2. ANY change to FEATURE_NAMES content or ORDER (not just count)
+          3. Bumping MODEL_SCHEMA_VERSION
         """
+        eff_seasons = getattr(self, "_train_seasons", HISTORICAL_SEASONS)
         seasons_str = (
-            ",".join(str(y) for y in sorted(HISTORICAL_SEASONS))
-            + f"_features_{N_FEATURES}"
+            ",".join(str(y) for y in sorted(eff_seasons))
+            + "_features_" + "|".join(FEATURE_NAMES)
+            + f"_v{MODEL_SCHEMA_VERSION}"
         )
-        return hashlib.sha1(seasons_str.encode()).hexdigest()[:12]
+        return hashlib.sha1(seasons_str.encode()).hexdigest()[:16]
 
     def _try_load_model_cache(self, verbose: bool) -> bool:
         """Return True if a valid cached model was loaded."""
@@ -834,39 +889,46 @@ class F1Predictor:
         with open(cache_file, "wb") as f:
             pickle.dump(state, f, protocol=5)
 
-    def train(self, verbose: bool = True, force: bool = False, progress_callback = None):
+    def train(self, verbose: bool = True, force: bool = False, progress_callback = None, seasons: list = None):
         """
         Train 3 models on all historical completed race data.
         Uses regulation-era weighted seasons (2019–present, heavily discounting pre-2022).
         Results are cached to disk — subsequent runs load instantly, no API calls needed.
 
         force=True skips the cache and retrains from scratch (same as --refresh).
+        seasons= restricts the training season list (used by the backtester);
+        callers no longer need to monkey-patch config.HISTORICAL_SEASONS.
         """
         if progress_callback:
             progress_callback("Training stage initialized...")
         # ── Cache hit fast-path ──
+        if seasons is not None:
+            self._train_seasons = sorted(seasons)
         if not force and self._try_load_model_cache(verbose):
             if progress_callback:
                 progress_callback("Ensemble model loaded from cache.")
             return
 
+        training_list = getattr(self, "_train_seasons", HISTORICAL_SEASONS)
+
         # Signal to _build_features: skip Phase 3 LSTM/tire inference during training
         self._is_training = True
 
         if verbose:
-            seasons_used = [y for y in HISTORICAL_SEASONS if y < CURRENT_SEASON]
+            seasons_used = [y for y in training_list if y < CURRENT_SEASON]
             print(f"  Building training dataset (regulation-era weighted, {len(seasons_used)} seasons)...")
 
         X_race, y_race   = [], []
         X_quali, y_quali = [], []
         race_groups, quali_groups = [], []
+        skipped_races = 0
 
         try:
-            from backtest import DRIVER_TEAMS_BY_YEAR
+            from backtest import _get_year_roster
         except ImportError:
-            DRIVER_TEAMS_BY_YEAR = {}
+            _get_year_roster = None
 
-        for year in HISTORICAL_SEASONS:
+        for year in training_list:
             if year >= CURRENT_SEASON:
                 continue
             try:
@@ -874,7 +936,10 @@ class F1Predictor:
                 # Build year-specific Glicko-2 from data BEFORE this season
                 year_elo = Glicko2RatingSystem()
                 year_elo.build_from_history([y for y in HISTORICAL_SEASONS if y < year], verbose=False)
-                roster = DRIVER_TEAMS_BY_YEAR.get(year, DRIVER_TEAMS_2025)
+                if _get_year_roster is not None:
+                    roster = _get_year_roster(year)   # dynamic from standings, static fallback
+                else:
+                    raise KeyError(f"No roster resolver available for {year}")
                 ctor_elo_sys  = ConstructorEloSystem(year_elo)
 
                 multi_form = compute_multiseason_driver_form(year, [year-1, year-2])
@@ -921,6 +986,10 @@ class F1Predictor:
                             "rain_risk": "high" if _wet_label == "wet" else "medium" if _wet_label == "mixed" else "low",
                         }
 
+                        # Stage rows per-race and commit atomically: if a single
+                        # _build_features call throws mid-race, appending partial
+                        # rows without the group entry would desync ranker groups.
+                        race_rows, quali_rows = [], []
                         for r in race_results:
                             drv = r["name"]
                             feat = self._build_features(
@@ -933,8 +1002,7 @@ class F1Predictor:
                                 roster=roster,
                                 grid_penalties=hist_grid_pen,
                             )
-                            X_race.append(feat)
-                            y_race.append(float(r["position"]))
+                            race_rows.append((feat, float(r["position"])))
 
                         for q in (quali_results or []):
                             drv = q["name"]
@@ -948,25 +1016,32 @@ class F1Predictor:
                                 roster=roster,
                                 grid_penalties=hist_grid_pen,
                             )
-                            X_quali.append(feat)
-                            y_quali.append(float(q["position"]))
-                            
-                        if race_results:
-                            race_groups.append(len(race_results))
-                        if quali_results:
-                            quali_groups.append(len(quali_results))
+                            quali_rows.append((feat, float(q["position"])))
+
+                        X_race.extend(f for f, _ in race_rows)
+                        y_race.extend(p for _, p in race_rows)
+                        X_quali.extend(f for f, _ in quali_rows)
+                        y_quali.extend(p for _, p in quali_rows)
+                        if race_rows:
+                            race_groups.append(len(race_rows))
+                        if quali_rows:
+                            quali_groups.append(len(quali_rows))
 
                         # Update intra-season Elo to keep features fresh for next race
-                        if race_results:
-                            year_elo.update(race_results, date_str=race.get("date", ""))
+                        year_elo.update(race_results, date_str=race.get("date", ""))
 
                     except Exception:
+                        logger.exception("Skipping training race %s %s", year, name)
+                        skipped_races += 1
                         continue
             except Exception:
+                logger.exception("Skipping training season %s", year)
                 continue
 
         if verbose:
-            print(f"  Dataset: {len(X_race)} race samples, {len(X_quali)} qualifying samples")
+            msg = (f"  Dataset: {len(X_race)} race samples, {len(X_quali)} qualifying samples"
+                   + (f" ({skipped_races} races skipped — see warnings)" if skipped_races else ""))
+            print(msg)
         if progress_callback:
             progress_callback(f"Dataset ready: {len(X_race)} race samples, {len(X_quali)} qualifying samples")
 
@@ -983,11 +1058,13 @@ class F1Predictor:
                 n_estimators=400, max_depth=5, learning_rate=0.03,
                 subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1,
                 reg_lambda=1.0, random_state=42, verbosity=0,
+                objective="rank:ndcg",
             )
             self.race_lgb = lgb.LGBMRanker(
                 n_estimators=400, num_leaves=31, learning_rate=0.03,
                 subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1,
                 reg_lambda=1.0, random_state=42, verbose=-1,
+                objective="lambdarank",
             )
             if progress_callback:
                 progress_callback("Fitting Random Forest race model...")
@@ -1068,63 +1145,89 @@ class F1Predictor:
     # ─────────────────────────────────────────
     # INFERENCE
     # ─────────────────────────────────────────
+    def _ensemble_rank_predictions(self, mode: str = "race") -> dict[str, tuple[float, float]]:
+        """Batch-predict every roster driver; returns {driver: (pred_position, std)}.
+
+        XGB/LGBM rankers emit unbounded margin scores whose absolute scale is
+        meaningless — mixing them with the RF's position-scale output produced
+        garbage averages and confidence estimates. Converting each model's raw
+        scores to a per-field RANK (1 = best) puts all three on an identical,
+        interpretable scale before averaging / passing to the meta-learner.
+        """
+        drivers = list(self._roster.keys()) or list(self._driver_form.keys())
+        if not drivers:
+            return {}
+        feats = np.array([self._build_features(d) for d in drivers])
+
+        if mode == "race":
+            scaler, mdl_rf = self.scaler_race, self.race_rf
+            mdl_xgb, mdl_lgb, meta = self.race_xgb, self.race_lgb, self.race_meta_model
+        else:
+            scaler, mdl_rf = self.scaler_quali, self.quali_rf
+            mdl_xgb, mdl_lgb, meta = self.quali_xgb, self.quali_lgb, self.quali_meta_model
+
+        fs = scaler.transform(feats)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            s_rf  = np.asarray(mdl_rf.predict(fs), dtype=float)
+            s_xgb = np.asarray(mdl_xgb.predict(fs), dtype=float)
+            s_lgb = np.asarray(mdl_lgb.predict(fs), dtype=float)
+
+        def to_rank(scores: np.ndarray) -> np.ndarray:
+            """Raw scores → expected rank within this field (1 = best)."""
+            return np.argsort(np.argsort(-scores)).astype(float) + 1.0
+
+        r_rf, r_xgb, r_lgb = to_rank(s_rf), to_rank(s_xgb), to_rank(s_lgb)
+
+        results: dict[str, tuple[float, float]] = {}
+        for i, drv in enumerate(drivers):
+            vals = [float(r_rf[i]), float(r_xgb[i]), float(r_lgb[i])]
+            if meta is not None:
+                try:
+                    pred = float(meta.predict([vals])[0])
+                except Exception:
+                    pred = float(np.mean(vals))
+            else:
+                pred = float(np.mean(vals))
+            std = float(np.std(vals))
+            results[drv] = (_clamp(pred, 1, 22), std)
+        return results
+
     def _predict_position(self, driver_name: str, mode: str = "race") -> tuple[float, float]:
         """
         Returns (predicted_position, std_dev) for race or qualifying.
         ALWAYS uses Glicko-2 + ML ensemble — no random guessing.
+        Uses the batched per-field rank conversion so all three ensemble
+        members contribute on the same scale.
         """
-        feat = self._build_features(driver_name)
+        if self._trained and getattr(self, "race_rf", None) is not None:
+            cache = getattr(self, "_rank_cache", None)
+            if cache is None:
+                cache = {}
+                self._rank_cache = cache
+            key = "race" if mode == "race" else "quali"
+            if key not in cache:
+                cache[key] = self._ensemble_rank_predictions(key)
+                self._last_rank_cache_epoch = getattr(self, "_context_epoch", 0)
+            entry = cache[key].get(driver_name)
+            if entry is not None:
+                return entry
 
-        if self._trained and self.race_rf is not None and mode == "race":
-            fs = self.scaler_race.transform(feat.reshape(1, -1))
-            
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", UserWarning)
-                pr_rf  = self.race_rf.predict(fs)[0]
-                pr_xgb = self.race_xgb.predict(fs)[0]
-                pr_lgb = self.race_lgb.predict(fs)[0]
-                
-            if self.race_meta_model is not None:
-                # Re-invert ranker scores to position scale (25 - score = predicted position)
-                pred = self.race_meta_model.predict([[pr_rf, 25.0 - pr_xgb, 25.0 - pr_lgb]])[0]
+        # Glicko-2 fallback (pure ranking — no randomness)
+        if self._elo:
+            ranked = self._elo.get_ranked_drivers()
+            driver_names = [n for n, _ in ranked]
+            if driver_name in driver_names:
+                pred = float(driver_names.index(driver_name) + 1)
             else:
-                pred = (pr_rf + (25-pr_xgb) + (25-pr_lgb)) / 3.0
-                
-            std  = float(np.std([pr_rf, 25-pr_xgb, 25-pr_lgb]))
-
-        elif self._trained and self.quali_rf is not None and mode == "quali":
-            fs = self.scaler_quali.transform(feat.reshape(1, -1))
-            
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", UserWarning)
-                pq_rf  = self.quali_rf.predict(fs)[0]
-                pq_xgb = self.quali_xgb.predict(fs)[0]
-                pq_lgb = self.quali_lgb.predict(fs)[0]
-                
-            if self.quali_meta_model is not None:
-                # Re-invert ranker scores to position scale before passing to meta-learner
-                pred = self.quali_meta_model.predict([[pq_rf, 25.0 - pq_xgb, 25.0 - pq_lgb]])[0]
-            else:
-                pred = (pq_rf + (25-pq_xgb) + (25-pq_lgb)) / 3.0
-                
-            std  = float(np.std([pq_rf, 25-pq_xgb, 25-pq_lgb]))
-
+                pred = 11.0
         else:
-            # Glicko-2 fallback (pure ranking — no randomness)
-            if self._elo:
-                ranked = self._elo.get_ranked_drivers()
-                driver_names = [n for n, _ in ranked]
-                if driver_name in driver_names:
-                    pred = float(driver_names.index(driver_name) + 1)
-                else:
-                    pred = 11.0
-            else:
-                drv_entry = next((d for d in self._driver_standings if d["name"] == driver_name), None)
-                pred = float(drv_entry["position"]) if drv_entry else 11.0
+            drv_entry = next((d for d in self._driver_standings if d["name"] == driver_name), None)
+            pred = float(drv_entry["position"]) if drv_entry else 11.0
 
-            # RD-based uncertainty — high RD → higher std (appropriate for rookies)
-            rd   = self._elo.get_rd(driver_name) if self._elo else 350.0
-            std  = 1.5 + 3.0 * (rd / 350.0)  # ranges 1.5–4.5
+        # RD-based uncertainty — high RD → higher std (appropriate for rookies)
+        rd   = self._elo.get_rd(driver_name) if self._elo else 350.0
+        std  = 1.5 + 3.0 * (rd / 350.0)  # ranges 1.5–4.5
 
         return float(pred), std
 
@@ -1199,7 +1302,8 @@ class F1Predictor:
 
             # Guardrail 2: Rookie floor (REMOVED to allow fair weighting)
 
-            # Guardrail 3: Last-place constructor — soft cap at P12 for backmarker teams
+            # Guardrail 3: Last-place constructor — floor weak predictions for
+            # backmarker teams at P10 (unless current form justifies better)
             if ctor_pos_val >= 9 and pred < 10.0 and not (form_avg <= 9):
                 pred = max(pred, 10.0)
 
@@ -1285,6 +1389,9 @@ class F1Predictor:
         predictions.sort(key=lambda x: x["predicted_pos"])
         for i, p in enumerate(predictions, 1):
             p["predicted_grid"] = i
+            # Qualifying CLASSIFICATION position (pre-penalty) — F1 Fantasy
+            # awards quali bonus points on this, not on the penalty-adjusted grid
+            p["quali_class_pos"] = i
             p["is_actual"] = False
 
         if getattr(self, "_actual_grid", []) or getattr(self, "_grid_overrides", {}):
@@ -1295,6 +1402,8 @@ class F1Predictor:
                 drv = ml_entry["driver"]
                 is_actual = False
                 effective_grid = ml_entry["predicted_grid"]
+                # Preserve the pre-penalty classification position
+                class_pos = ml_entry["quali_class_pos"]
                 
                 if getattr(self, "_actual_grid", []):
                     actual_entry = next((x for x in self._actual_grid if x["driver"] == drv), None)
@@ -1314,6 +1423,7 @@ class F1Predictor:
                     **ml_entry,
                     "predicted_grid": effective_grid,
                     "predicted_pos": float(effective_grid),
+                    "quali_class_pos": class_pos,
                     "is_actual": is_actual
                 })
                 
@@ -1396,26 +1506,41 @@ class F1Predictor:
 
         race_pos  = race_entry["predicted_rank"]
         grid_pos  = quali_entry["predicted_grid"]
+        # Qualifying CLASSIFICATION (pre-penalty) drives quali bonus points in
+        # F1 Fantasy; the effective grid (post-penalty) only matters for the
+        # positions-gained calculation below.
+        quali_class_pos = int(quali_entry.get("quali_class_pos", grid_pos))
         dnf_prob  = race_entry["dnf_prob_pct"] / 100.0
 
-        # Apply grid penalty to effective start position for "positions gained" calculation
-        grid_penalty = self._grid_penalties.get(driver_name, 0)
-        effective_grid = grid_pos + grid_penalty
+        # Post-quali mode: predicted_grid ALREADY reflects penalties
+        # (it comes from get_actual_qualifying_results' effective_grid or a
+        # locked override). Re-adding them here double-counted.
+        if quali_entry.get("is_actual", False):
+            effective_grid = grid_pos
+        else:
+            grid_penalty = self._grid_penalties.get(driver_name, 0)
+            effective_grid = grid_pos + _clamp(grid_penalty, 0, 20)
 
         breakdown = {}
 
-        # Qualifying points
-        if grid_pos <= 10:
-            quali_pts = QUALI_POSITION_POINTS.get(grid_pos, 0) + QUALI_Q3_BONUS + QUALI_Q2_BONUS
-        elif grid_pos <= 15:
+        # Qualifying points — F1 Fantasy rules:
+        #   top-10 classifiers → position points + Q3 bonus (+ pole bonus)
+        #   P11–15 classifiers → Q2 bonus only (never BOTH bonuses)
+        if quali_class_pos <= 10:
+            quali_pts = QUALI_POSITION_POINTS.get(quali_class_pos, 0) + QUALI_Q3_BONUS
+            if quali_class_pos == 1:
+                quali_pts += POLE_BONUS
+        elif quali_class_pos <= 15:
             quali_pts = float(QUALI_Q2_BONUS)
         else:
             quali_pts = 0.0
         breakdown["qualifying"] = round(quali_pts, 1)
 
-        # Race position points
+        # Race position points — discounted by survival probability so the
+        # deterministic EV is consistent with the Monte Carlo engine (which
+        # scores DNF sims with the DNF penalty).
         rp = RACE_POSITION_POINTS.get(race_pos, 0)
-        breakdown["race_position"] = round(rp, 1)
+        breakdown["race_position"] = round(rp * (1.0 - dnf_prob), 1)
 
         # Positions gained/lost (from effective grid after penalty)
         delta = effective_grid - race_pos
@@ -1425,13 +1550,16 @@ class F1Predictor:
         else:
             # Lost places (delta is negative or zero)
             pos_pts = abs(delta) * POSITIONS_LOST_PER
-        breakdown["positions_delta"] = round(pos_pts, 1)
+        breakdown["positions_delta"] = round(pos_pts * (1.0 - dnf_prob), 1)
 
-        # DNF penalty (removed from base calculation to prevent double penalty)
+        # DNF penalty (removed from base calculation to prevent double penalty;
+        # survival probability is applied to the race terms above instead)
         breakdown["dnf_risk"] = 0.0
 
-        # Fastest lap probability
+        # Fastest lap — only top-10 finishers are eligible under F1 rules
         fl_prob = max(0.0, (0.09 - (race_pos - 1) * 0.005)) * (1.0 - dnf_prob)
+        if race_pos > 10:
+            fl_prob = 0.0
         breakdown["fastest_lap"] = round(FASTEST_LAP_BONUS * fl_prob, 2)
 
         # Driver of the Day
@@ -1460,13 +1588,27 @@ class F1Predictor:
                 bm = _get_bayesian_model()
                 form_entry = self._driver_form.get(driver_name, {})
                 pts_history = form_entry.get("points_list", [])
-                
+                # Real DNF flags from the form window (position-99 convention
+                # excluded upstream); None → Bayesian model falls back gracefully.
+                dnf_flags = form_entry.get("dnf_list") or None
+
                 if pts_history:
                     # Deterministic total acts as the prior mean for the Bayesian fit
-                    bayesian_ev = bm.fit_driver(driver_name, pts_history, ensemble_pred_pts=total)
-                    total = bayesian_ev
+                    bayesian_ev = bm.fit_driver(
+                        driver_name,
+                        pts_history,
+                        ensemble_pred_pts=total,
+                        dnf_flags=dnf_flags,
+                        circuit_key=self._circuit_config.get("key", "") or None,
+                    )
+                    if bayesian_ev is not None and total > 0:
+                        # Keep the published breakdown consistent with the headline
+                        # number (consumers assert total == sum of parts)
+                        scale = bayesian_ev / total
+                        breakdown = {k: round(v * scale, 2) for k, v in breakdown.items()}
+                        total = bayesian_ev
             except Exception:
-                pass
+                logger.exception("Bayesian point projection failed for %s", driver_name)
 
         return {
             "driver":    driver_name,
@@ -1575,10 +1717,45 @@ def _train_meta_learner(
 
 
 def _match_circuit_cfg(race_name: str) -> dict:
-    """Fuzzy-match race name to circuit config."""
-    race_lower = race_name.lower()
+    """Fuzzy-match a Jolpica race name to its CIRCUITS config.
+
+    Requires ALL distinctive words of a circuit name (excluding generic
+    "grand"/"prix" tokens) to appear in the race name. The old version kept
+    the generic tokens, so "Australian Grand Prix" — first in CIRCUITS —
+    matched EVERY race via the substring "grand".
+    """
+    _GENERIC_TOKENS = {"grand", "prix"}
+    normalized_name = race_name.lower().strip()
+    key = _RACE_NAME_ALIASES.get(normalized_name)
+    if key:
+        for cfg_name, cfg in CIRCUITS.items():
+            if cfg.get("key") == key:
+                return {**cfg, "name": cfg_name}
+
+    def _distinctive(name: str) -> list[str]:
+        return [w for w in name.lower().split()
+                if len(w) > 3 and w not in _GENERIC_TOKENS]
+
+    race_lower = normalized_name
+    best_name, best_cfg, best_words = "", {}, []
     for name, cfg in CIRCUITS.items():
-        words = name.lower().split()
-        if any(w in race_lower for w in words if len(w) > 3):
-            return {**cfg, "name": name}
+        words = _distinctive(name)
+        if not words:
+            continue
+        if all(w in race_lower for w in words) and len(words) > len(best_words):
+            best_name, best_cfg, best_words = name, cfg, words
+    if best_name:
+        return {**best_cfg, "name": best_name}
+    logger.warning("_match_circuit_cfg: no circuit match for %r", race_name)
     return {}
+
+
+# Renamed/historical race names that cannot be resolved by word containment.
+# Values are CIRCUITS `key` fields.
+_RACE_NAME_ALIASES = {
+    "são paulo grand prix": "brazil",
+    "sao paulo grand prix": "brazil",
+    # NOTE: "Spanish Grand Prix" intentionally NOT aliased — it exactly matches
+    # the 2026 Madrid CIRCUITS entry; historical Barcelona seasons will resolve
+    # to madring (accepted approximation until year-aware lookup exists).
+}

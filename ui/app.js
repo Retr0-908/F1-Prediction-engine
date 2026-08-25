@@ -6,6 +6,10 @@ let _currentRaceInfo = null;  // populated after pipeline completes
 let _charts = { practice: null, radar: null, comparison: null, telemetry: null, accuracyTrend: null };
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Heartbeat starts IMMEDIATELY — if it waited for full dashboard init, a
+    // slow /api/prices fetch could delay the first beat past the watchdog's
+    // 20s timeout and shut the server down mid-load.
+    setupHeartbeat();
     initApp();
     setupNavigation();
     setupTabs();
@@ -69,8 +73,6 @@ async function initApp() {
         navEl.classList.remove('hidden');
         dashEl.classList.add('active');
     }
-
-    setupHeartbeat();
 }
 
 // ---- NAVIGATION ----
@@ -670,36 +672,77 @@ async function startAnalysis() {
     Object.entries(marketPrices.constructors).forEach(([name, d]) => { activeOverrides[name] = { price: d.price }; });
 
     // Trigger backend
-    const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            drivers: currentTeam.drivers,
-            constructors: currentTeam.constructors,
-            budget: currentTeam.budget_remaining || 100.0,
-            points: currentTeam.current_points || 0.0,
-            transfers: currentTeam.transfers || 1,
-            options: { 
-                overrides: activeOverrides,
-                grid_overrides: gridOverrides,
-                mode: document.getElementById('mode-selector') ? document.getElementById('mode-selector').value : "auto"
-            }
-        })
-    });
-    
-    const result_json = await res.json();
+    let result_json;
+    try {
+        const res = await fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                drivers: currentTeam.drivers,
+                constructors: currentTeam.constructors,
+                budget: currentTeam.budget_remaining || 100.0,
+                points: currentTeam.current_points || 0.0,
+                transfers: currentTeam.transfers || 1,
+                options: {
+                    overrides: activeOverrides,
+                    grid_overrides: gridOverrides,
+                    mode: document.getElementById('mode-selector') ? document.getElementById('mode-selector').value : "auto"
+                }
+            })
+        });
+        result_json = await res.json();
+    } catch (err) {
+        showToast('Failed to start analysis: ' + err.message, "error");
+        _resetRunButton();
+        _isPipelineRunning = false;
+        return;
+    }
+
     if (result_json.status === "error") {
         showToast(result_json.message, "error");
+        _resetRunButton();
         _isPipelineRunning = false;
-        if (runBtn) {
-            runBtn.disabled = false;
-            runBtn.classList.remove('disabled');
-        }
         return;
     }
     
     const run_id = result_json.run_id;
     connectStream(run_id);
+}
+
+function _resetRunButton() {
+    const runBtn = document.getElementById('btn-run-analysis');
+    if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.classList.remove('disabled');
+        runBtn.innerHTML = '&#9654; Run Analysis';
+    }
+}
+
+// Poll GET /api/results/{run_id} as a fallback when the SSE stream drops.
+// The server sanitizes the payload, so this recovers from transient stream
+// errors instead of leaving the UI permanently locked.
+function _pollResultsFallback(runId, attempts = 0) {
+    const MAX_ATTEMPTS = 120;   // 10 min at 5s intervals
+    if (attempts > MAX_ATTEMPTS) {
+        showToast('Lost connection to the analysis stream and results are not ready yet.', "error");
+        _resetRunButton();
+        _isPipelineRunning = false;
+        return;
+    }
+    fetch(`/api/results/${runId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === "ok" && data.data) {
+                showToast('Recovered analysis results after stream interruption.', "info");
+                displayResults(data.data);
+                _resetRunButton();
+                _isPipelineRunning = false;
+            } else if (data.status === "not_found") {
+                // Result not stored yet — either still running or pruned; keep waiting
+                setTimeout(() => _pollResultsFallback(runId, attempts + 1), 5000);
+            }
+        })
+        .catch(() => setTimeout(() => _pollResultsFallback(runId, attempts + 1), 5000));
 }
 
 function connectStream(runId) {
@@ -838,6 +881,10 @@ function connectStream(runId) {
             delete simsEl.dataset.interval;
         }
         evtSource.close();
+        // Don't leave the UI locked — fall back to polling for the result.
+        // (Laptop sleep / proxy timeout can drop SSE while the pipeline runs.)
+        showToast('Stream interrupted — switching to polling…', "warning");
+        _pollResultsFallback(runId);
     };
 }
 
@@ -1488,6 +1535,8 @@ function showToast(message, type = 'info') {
 }
 
 function setupHeartbeat() {
+    if (setupHeartbeat._installed) return;   // idempotent
+    setupHeartbeat._installed = true;
     setInterval(() => {
         fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
     }, 5000);

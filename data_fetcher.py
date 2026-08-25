@@ -18,25 +18,31 @@ Phase 2 additions (ML pipeline data engineering):
 
 import os
 import json
+import re
 import time
 import datetime
+import threading
 import requests
 import fastf1
 import pandas as pd
 import numpy as np
 import logging
 
+logger = logging.getLogger("f1_predictor.data_fetcher")
+
 # Silence FastF1 and requests_cache verbose warnings about limits and missing telemetry
 logging.getLogger("fastf1").setLevel(logging.CRITICAL)
 logging.getLogger("requests_cache").setLevel(logging.CRITICAL)
 
 # Disable FastF1's strict client-side rate limiter (500 calls/hour) to allow full cache rebuilds of historical seasons.
-# This is safe because our downloads are naturally throttled and we are downloading static timing files.
+# Our own throttle (_throttle / _ff1_throttle) paces requests instead.
+# NOTE: this patches a private FastF1 attribute — if upstream renames it, log loudly below.
 try:
     import fastf1.req
     fastf1.req._SessionWithRateLimiting._RATE_LIMITS = {}
-except Exception as e:
-    pass
+    logger.info("FastF1 client-side rate limiter disabled (own throttle active)")
+except AttributeError:
+    logger.warning("FastF1 internals changed — their rate limiter remains ACTIVE")
 from pathlib import Path
 from typing import Optional
 
@@ -63,30 +69,64 @@ def _cache_path(key: str) -> Path:
     return CACHE_DIR / f"{safe}.json"
 
 
+_cache_io_lock = threading.Lock()
+
 def _load_cache(key: str, max_age_hours: float = 6, allow_stale: bool = False) -> Optional[dict]:
     p = _cache_path(key)
     if p.exists():
         if max_age_hours <= 0 or allow_stale:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
-        age = time.time() - p.stat().st_mtime
-        if age < max_age_hours * 3600:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
+            pass
+        else:
+            age = time.time() - p.stat().st_mtime
+            if age >= max_age_hours * 3600:
+                return None
+        try:
+            with _cache_io_lock:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            # Corrupt/partial cache file (e.g. interrupted write) — treat as a miss
+            logger.warning("Corrupt cache file %s (%s) — ignoring", p.name, e)
+            try:
+                p.unlink()
+            except OSError:
+                pass
+            return None
     return None
 
 
 def _save_cache(key: str, data) -> None:
-    with open(_cache_path(key), "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, default=str)
+    # Atomic write: dump to a temp file then os.replace so concurrent readers
+    # never observe a truncated JSON document.
+    target = _cache_path(key)
+    tmp = target.with_suffix(".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+        os.replace(tmp, target)
+    except OSError as e:
+        logger.warning("Failed to write cache %s: %s", target.name, e)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # ─────────────────────────────────────────────
 # GLOBAL REQUEST THROTTLE
 # ─────────────────────────────────────────────
+_throttle_lock = threading.Lock()
 _last_request_time: float = 0.0
 # Jolpica allows ~30 req/min; 2.1s gap keeps us safely under that limit
 _MIN_REQUEST_GAP = 2.1   # seconds between requests
+
+
+def _safe_retry_after(value) -> int:
+    """Parse a Retry-After header that may be seconds OR an HTTP-date."""
+    try:
+        return int(str(value).strip())
+    except (ValueError, TypeError):
+        return 0
 
 
 # ─────────────────────────────────────────────
@@ -100,15 +140,23 @@ _PREFERRED_FORENAME = {
     "Andrea Kimi": "Kimi",   # Andrea Kimi Antonelli → Kimi Antonelli
 }
 
+# Canonical spellings for drivers whose Jolpica name differs from the names
+# used across config/fantasy prices (name ORDER, casing, etc.)
+_DRIVER_NAME_ALIASES = {
+    "Guanyu Zhou": "Zhou Guanyu",     # Jolpica flips the Chinese given/family order
+    "Nyck de Vries": "Nyck De Vries",
+}
+
 def _normalize_driver_name(given: str, family: str) -> str:
     """Return the canonical driver name used across config.py / fantasy prices."""
     import unicodedata
     given_norm = _PREFERRED_FORENAME.get(given, given)
     name = f"{given_norm} {family}"
-    return "".join(
+    name = "".join(
         c for c in unicodedata.normalize("NFD", name)
         if unicodedata.category(c) != "Mn"
     )
+    return _DRIVER_NAME_ALIASES.get(name, name)
 
 
 # Circuit IDs returned by the Jolpica API differ from the keys we cache under.
@@ -129,7 +177,9 @@ _CONSTRUCTOR_NAME_ALIASES = {
     "AlphaTauri":       "Racing Bulls",
     "Toro Rosso":       "Racing Bulls",
     "Alfa Romeo":       "Audi",       # Sauber → Audi, closest mapping
+    "Alfa Romeo F1 Team": "Audi",
     "Sauber":           "Audi",
+    "Kick Sauber":      "Audi",
     "Haas F1 Team":     "Haas",
     "Alpine F1 Team":   "Alpine",
     "Aston Martin":     "Aston Martin",
@@ -146,12 +196,72 @@ def _normalize_constructor_name(name: str) -> str:
     return _CONSTRUCTOR_NAME_ALIASES.get(name, name)
 
 
+# ─────────────────────────────────────────────
+# RESULT CLASSIFICATION
+# Ergast/Jolpica marks lapped-but-running finishers with "+N Laps" statuses for
+# arbitrarily large N. Any numeric-or-lapped classification counts as FINISHED;
+# only DSQ / withdrawal / mechanical failure etc. count as DNF.
+# ─────────────────────────────────────────────
+_LAPPED_RE = re.compile(r"^\+\d+\s+laps?$", re.IGNORECASE)
+
+def _classify_result(position_text: str, status: str) -> tuple[str, bool]:
+    """Return (classification_kind, did_not_finish).
+
+    kind ∈ {"finished", "lapped", "dsq", "withdrawn", "dnf"}
+    """
+    s = (status or "").strip().lower()
+    p = (position_text or "").strip()
+    if p.isdigit():
+        return "finished", False
+    if _LAPPED_RE.match(s) or _LAPPED_RE.match(p):
+        return "lapped", False
+    if "disqualif" in s or s == "dsq":
+        return "dsq", True
+    if "withdraw" in s or s in ("wd", "w"):
+        return "withdrawn", True
+    return "dnf", True
+
+
+def _parse_result_position(r: dict, order_index: int, kind: str, did_not_finish: bool) -> int:
+    """Resolve a result entry's finishing position.
+
+    - Numeric positionText → used verbatim.
+    - Lapped finishers → their classification order from the API (order_index),
+      which ranks them correctly behind the classified field.
+    - DNF/DSQ/W → their order among non-classified runners (also better than
+      collapsing every DNF onto a fake P20).
+    """
+    pos_text = str(r.get("positionText", r.get("position", "")) or "").strip()
+    if pos_text.isdigit():
+        return int(pos_text)
+    return order_index
+
+
 def _throttle() -> None:
     global _last_request_time
-    elapsed = time.time() - _last_request_time
-    if elapsed < _MIN_REQUEST_GAP:
-        time.sleep(_MIN_REQUEST_GAP - elapsed)
-    _last_request_time = time.time()
+    with _throttle_lock:
+        elapsed = time.time() - _last_request_time
+        if elapsed < _MIN_REQUEST_GAP:
+            time.sleep(_MIN_REQUEST_GAP - elapsed)
+        _last_request_time = time.time()
+
+
+# ── FastF1 throttle ─────────────────────────────────────────────
+# We disable FastF1's own client-side rate limiter at import time, so ALL
+# fastf1.get_session() traffic MUST go through our own pacing or parallel
+# cache-warming workers will hammer the F1 livetiming API and trigger
+# connection resets / IP throttling.
+_ff1_lock = threading.Lock()
+_last_ff1_request_time: float = 0.0
+_FF1_MIN_REQUEST_GAP = 3.0   # seconds — conservative; ~1200 calls/hour max
+
+def _ff1_throttle() -> None:
+    global _last_ff1_request_time
+    with _ff1_lock:
+        elapsed = time.time() - _last_ff1_request_time
+        if elapsed < _FF1_MIN_REQUEST_GAP:
+            time.sleep(_FF1_MIN_REQUEST_GAP - elapsed)
+        _last_ff1_request_time = time.time()
 
 
 def _jolpica_get(endpoint: str, params: dict = None, cache_hours: float = 6) -> dict:
@@ -179,7 +289,7 @@ def _jolpica_get(endpoint: str, params: dict = None, cache_hours: float = 6) -> 
             # connect=10s, read=60s — Jolpica can be slow under load
             resp = requests.get(url, params=params or {}, timeout=(10, 60))
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 0))
+                retry_after = _safe_retry_after(resp.headers.get("Retry-After"))
                 # Start at 5s (not 2s) — Jolpica 429s clear quickly but not instantly
                 wait = max(retry_after, 5 * (2 ** attempt))
                 print(f"    [rate limit 429] waiting {wait}s (attempt {attempt + 1}/4)...")
@@ -228,7 +338,7 @@ def _openf1_get(endpoint: str, params: dict = None, cache_hours: float = 6) -> l
             # connect=10s, read=60s — OpenF1 can be slow under load
             resp = requests.get(url, params=params or {}, timeout=(10, 60))
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 0))
+                retry_after = _safe_retry_after(resp.headers.get("Retry-After"))
                 wait = max(retry_after, 2 ** attempt * 2)
                 print(f"    [OpenF1 rate limit 429] waiting {wait}s...")
                 time.sleep(wait)
@@ -285,22 +395,41 @@ def get_season_schedule(year: int = CURRENT_SEASON) -> list[dict]:
 
 
 def is_sprint_weekend(race: dict) -> bool:
-    """True if the race schedule is verified as a sprint weekend."""
+    """True if the race schedule is a sprint weekend.
+
+    The schedule's own `sprint_date` field is authoritative for every season.
+    A static fallback table is used ONLY when the field is missing/unavailable,
+    with a loud warning — the table must be verified against the official calendar.
+    """
     round_num = race.get("round", 0)
     date_str = race.get("date", "")
-    year = int(date_str[:4]) if date_str else 2026
-    
-    if year == 2026:
-        return round_num in {2, 4, 5, 9, 12, 16}
-    elif year == 2025:
-        return round_num in {2, 6, 9, 13, 19, 22}
-    elif year == 2024:
-        return round_num in {2, 5, 13, 18, 19, 21}
+    year = int(date_str[:4]) if date_str else CURRENT_SEASON
 
-    # Fallback to API check
-    sprint_date = race.get("sprint_date", "")
-    return bool(sprint_date and sprint_date.strip())
+    sprint_date = str(race.get("sprint_date", "") or "").strip()
+    if sprint_date:
+        return True
 
+    fallback = SPRINT_ROUNDS_BY_YEAR_FALLBACK.get(year, set())
+    if round_num in fallback:
+        logger.warning(
+            "Sprint detection for %d R%d using static fallback table "
+            "(schedule had no sprint_date) — verify against official calendar",
+            year, round_num,
+        )
+        return True
+    return False
+
+
+# Last-resort only. Primary source of truth is the schedule's `sprint_date` field.
+# Verified against official calendars:
+#   2024 sprints: China R5, Miami R6, Austria R11, USA R19, Brazil R21, Qatar R23
+#   2025 sprints: China R2, Miami R6, Belgium R13, USA R19, Brazil R21, Qatar R23
+#   2026: announced calendar — verify rounds once the season schedule is published.
+SPRINT_ROUNDS_BY_YEAR_FALLBACK: dict[int, set[int]] = {
+    2023: {2, 3, 4, 8, 12, 19},          # Baku, Miami, Austria, Belgium, Qatar, USA
+    2024: {5, 6, 11, 19, 21, 23},
+    2025: {2, 6, 13, 19, 21, 23},
+}
 
 _sprint_rounds_cache: dict[int, set[int]] = {}
 
@@ -310,22 +439,17 @@ def get_sprint_rounds(year: int = CURRENT_SEASON) -> set[int]:
     if year not in _sprint_rounds_cache:
         try:
             schedule = get_season_schedule(year)
-            # Filter rounds where is_sprint_weekend is true
             rounds = {r["round"] for r in schedule if is_sprint_weekend(r)}
-            if rounds:
-                _sprint_rounds_cache[year] = rounds
-            else:
-                raise ValueError("No sprint rounds found in schedule")
-        except Exception:
-            # Fallback to defaults if API fails or when starting up
-            if year == 2026:
-                _sprint_rounds_cache[year] = {2, 4, 5, 9, 12, 16}
-            elif year == 2025:
-                _sprint_rounds_cache[year] = {2, 6, 9, 13, 19, 22}
-            elif year == 2024:
-                _sprint_rounds_cache[year] = {2, 5, 13, 18, 19, 21}
-            else:
-                _sprint_rounds_cache[year] = set()
+            if not rounds:
+                logger.warning("No sprint rounds found in %d schedule", year)
+        except Exception as e:
+            logger.warning("Could not derive sprint rounds for %d from schedule: %s", year, e)
+            rounds = set()
+            fallback = SPRINT_ROUNDS_BY_YEAR_FALLBACK.get(year)
+            if fallback:
+                logger.warning("Using static sprint-round fallback table for %d", year)
+                rounds = set(fallback)
+        _sprint_rounds_cache[year] = rounds
     return _sprint_rounds_cache[year]
 
 
@@ -409,7 +533,10 @@ def get_driver_standings(year: int = CURRENT_SEASON, round_num: int = None) -> l
             "name":         _normalize_driver_name(drv['givenName'], drv['familyName']),
             "points":       float(e["points"]),
             "wins":         int(e["wins"]),
-            "constructor":  _normalize_constructor_name(e["Constructors"][0]["name"]) if e.get("Constructors") else "",
+            # Drivers who switched seats mid-season list MULTIPLE constructors;
+            # [-1] is the most recent seat (the one they finished the period in).
+            # [0] gave Tsunoda/Lawson their PRE-swap 2025 teams.
+            "constructor":  _normalize_constructor_name(e["Constructors"][-1]["name"]) if e.get("Constructors") else "",
         })
     return result
 
@@ -439,11 +566,108 @@ def get_constructor_standings(year: int = CURRENT_SEASON, round_num: int = None)
             pos = int(pos)
         result.append({
             "position":    pos,
-            "constructor": ctor["name"],
+            "constructor": _normalize_constructor_name(ctor["name"]),
             "points":      float(e["points"]),
             "wins":        int(e["wins"]),
         })
     return result
+
+
+# ─────────────────────────────────────────────
+# DYNAMIC ROSTER DETECTION
+# Derives the driver→team lineup from the API instead of hardcoded tables.
+# Static tables in config.py / backtest.py remain ONLY as offline /
+# pre-round-1 fallbacks.
+# ─────────────────────────────────────────────
+def _latest_completed_round_num(year: int) -> int:
+    """Highest round of `year` whose race has happened, or 0 if none."""
+    try:
+        today = datetime.date.today()
+        done = [
+            r["round"] for r in get_season_schedule(year)
+            if datetime.date.fromisoformat(r["date"]) < today
+        ]
+        return max(done) if done else 0
+    except Exception:
+        return 0
+
+
+def get_season_roster(year: int, round_num: int = None) -> dict[str, str]:
+    """
+    Auto-detect the {canonical_driver_name: canonical_team_name} lineup for
+    `year`, derived from championship standings at `round_num`
+    (default: the latest completed round — reflects mid-season seat swaps).
+
+    Drivers who raced but scored no points still appear in standings;
+    non-scoring one-off substitutes are merged in from the most recent
+    race results. All names/teams pass through the same normalization used
+    everywhere else, so the result is directly compatible with config tables.
+
+    Returns {} if derivation fails (caller should fall back to static data).
+    """
+    roster: dict[str, str] = {}
+
+    rnd = round_num
+    if rnd is None:
+        rnd = _latest_completed_round_num(year)
+
+    # Primary source: championship standings (includes every driver who raced)
+    try:
+        if rnd >= 1:
+            entries = get_driver_standings(year, rnd)
+        else:
+            # Nothing completed yet this year — full-season endpoint won't
+            # exist either; caller must seed from fantasy feed/static table.
+            return {}
+        for e in entries:
+            if e.get("constructor"):
+                roster[e["name"]] = e["constructor"]
+    except Exception as e:
+        logger.warning("get_season_roster(%s): standings unavailable: %s", year, e)
+        return {}
+
+    # Supplement: last race's results (catches substitutes absent from standings)
+    try:
+        if rnd >= 1:
+            for r in get_race_results(year, rnd):
+                if r["name"] not in roster and r.get("constructor"):
+                    roster[r["name"]] = r["constructor"]
+                    logger.info(
+                        "get_season_roster(%s): added substitute %s (%s) from R%d results",
+                        year, r["name"], r["constructor"], rnd,
+                    )
+    except Exception:
+        pass
+
+    if len(roster) < 16:
+        logger.warning(
+            "get_season_roster(%s): only %d drivers derived — season may not have started",
+            year, len(roster),
+        )
+        if len(roster) < 10:
+            return {}
+    return roster
+
+
+def compare_rosters(primary: dict[str, str], secondary: dict[str, str],
+                    primary_label: str, secondary_label: str) -> list[str]:
+    """
+    Cross-check two rosters; returns human-readable differences and logs them.
+    Used to surface mid-season seat swaps / scrape-vs-reality drift.
+    """
+    diffs = []
+    all_names = sorted(set(primary) | set(secondary))
+    for name in all_names:
+        t1, t2 = primary.get(name), secondary.get(name)
+        if t1 and t2 and t1 != t2:
+            diffs.append(f"{name}: {primary_label}={t1} vs {secondary_label}={t2}")
+        elif t1 and not t2:
+            diffs.append(f"{name}: only in {primary_label} ({t1})")
+        elif t2 and not t1:
+            diffs.append(f"{name}: only in {secondary_label} ({t2})")
+    for d in diffs:
+        logger.warning("Roster mismatch: %s", d)
+    return diffs
 
 
 # ─────────────────────────────────────────────
@@ -457,21 +681,23 @@ def get_race_results(year: int, round_num: int) -> list[dict]:
         return []
     results = races[0].get("Results", [])
     out = []
-    for r in results:
+    for idx, r in enumerate(results, start=1):
         drv = r["Driver"]
         status = r.get("status", "")
+        kind, did_not_finish = _classify_result(
+            str(r.get("positionText", r.get("position", "")) or ""), status)
         out.append({
-            "position":     int(r["position"]) if r["position"].isdigit() else 20,
-            "driver_id":    drv["driverId"],
-            "name":         _normalize_driver_name(drv['givenName'], drv['familyName']),
-            "constructor":  _normalize_constructor_name(r["Constructor"]["name"]),
-            "grid":         int(r.get("grid", 0)),
-            "laps":         int(r.get("laps", 0)),
-            "status":       status,
-            "dnf":          status.lower() not in ("finished", "+1 lap", "+2 laps", "+3 laps",
-                                                    "+4 laps", "+5 laps", "+6 laps"),
-            "points":       float(r.get("points", 0)),
-            "fastest_lap":  r.get("FastestLap", {}).get("rank") == "1",
+            "position":       _parse_result_position(r, idx, kind, did_not_finish),
+            "driver_id":      drv["driverId"],
+            "name":           _normalize_driver_name(drv['givenName'], drv['familyName']),
+            "constructor":    _normalize_constructor_name(r["Constructor"]["name"]),
+            "grid":           int(r.get("grid", 0)),
+            "laps":           int(r.get("laps", 0)),
+            "status":         status,
+            "classification": kind,
+            "dnf":            did_not_finish,
+            "points":         float(r.get("points", 0)),
+            "fastest_lap":    r.get("FastestLap", {}).get("rank") == "1",
         })
     return out
 
@@ -556,29 +782,61 @@ def get_actual_qualifying_results(year: int, round_num: int) -> list[dict]:
 def get_season_results(year: int) -> list[dict]:
     # Completed seasons are immutable — cache permanently.
     # Current season grows mid-year, so use a short TTL (1h) to pick up new rounds.
+    #
+    # NOTE: Jolpica silently CAPS 'limit' at 100 (requesting 1000 still returns
+    # 100 rows) — the original single-call implementation returned only ~5
+    # races per season, silently truncating every multiseason form/statistic.
+    # We therefore paginate through the full result set by offset.
     cache_hours = 0 if year < CURRENT_SEASON else 1
-    data = _jolpica_get(f"/{year}/results.json", params={"limit": 1000}, cache_hours=cache_hours)
-    races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+
+    raw_rows: list[tuple[tuple[int, str, int], dict]] = []   # ((round, name, order), result_row)
+    total: int | None = None
+    offset = 0
+    page_size = 100
+
+    while True:
+        data = _jolpica_get(
+            f"/{year}/results.json",
+            params={"limit": page_size, "offset": offset},
+            cache_hours=cache_hours,
+        )
+        mr = data.get("MRData", {})
+        if total is None:
+            try:
+                total = int(mr.get("total", "0"))
+            except ValueError:
+                total = 0
+        races = mr.get("RaceTable", {}).get("Races", [])
+
+        for race in races:
+            round_num = int(race["round"])
+            race_name = race["raceName"]
+            for idx, r in enumerate(race.get("Results", []), start=1):
+                raw_rows.append(((round_num, race_name, idx), r))
+
+        offset += page_size
+        if (total is not None and offset >= total) or not races:
+            break
+
     out = []
-    for race in races:
-        round_num = int(race["round"])
-        race_name = race["raceName"]
-        for r in race.get("Results", []):
-            drv = r["Driver"]
-            status = r.get("status", "")
-            out.append({
-                "round":        round_num,
-                "race_name":    race_name,
-                "position":     int(r["position"]) if r["position"].isdigit() else 20,
-                "driver_id":    drv["driverId"],
-                "name":         _normalize_driver_name(drv['givenName'], drv['familyName']),
-                "constructor":  _normalize_constructor_name(r["Constructor"]["name"]),
-                "grid":         int(r.get("grid", 0)),
-                "laps":         int(r.get("laps", 0)),
-                "dnf":          status.lower() not in ("finished", "+1 lap", "+2 laps", "+3 laps",
-                                                        "+4 laps", "+5 laps", "+6 laps"),
-                "points":       float(r.get("points", 0)),
-            })
+    for (round_num, race_name, order_idx), r in raw_rows:
+        drv = r["Driver"]
+        status = r.get("status", "")
+        kind, did_not_finish = _classify_result(
+            str(r.get("positionText", r.get("position", "")) or ""), status)
+        out.append({
+            "round":          round_num,
+            "race_name":      race_name,
+            "position":       _parse_result_position(r, order_idx, kind, did_not_finish),
+            "driver_id":      drv["driverId"],
+            "name":           _normalize_driver_name(drv['givenName'], drv['familyName']),
+            "constructor":    _normalize_constructor_name(r["Constructor"]["name"]),
+            "grid":           int(r.get("grid", 0)),
+            "laps":           int(r.get("laps", 0)),
+            "classification": kind,
+            "dnf":            did_not_finish,
+            "points":         float(r.get("points", 0)),
+        })
     return out
 
 
@@ -597,19 +855,20 @@ def get_circuit_history(circuit_id: str, seasons: list[int] = None) -> pd.DataFr
                                 params={"limit": 200}, cache_hours=0)
             races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
             for race in races:
-                for r in race.get("Results", []):
+                for idx, r in enumerate(race.get("Results", []), start=1):
                     drv = r["Driver"]
                     status = r.get("status", "")
+                    kind, did_not_finish = _classify_result(
+                        str(r.get("positionText", r.get("position", "")) or ""), status)
                     all_rows.append({
                         "year":        year,
                         "round":       int(race["round"]),
-                        "position":    int(r["position"]) if r["position"].isdigit() else 20,
+                        "position":    _parse_result_position(r, idx, kind, did_not_finish),
                         "driver_id":   drv["driverId"],
                         "name":        _normalize_driver_name(drv['givenName'], drv['familyName']),
                         "constructor": _normalize_constructor_name(r["Constructor"]["name"]),
                         "grid":        int(r.get("grid", 0)),
-                        "dnf":         status.lower() not in ("finished", "+1 lap", "+2 laps",
-                                                               "+3 laps", "+4 laps", "+5 laps"),
+                        "dnf":         did_not_finish,
                     })
         except Exception:
             continue
@@ -653,13 +912,17 @@ def get_grid_penalties(year: int, round_num: int) -> dict[str, int]:
     Positive = grid penalty (dropped), negative = moved up via others' penalties.
     """
     cache_key = f"grid_penalties_{year}_{round_num}"
-    cached = _load_cache(cache_key, 48)
+    cached = _load_cache(cache_key, 6)
     if cached:
         return cached
 
     try:
+        race = get_race_results(year, round_num)
+        # Race not yet run — penalties are unknowable. Do NOT cache the empty
+        # result: doing so poisoned the key for 48h after real penalties posted.
+        if not race:
+            return {}
         quali = get_qualifying_results(year, round_num)
-        race  = get_race_results(year, round_num)
     except Exception:
         return {}
 
@@ -715,6 +978,7 @@ def get_openf1_pit_stops(session_key: int) -> list[dict]:
 # ─────────────────────────────────────────────
 def get_fastf1_session(year: int, gp: str, session_type: str = "R"):
     try:
+        _ff1_throttle()
         session = fastf1.get_session(year, gp, session_type)
         session.load(telemetry=False, weather=True, messages=False)
         return session
@@ -752,7 +1016,7 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
     """
     cache_key = f"tire_allocs_{year}_{gp_name.replace(' ', '_')}_v1"
     cached = _load_cache(cache_key, 72)
-    if cached is not None:
+    if cached:  # truthiness: an empty dict (all sessions failed) should be retried
         return cached
 
     driver_used_sets = {}
@@ -762,6 +1026,7 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
         
         for s_name in sessions:
             try:
+                _ff1_throttle()
                 session = fastf1.get_session(year, gp_name, s_name)
                 session.load(telemetry=False, weather=False, messages=False)
                 if session.laps is None or session.laps.empty:
@@ -850,10 +1115,11 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
     """
     cache_key = f"tire_stints_{session_type}_{year}_{str(gp_name).replace(' ', '_')}_v1"
     cached = _load_cache(cache_key, 72)
-    if cached is not None:
+    if cached:   # truthiness: an empty dict (session failed) should be retried
         return cached
 
     try:
+        _ff1_throttle()
         session = fastf1.get_session(year, gp_name, session_type)
         # telemetry=False: we don't need raw car channel data; laps + weather is enough
         session.load(telemetry=False, weather=True, messages=False)
@@ -898,7 +1164,13 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
 
             for _, row in drv_laps.iterrows():
                 compound = row.get("Compound", None)
-                if compound != prev_compound and current_stint:
+                # NaN != NaN in Python, so an unknown compound would otherwise
+                # split a single real stint into one-lap fragments. Treat NaN
+                # as a continuation of the current stint.
+                compound_known = not pd.isna(compound)
+                prev_known = not pd.isna(prev_compound)
+                if (compound_known and prev_known and compound != prev_compound
+                        and current_stint):
                     stints.append(current_stint)
                     current_stint = []
                 current_stint.append(row)
@@ -1054,9 +1326,11 @@ def normalize_telemetry(
 
     for driver, (t_sec, channels) in coerced.items():
         row: dict[str, np.ndarray] = {time_col: grid}
+        order = np.argsort(t_sec)   # np.interp requires ascending x
+        t_sorted = t_sec[order]
         for col, values in channels.items():
             # np.interp fills NaN-gap edges by clamping — acceptable for telemetry
-            row[col] = np.interp(grid, t_sec, values)
+            row[col] = np.interp(grid, t_sorted, values[order])
         normalised[driver] = pd.DataFrame(row)
 
     return normalised
@@ -1108,6 +1382,7 @@ def compute_practice_pace(year: int, gp_name: str, session_type: str = "FP2") ->
         return cached
 
     try:
+        _ff1_throttle()
         session = fastf1.get_session(year, gp_name, session_type)
         session.load(telemetry=False, weather=False, messages=False)
         laps = session.laps
@@ -1166,6 +1441,13 @@ def compute_practice_pace(year: int, gp_name: str, session_type: str = "FP2") ->
                     if " " in raw_name:
                         parts = raw_name.split(" ")
                         name = _normalize_driver_name(parts[0], " ".join(parts[1:]))
+                        # FastF1 splits multi-word forenames differently from
+                        # Jolpica ("Andrea Kimi" + "Antonelli") — canonicalize.
+                        for multi, preferred in _PREFERRED_FORENAME.items():
+                            if raw_name.startswith(multi + " "):
+                                surname = raw_name[len(multi) + 1:]
+                                name = f"{preferred} {surname}"
+                                break
                     else:
                         name = raw_name
                 except Exception:
@@ -1212,6 +1494,7 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
         return cached
 
     try:
+        _ff1_throttle()
         session = fastf1.get_session(year, gp_name, "Q")
         session.load(telemetry=False, weather=False, messages=False)
         laps = session.laps
@@ -1253,6 +1536,13 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
                     if " " in raw_name:
                         parts = raw_name.split(" ")
                         name = _normalize_driver_name(parts[0], " ".join(parts[1:]))
+                        # FastF1 splits multi-word forenames differently from
+                        # Jolpica ("Andrea Kimi" + "Antonelli") — canonicalize.
+                        for multi, preferred in _PREFERRED_FORENAME.items():
+                            if raw_name.startswith(multi + " "):
+                                surname = raw_name[len(multi) + 1:]
+                                name = f"{preferred} {surname}"
+                                break
                     else:
                         name = raw_name
                 except Exception:
@@ -1263,10 +1553,12 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
             lap = row["LapTime"].total_seconds() if pd.notna(row.get("LapTime")) else None
 
             result[name] = {
-                "s1_delta":    round(s1 - best_s1, 3) if s1 else 0.0,
-                "s2_delta":    round(s2 - best_s2, 3) if (s2 and best_s2) else 0.0,
-                "s3_delta":    round(s3 - best_s3, 3) if (s3 and best_s3) else 0.0,
-                "q_lap_delta": round(lap - best_lap, 3) if lap else 0.0,
+                # None (not 0.0) when a sector/lap is missing — a 0.0 delta would
+                # falsely read as "equal to the field's fastest".
+                "s1_delta":    round(s1 - best_s1, 3) if s1 is not None else None,
+                "s2_delta":    round(s2 - best_s2, 3) if (s2 is not None and best_s2) else None,
+                "s3_delta":    round(s3 - best_s3, 3) if (s3 is not None and best_s3) else None,
+                "q_lap_delta": round(lap - best_lap, 3) if lap is not None else None,
             }
 
         _save_cache(cache_key, result)
@@ -1277,17 +1569,27 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
 
 
 # ─────────────────────────────────────────────
-# DRIVER FORM — EWMA-weighted (improved)
+# DRIVER FORM — recency-weighted average
 # ─────────────────────────────────────────────
+# FORM_DECAY_LAMBDA controls recency weighting of the last N races:
+#   1.0 = plain moving average (SMA, current choice — avoids over-weighting
+#         single recent results), <1.0 = exponential recency weighting.
+# The value is embedded in the disk-cache key so changing it never serves
+# form computed under a different formula.
+FORM_DECAY_LAMBDA = 1.0
+
 def compute_driver_form(year: int, num_races: int = 10, until_round: int = None) -> dict[str, dict]:
     """
-    Returns per-driver form dict with EWMA-weighted positions.
-    Most recent race counts ~4x more than 5 races ago (λ=0.7 decay).
+    Returns per-driver form dict with recency-weighted positions.
+    Weighting is controlled by FORM_DECAY_LAMBDA (1.0 = simple moving average).
     Also computes momentum_trend (slope: +ve = improving, -ve = declining).
     Disk-cached: historical years = permanent, current season = 3h TTL.
     """
     # ── Disk cache — avoids 5 API calls per round in the training loop ──
-    _cache_key_form = f"driver_form_{year}_{num_races}_{until_round}_v2"
+    _cache_key_form = (
+        f"driver_form_{year}_{num_races}_{until_round}"
+        f"_lam{FORM_DECAY_LAMBDA}_v3"
+    )
     _cache_age_form = 0 if year < CURRENT_SEASON else 3   # 0 = permanent
     _cached_form = _load_cache(_cache_key_form, _cache_age_form)
     if _cached_form is not None:
@@ -1326,7 +1628,8 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
         except Exception:
             continue
 
-    EWMA_LAMBDA = 1.0  # Set to 1.0 (SMA) to eliminate heavy recency bias
+    # Recency weights: lambda=1.0 → all equal (plain SMA); lower → newer weighs more
+    weights = [FORM_DECAY_LAMBDA ** (n - 1 - i) for i in range(n)]
     form_data = {}
     for drv, records in driver_records.items():
         if not records:
@@ -1335,8 +1638,8 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
         records = sorted(records, key=lambda r: r["round"])
         n = len(records)
 
-        # EWMA weights: most recent has highest weight
-        weights = [EWMA_LAMBDA ** (n - 1 - i) for i in range(n)]
+        # Recency weights: lambda=1.0 → all equal (plain SMA); lower → newer weighs more
+        weights = [FORM_DECAY_LAMBDA ** (n - 1 - i) for i in range(n)]
         total_w = sum(weights)
 
         positions = [r["position"] for r in records]
@@ -1369,8 +1672,9 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
             "form_score":      round(form_score, 2),
             "momentum_trend":  round(momentum_trend, 3),  # NEW: +ve = improving
             "races_counted":   n,
-            "points_list":     points,  # NEW: for Bayesian ZINB modeling
-            "source":          "current_ewma",
+            "points_list":     points,
+            "dnf_list":        [bool(d) for d in dnfs],
+            "source":          f"current_sma_lam{FORM_DECAY_LAMBDA}",
         }
     _save_cache(_cache_key_form, form_data)
     return form_data
@@ -1384,11 +1688,17 @@ def compute_multiseason_driver_form(
     current_year: int = CURRENT_SEASON,
     prior_seasons: list[int] = None,
     season_weights: dict[int, float] = None,
+    as_of_round: int = None,
 ) -> dict[str, dict]:
     """
     Blends per-driver form across multiple seasons.
     Uses SEASON_WEIGHTS from config to discount pre-regulation-change seasons.
+
+    as_of_round: when set, results from rounds > as_of_round of `current_year`
+    are EXCLUDED — prevents end-of-season knowledge leaking into point-in-time
+    predictions (used by the backtester).
     """
+    _caller_provided_seasons = prior_seasons is not None
     if prior_seasons is None:
         prior_seasons = [y for y in HISTORICAL_SEASONS if y < current_year]
 
@@ -1398,10 +1708,14 @@ def compute_multiseason_driver_form(
             y: SEASON_WEIGHTS.get(y, 0.5 ** (current_year - y))
             for y in sorted(prior_seasons, reverse=True)
         }
-        season_weights[current_year] = SEASON_WEIGHTS.get(current_year, 1.0)
+        if not _caller_provided_seasons:
+            season_weights[current_year] = SEASON_WEIGHTS.get(current_year, 1.0)
 
     w_str = "_".join(f"{k}-{v:.2f}" for k, v in sorted(season_weights.items()))
-    cache_key = f"multiseason_driver_form_{current_year}_{w_str}_v2"
+    cache_key = (
+        f"multiseason_driver_form_{current_year}_{w_str}"
+        f"{'_asof' + str(as_of_round) if as_of_round is not None else ''}_v3"
+    )
     # Historical-only query = permanent cache; includes current season = 6h TTL
     _includes_current = current_year >= CURRENT_SEASON
     cached = _load_cache(cache_key, 6 if _includes_current else 0)
@@ -1426,6 +1740,10 @@ def compute_multiseason_driver_form(
             if not all_results:
                 continue
             df = pd.DataFrame(all_results)
+            if as_of_round is not None and year == current_year:
+                df = df[df["round"] <= as_of_round]
+                if df.empty:
+                    continue
             for drv, grp in df.groupby("name"):
                 if drv not in all_season_data:
                     all_season_data[drv] = {}
@@ -1473,8 +1791,15 @@ def compute_multiseason_constructor_stats(
     current_year: int = CURRENT_SEASON,
     prior_seasons: list[int] = None,
     season_weights: dict[int, float] = None,
+    as_of_round: int = None,
 ) -> dict[str, dict]:
-    """Constructor performance across seasons with regulation-aware decay weighting."""
+    """
+    Constructor performance across seasons with regulation-aware decay weighting.
+
+    as_of_round: when set, current_year results from rounds > as_of_round are
+    excluded (point-in-time safety for the backtester).
+    """
+    _caller_provided_seasons = prior_seasons is not None
     if prior_seasons is None:
         prior_seasons = [y for y in HISTORICAL_SEASONS if y < current_year]
 
@@ -1483,10 +1808,14 @@ def compute_multiseason_constructor_stats(
             y: SEASON_WEIGHTS.get(y, 0.5 ** (current_year - y))
             for y in sorted(prior_seasons, reverse=True)
         }
-        season_weights[current_year] = SEASON_WEIGHTS.get(current_year, 1.0)
+        if not _caller_provided_seasons:
+            season_weights[current_year] = SEASON_WEIGHTS.get(current_year, 1.0)
 
     w_str = "_".join(f"{k}-{v:.2f}" for k, v in sorted(season_weights.items()))
-    cache_key = f"multiseason_ctor_stats_{current_year}_{w_str}"
+    cache_key = (
+        f"multiseason_ctor_stats_{current_year}_{w_str}"
+        f"{'_asof' + str(as_of_round) if as_of_round is not None else ''}_v2"
+    )
     # Historical-only query = permanent cache; includes current season = 6h TTL
     _includes_current = current_year >= CURRENT_SEASON
     cached = _load_cache(cache_key, 6 if _includes_current else 0)
@@ -1503,6 +1832,10 @@ def compute_multiseason_constructor_stats(
             if not all_results:
                 continue
             df = pd.DataFrame(all_results)
+            if as_of_round is not None and year == current_year:
+                df = df[df["round"] <= as_of_round]
+                if df.empty:
+                    continue
             for ctor, grp in df.groupby("constructor"):
                 if ctor not in ctor_season_data:
                     ctor_season_data[ctor] = {}

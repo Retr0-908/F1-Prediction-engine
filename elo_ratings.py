@@ -143,39 +143,38 @@ class Glicko2RatingSystem:
     def get_ranked_drivers(self) -> list[tuple[str, float]]:
         return sorted(self.drivers.items(), key=lambda x: x[1].mu, reverse=True)
 
-    def get_elo_features(self, driver: str) -> dict:
+    def get_elo_features(self, driver: str, roster: set = None) -> dict:
         """
         Return rich Glicko-2-based features for ML feature vector:
           elo_rating   : displayed Glicko-2 rating (backward-compat name)
-          elo_rank     : rank among all rated drivers (1 = best)
+          elo_rank     : rank among rated drivers (1 = best)
           elo_zscore   : std deviations above/below mean
           elo_rd       : rating deviation (uncertainty) — NEW
           elo_volatility: volatility — NEW
           elo_confidence: narrowness (high = confident estimate)
+
+        roster: optional set of driver names restricting the comparison pool
+        (e.g. the current lineup). Without it, retired drivers accumulated in
+        `self.drivers` pollute rank/z-score/percentile features.
         """
         d = self.drivers.get(driver)
         rating  = d.mu    if d else GLICKO2_MU
         phi     = d.phi   if d else GLICKO2_PHI
         sigma   = d.sigma if d else GLICKO2_SIGMA
 
-        all_mus = [dd.mu for dd in self.drivers.values()]
-        if not all_mus:
-            return {
-                "elo_rating": rating, "elo_rank": 11,
-                "elo_zscore": 0.0, "elo_percentile": 50.0,
-                "elo_rd": phi, "elo_volatility": sigma,
-                "elo_confidence": max(0.0, 1.0 - phi / GLICKO2_PHI),
-            }
-
-        mean = sum(all_mus) / len(all_mus)
-        std  = math.sqrt(sum((r - mean) ** 2 for r in all_mus) / len(all_mus)) or 1.0
-        rank = sum(1 for r in all_mus if r > rating) + 1
+        pool = [dd.mu for n, dd in self.drivers.items()
+                if roster is None or n in roster or n == driver]
+        if not pool:
+            pool = [rating]
+        mean = sum(pool) / len(pool)
+        std  = math.sqrt(sum((r - mean) ** 2 for r in pool) / len(pool)) or 1.0
+        rank = sum(1 for r in pool if r > rating) + 1
 
         return {
             "elo_rating":     round(rating, 2),
             "elo_rank":       rank,
             "elo_zscore":     round((rating - mean) / std, 3),
-            "elo_percentile": round(100 * (1 - rank / max(len(all_mus), 1)), 1),
+            "elo_percentile": round(100 * (1 - rank / max(len(pool), 1)), 1),
             "elo_rd":         round(phi, 2),
             "elo_volatility": round(sigma, 4),
             "elo_confidence": round(max(0.0, min(1.0, 1.0 - phi / GLICKO2_PHI)), 3),
@@ -216,6 +215,10 @@ class Glicko2RatingSystem:
             for j, drv_b in enumerate(finishers):
                 if i == j:
                     continue
+                # Two retired drivers have no meaningful ordering — their
+                # stable-sort order is arbitrary noise in the pairwise sums.
+                if drv_a.get("dnf", False) and drv_b.get("dnf", False):
+                    continue
                 name_b = drv_b["name"]
                 mu_b, phi_b = snap[name_b]
 
@@ -228,7 +231,8 @@ class Glicko2RatingSystem:
                 v_sum     += g_b ** 2 * E_ab * (1.0 - E_ab)
                 delta_sum += g_b * (s - E_ab)
 
-            # Scale v and delta by number of comparisons (avoid rating magnitude explosion)
+            # Canonical Glicko-2 accumulators: v⁻¹ = Σ g²·E·(1−E), Δ = v·Σ g·(s−E)
+            # (summed over ALL opponents — no per-comparison division)
             v_inv = max(v_sum, 1e-9)
             v     = 1.0 / v_inv
             delta = v * delta_sum
@@ -403,12 +407,12 @@ class ConstructorEloSystem:
             if not entries:
                 self.ratings[team] = GLICKO2_MU
                 continue
-            # Inverse-RD weighted average
-            total_weight = sum(1.0 / max(phi, 1.0) for _, phi in entries)
-            if total_weight == 0:
-                self.ratings[team] = sum(mu for mu, _ in entries) / len(entries)
-            else:
-                self.ratings[team] = sum(mu / max(phi, 1.0) for mu, phi in entries) / total_weight
+            # Precision-weighted average (1/φ²): an uncertain rookie's rating
+            # contributes proportionally less than a settled veteran's.
+            total_weight = sum(1.0 / max(phi, 1.0) ** 2 for _, phi in entries)
+            self.ratings[team] = (
+                sum(mu / max(phi, 1.0) ** 2 for mu, phi in entries) / total_weight
+            )
 
         return dict(self.ratings)
 
@@ -437,44 +441,74 @@ _ELO_CACHE_DIR = Path(__file__).parent / "cache" / "elo"
 _ELO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _latest_completed_round() -> int:
+    """Latest completed round of the current season, or -1 if unknown.
+
+    Embedded in the cache key so a newly completed race invalidates stale
+    ratings immediately instead of serving them for up to 7 days.
+    """
+    try:
+        import data_fetcher
+        today = datetime.date.today()
+        done = [
+            r["round"] for r in data_fetcher.get_season_schedule(CURRENT_SEASON)
+            if datetime.date.fromisoformat(r["date"]) < today
+        ]
+        return max(done) if done else 0
+    except Exception:
+        return -1
+
+
 def get_elo_system(
     seasons: list[int] = None,
     verbose: bool = True,
     force_rebuild: bool = False,
 ) -> Glicko2RatingSystem:
     """
-    Returns a singleton Glicko-2 system built from historical data.
-    Cached to disk so it doesn't need to rebuild across runs.
+    Returns a Glicko-2 system built from historical data, cached to disk.
+    The cache key includes the latest completed round: after every race the
+    ratings rebuild once, then stay stable between rounds (7-day TTL as a
+    safety net only).
     """
     global _cached_elo
-    if _cached_elo is not None and not force_rebuild:
-        return _cached_elo
 
     if seasons is None:
         seasons = sorted(HISTORICAL_SEASONS)
 
-    key_str = "_".join(str(s) for s in seasons)
+    latest_round = _latest_completed_round()
+    key_str = "_".join(str(s) for s in seasons) + f"_r{latest_round}"
     cache_key = f"glicko2_{key_str}.pkl"
     cache_path = _ELO_CACHE_DIR / cache_key
 
+    # In-process singleton: reuse ONLY when it was built for this exact key
+    if (
+        not force_rebuild
+        and _cached_elo is not None
+        and getattr(_cached_elo, "_cache_key", None) == cache_key
+    ):
+        return _cached_elo
+
     if not force_rebuild and cache_path.exists():
         age = time.time() - cache_path.stat().st_mtime
-        if age < 7 * 86400:  # 7-day cache — prevents rebuilds on every server restart
+        if age < 7 * 86400:  # TTL safety net — the round-keyed name does the real work
             try:
                 with open(cache_path, "rb") as f:
-                    _cached_elo = pickle.load(f)
+                    loaded = pickle.load(f)
+                loaded._cache_key = cache_key
+                _cached_elo = loaded
                 if verbose:
-                    print(f"  Loaded cached Glicko-2 ratings ({seasons[0]}–{seasons[-1]})")
+                    print(f"  Loaded cached Glicko-2 ratings ({seasons[0]}–{seasons[-1]}, through round {latest_round})")
                 return _cached_elo
             except Exception:
                 pass
 
     if verbose:
-        print(f"  Building Glicko-2 ratings ({seasons[0]}–{seasons[-1]})...")
+        print(f"  Building Glicko-2 ratings ({seasons[0]}–{seasons[-1]}, through round {latest_round})...")
 
     g2 = Glicko2RatingSystem()
     g2.build_from_history(seasons, verbose=verbose)
-    
+    g2._cache_key = cache_key
+
     try:
         with open(cache_path, "wb") as f:
             pickle.dump(g2, f)

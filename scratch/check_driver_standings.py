@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-file_path = Path("c:/Users/Retr0-908/Desktop/Tools/f1-predictor/cache/api/jolpica__2021_1_driverStandings.json_.json")
+file_path = Path(__file__).resolve().parents[1] / "cache" / "api" / "jolpica__2021_1_driverStandings.json_.json"
 
 with open(file_path, "r", encoding="utf-8") as f:
     data = json.load(f)

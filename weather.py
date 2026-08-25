@@ -10,7 +10,7 @@ import requests
 from pathlib import Path
 from typing import Optional
 
-from config import OWM_API_KEY, OWM_BASE_URL, OWM_GEO_URL, CIRCUITS, CONDITION_ENC
+from config import CIRCUITS, CONDITION_ENC
 
 # Disk cache for weather responses (avoids burning call limits on re-runs)
 _WEATHER_CACHE_DIR = Path(__file__).parent / "cache" / "weather"
@@ -166,20 +166,28 @@ def _open_meteo_historical_fallback(lat: float, lon: float, race_date: datetime.
                 if code is not None: codes.append(code)
                 if wind is not None: winds.append(wind)
                 
-        avg_max = sum(temps_max) / len(temps_max) if temps_max else 22.0
-        avg_min = sum(temps_min) / len(temps_min) if temps_min else 15.0
+        avg_max = sum(temps_max) / len(temps_max) if temps_max else None
+        avg_min = sum(temps_min) / len(temps_min) if temps_min else None
         avg_prec = sum(precips) / len(precips) if precips else 0.0
-        avg_wind = sum(winds) / len(winds) if winds else 10.0
+        avg_wind = sum(winds) / len(winds) if winds else None
         dominant_code = max(set(codes), key=codes.count) if codes else 0
-        
+
+        # Probability of precipitation estimated from the fraction of wet days
+        # in the historical sample (not an invented constant).
+        wet_days = sum(1 for p in precips if p > 0.1)
+        pop_est = round(100.0 * wet_days / max(1, len(precips)), 1) if precips else None
+
         avg_daily.append({
+            # None (not fabricated constants) when the archive sample is too thin —
+            # consumers must handle missing values rather than trust invented data.
             "temp_max": avg_max,
             "temp_min": avg_min,
             "precip": avg_prec,
             "weather_code": dominant_code,
             "wind_speed": avg_wind,
-            "pop": 20.0 if avg_prec > 0.1 else 5.0,  # estimate probability
-            "humidity": 60.0
+            "pop": pop_est,
+            "humidity": None,   # archive API field not fetched; do NOT fabricate
+            "quality": "degraded" if (avg_max is None or not precips) else "ok",
         })
         
     return avg_daily
@@ -231,12 +239,17 @@ _DRY_FALLBACK = {
 
 def _daily_summary_openmeteo(day_data: dict) -> dict:
     """Create standard daily dict compatible with frontend requirements."""
-    temp_max = day_data.get("temp_max") or 22.0
-    temp_min = day_data.get("temp_min") or 15.0
+    def _or_none(v):
+        return v if v is not None else None
+    temp_max = day_data.get("temp_max")
+    temp_max = temp_max if temp_max is not None else 22.0   # genuine 0°C must survive
+    temp_min = day_data.get("temp_min")
+    temp_min = temp_min if temp_min is not None else 15.0
     temp_day = (temp_max + temp_min) / 2
     precip = day_data.get("precip") or 0.0
     pop = day_data.get("pop") or 0.0
-    wind_speed = day_data.get("wind_speed") or 10.0
+    wind_speed = day_data.get("wind_speed")
+    wind_speed = wind_speed if wind_speed is not None else 10.0
     code = day_data.get("weather_code") or 0
     humidity = day_data.get("humidity") or 50.0
     
@@ -309,6 +322,23 @@ def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
     circuit_cfg = _match_circuit(race_name)
     lat  = circuit_cfg.get("lat", 0.0)
     lon  = circuit_cfg.get("lon", 0.0)
+
+    # Unmatched circuit → coordinates (0, 0) would silently return a real
+    # forecast for the Gulf of Guinea ("Null Island"). Fail loudly instead.
+    if lat == 0.0 and lon == 0.0:
+        print(f"    [Open-Meteo] WARNING: no circuit match for {race_name!r} — no weather data")
+        return {
+            "circuit": race_name,
+            "city": race_name,
+            "race_date": race_date_str,
+            "sessions": {},
+            "rain_risk": "low",
+            "summary_condition": "unknown",
+            "condition_enc": CONDITION_ENC.get("unknown", 1),
+            "race_day_hourly": [],
+            "daily_raw": [],
+        }
+
     city = circuit_cfg.get("city", race_name)
 
     race_date = datetime.date.fromisoformat(race_date_str)
@@ -339,10 +369,25 @@ def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
                 }
         
         hourly_raw = forecast.get("hourly", {})
+        # Open-Meteo with timezone:"auto" returns naive wall-clock strings in the
+        # CIRCUIT's local time. Attach the venue's IANA zone (echoed in the
+        # response) before computing epochs — interpreting them as machine-local
+        # produced timestamps wrong by the venue/host UTC offset.
+        try:
+            from zoneinfo import ZoneInfo
+            _venue_tz = ZoneInfo(forecast.get("timezone", "UTC") or "UTC")
+        except Exception:
+            _venue_tz = None
         if hourly_raw:
-            for idx, dt_str in enumerate(hourly_raw.get("time", [])):
-                dt_obj = datetime.datetime.fromisoformat(dt_str)
-                timestamp = int(dt_obj.timestamp())
+            times = hourly_raw.get("time", [])
+            for idx, dt_str in enumerate(times):
+                try:
+                    dt_obj = datetime.datetime.fromisoformat(dt_str)
+                    if _venue_tz is not None:
+                        dt_obj = dt_obj.replace(tzinfo=_venue_tz)
+                    timestamp = int(dt_obj.timestamp())
+                except ValueError:
+                    continue
                 hourly_by_dt.append({
                     "dt": timestamp,
                     "temp": hourly_raw.get("temperature_2m", [])[idx],
@@ -351,7 +396,10 @@ def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
                     "precip": hourly_raw.get("precipitation", [])[idx],
                     "pop": hourly_raw.get("precipitation_probability", [0])[idx] if hourly_raw.get("precipitation_probability") else 0.0,
                     "weather_code": hourly_raw.get("weather_code", [])[idx],
-                    "visibility": hourly_raw.get("visibility", [10000])[idx] if hourly_raw.get("visibility") else 10000.0
+                    "visibility": hourly_raw.get("visibility", [10000])[idx] if hourly_raw.get("visibility") else 10000.0,
+                    # Keep the venue-local wall clock for date/hour filtering —
+                    # immune to machine-timezone and DST round-trip issues.
+                    "local_dt": dt_obj,
                 })
 
     session_forecasts = {}
@@ -408,11 +456,13 @@ def get_race_weekend_weather(race_name: str, race_date_str: str) -> dict:
 
     race_cond = session_forecasts.get("Race", {}).get("condition", "dry")
 
-    # Filter hourly for Race Day (approx noon to 6 PM)
+    # Filter hourly for Race Day (approx noon to 6 PM) using VENUE-LOCAL time
     race_hourly = []
     for h in hourly_by_dt:
-        h_dt = datetime.datetime.fromtimestamp(h["dt"])
-        if h_dt.date() == race_date and 12 <= h_dt.hour <= 18:
+        h_local = h.get("local_dt")
+        if h_local is None:
+            h_local = datetime.datetime.fromtimestamp(h["dt"])
+        if h_local.date() == race_date and 12 <= h_local.hour <= 18:
             race_hourly.append(_hourly_summary_openmeteo(h))
 
     # Compile the final payload matching OWM response structure

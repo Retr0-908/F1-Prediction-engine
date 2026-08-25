@@ -16,6 +16,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+from config import CURRENT_SEASON
+
 _PRICE_HISTORY_PATH     = Path(__file__).parent / "cache" / "price_history.json"
 _OWNERSHIP_HISTORY_PATH = Path(__file__).parent / "cache" / "ownership_history.json"
 
@@ -52,7 +54,7 @@ def record_prices(
     round_num: int,
     driver_prices: dict,
     constructor_prices: dict,
-    season: int = 2026,
+    season: int = None,
 ) -> None:
     """
     Record the current prices for all drivers/constructors at this round.
@@ -65,6 +67,8 @@ def record_prices(
         season:             Current season year
     """
     history = _load_json(_PRICE_HISTORY_PATH)
+    if season is None:
+        season = CURRENT_SEASON
     key = f"{season}_R{round_num:02d}"
     ts  = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
@@ -88,12 +92,14 @@ def record_ownership(
     round_num: int,
     driver_prices: dict,
     constructor_prices: dict,
-    season: int = 2026,
+    season: int = None,
 ) -> None:
     """
     Record current ownership percentages for all players.
     """
     history = _load_json(_OWNERSHIP_HISTORY_PATH)
+    if season is None:
+        season = CURRENT_SEASON
     key = f"{season}_R{round_num:02d}"
     ts  = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
@@ -120,7 +126,7 @@ def record_ownership(
 # PRICE MOVEMENT QUERY
 # ─────────────────────────────────────────────
 
-def get_price_movements(season: int = 2026) -> dict[str, dict]:
+def get_price_movements(season: int = None) -> dict[str, dict]:
     """
     Returns per-player price movement data comparing latest two snapshots.
 
@@ -138,6 +144,8 @@ def get_price_movements(season: int = 2026) -> dict[str, dict]:
         }
     """
     history = _load_json(_PRICE_HISTORY_PATH)
+    if season is None:
+        season = CURRENT_SEASON
     season_keys = sorted(
         [k for k in history if k.startswith(str(season))],
         reverse=True  # latest first
@@ -180,7 +188,7 @@ def get_price_movements(season: int = 2026) -> dict[str, dict]:
     return movements
 
 
-def get_ownership_trends(season: int = 2026) -> dict[str, dict]:
+def get_ownership_trends(season: int = None) -> dict[str, dict]:
     """
     Returns per-player ownership trend comparing latest two snapshots.
 
@@ -196,6 +204,8 @@ def get_ownership_trends(season: int = 2026) -> dict[str, dict]:
         }
     """
     history = _load_json(_OWNERSHIP_HISTORY_PATH)
+    if season is None:
+        season = CURRENT_SEASON
     season_keys = sorted(
         [k for k in history if k.startswith(str(season))],
         reverse=True
@@ -237,7 +247,7 @@ def get_ownership_trends(season: int = 2026) -> dict[str, dict]:
 # ─────────────────────────────────────────────
 
 def get_sell_high_candidates(
-    season: int = 2026,
+    season: int = None,
     price_rise_threshold: float = 0.5,
     ownership_rise_threshold: float = 5.0,
 ) -> list[dict]:
@@ -274,7 +284,7 @@ def get_sell_high_candidates(
 
 
 def get_buy_low_candidates(
-    season: int = 2026,
+    season: int = None,
     price_drop_threshold: float = -0.3,
     ownership_drop_threshold: float = -3.0,
 ) -> list[dict]:

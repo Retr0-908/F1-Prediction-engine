@@ -1,5 +1,7 @@
 import time
 import datetime
+import logging
+
 from config import HISTORICAL_SEASONS, CURRENT_SEASON
 from data_fetcher import (
     get_season_schedule,
@@ -14,18 +16,23 @@ from data_fetcher import (
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+logger = logging.getLogger("f1_predictor.warm_cache")
+
+
 def _warm_single_race(year: int, round_num: int, race: dict):
-    """Download single race session data with graceful fallback."""
-    race_name = race.get("raceName", f"Round {round_num}")
-    
+    """Download single race session data. Returns (ok, message)."""
+    race_name = race.get("name", f"Round {round_num}")   # schedule key is "name"
+
     # Skip future races
     race_date_str = race.get("date")
     try:
         race_date = datetime.datetime.strptime(race_date_str, "%Y-%m-%d").date()
         if race_date > datetime.date.today():
-            return f"[{year} R{round_num}] Skipped future race: {race_name}"
+            return True, f"[{year} R{round_num}] Skipped future race: {race_name}"
     except Exception:
         pass
+
+    failures = []
 
     # 1. Jolpica core endpoints (race, qualifying, standings)
     try:
@@ -34,23 +41,27 @@ def _warm_single_race(year: int, round_num: int, race: dict):
         get_driver_standings(year, round_num)
         get_constructor_standings(year, round_num)
     except Exception as e:
-        pass
+        failures.append(f"jolpica: {e}")
 
-    # 2. OpenF1 Grid Penalties
+    # 2. Grid penalties (Jolpica-derived quali-vs-grid deltas)
     if year >= 2023:
         try:
             get_grid_penalties(year, round_num)
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append(f"grid_penalties: {e}")
 
     # 3. FastF1 Telemetry Session Data
     try:
         get_fastf1_session(year, round_num, "R")
         get_fastf1_session(year, round_num, "Q")
-    except Exception:
-        pass
+    except Exception as e:
+        failures.append(f"fastf1: {e}")
 
-    return f"[{year} R{round_num}] Cached: {race_name}"
+    if failures:
+        for f in failures:
+            logger.warning("[%s R%s] %s cache failure: %s", year, round_num, race_name, f)
+        return False, f"[{year} R{round_num}] Partial: {race_name} ({len(failures)} source(s) failed)"
+    return True, f"[{year} R{round_num}] Cached: {race_name}"
 
 
 def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
@@ -61,7 +72,8 @@ def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
     print("Using bulk season endpoints and parallel thread pool for max speed.\n")
 
     seasons_to_check = HISTORICAL_SEASONS + [CURRENT_SEASON]
-    total_races_checked = 0
+    total_races_cached = 0
+    failed_races = 0
 
     for year in seasons_to_check:
         print(f"\n[SEASON {year}] Ingesting bulk season data...")
@@ -105,27 +117,29 @@ def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
             for future in as_completed(futures):
                 r_num, race = futures[future]
                 try:
-                    msg = future.result()
+                    ok, msg = future.result()
                     print(f"  {msg}")
-                    total_races_checked += 1
+                    if ok:
+                        total_races_cached += 1
+                    else:
+                        failed_races += 1
                 except Exception as exc:
-                    print(f"  [{year} R{r_num}] Error: {exc}")
+                    failed_races += 1
+                    logger.error("[%s R%s] warm task crashed: %s", year, r_num, exc)
 
     if progress_callback:
         progress_callback("DONE", "DONE", "Bulk Cache Warming Complete!")
 
+    summary = (f"CACHE WARMING COMPLETE: {total_races_cached} races fully cached"
+               + (f", {failed_races} with partial failures (see warnings)" if failed_races else ""))
     print("\n==================================================")
-    print(f"HIGH-SPEED CACHE WARMING COMPLETE! Cached {total_races_checked} completed races.")
+    print(summary)
     print("All ML models, ELO ratings, and FastF1 sessions are locally available.")
     print("==================================================")
 
     if progress_callback:
-        progress_callback("DONE", "DONE", "Cache Verification Complete!")
+        progress_callback("DONE", "DONE", summary)
 
-    print("\n==================================================")
-    print(f"CACHE VERIFICATION COMPLETE! Checked {total_races_checked} completed races.")
-    print("You can now run the F1 Fantasy application with full historical data.")
-    print("==================================================")
 
 if __name__ == "__main__":
     verify_and_download_caches()

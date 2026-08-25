@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 LOGS_DIR = Path(__file__).parent / "logs"
@@ -18,8 +19,8 @@ MAX_SINGLE_ERROR = 4.0
 # CONFIDENCE_POOL: Bayesian shrinkage denominator.  The final bias is multiplied
 # by n / (n + CONFIDENCE_POOL) so it grows gradually from 0 as n increases
 # rather than jumping to full strength the moment MIN_SAMPLES is reached.
-# With CONFIDENCE_POOL=8 a driver at exactly 4 races gets 4/(4+8)=0.33x weight;
-# at 8 races: 0.50x; at 16 races: 0.67x; at 24 races: 0.75x.
+# With CONFIDENCE_POOL=24 a driver at 4 races gets 4/(4+24)=0.14x weight;
+# at 8 races: 0.25x; at 16 races: 0.40x; at 24 races: 0.50x.
 CONFIDENCE_POOL = 24
 
 def compute_bias_corrections(decay=0.85, last_n=10):
@@ -28,8 +29,9 @@ def compute_bias_corrections(decay=0.85, last_n=10):
     Parameters
     ----------
     decay : float
-        EWMA smoothing factor (0 < decay < 1).  Higher = more recency weight.
-        Default 0.5 gives a balanced view; 0.7 was too aggressive with few races.
+        EWMA recency factor (0 < decay < 1). The most recent race carries
+        weight `decay` (default 0.85 ≈ recent errors weighted ~6x vs the
+        previous one); lower values smooth more.
     last_n : int
         How many of the most recent races to include in the EWMA window.
         Default 10 ensures we need more races before large corrections kick in.
@@ -111,12 +113,14 @@ def compute_bias_corrections(decay=0.85, last_n=10):
             # Use last_n
             recent_errors = errors[-last_n:]
             n = len(recent_errors)
-            
-            # Compute EWMA (oldest → newest so most recent has highest weight)
-            ewma = recent_errors[0]
-            for err in recent_errors[1:]:
+
+            # EWMA iterating NEWEST → OLDEST so the most recent race carries
+            # weight `decay` (0.85) and weights halve going back in time.
+            # (The old forward iteration gave the newest error only (1−decay).)
+            ewma = recent_errors[-1]
+            for err in reversed(recent_errors[:-1]):
                 ewma = decay * ewma + (1.0 - decay) * err
-            
+
             # Bayesian shrinkage: scale toward zero when n is small.
             # This prevents early-season corrections from being overconfident.
             shrinkage = n / (n + CONFIDENCE_POOL)
@@ -136,21 +140,24 @@ def compute_bias_corrections(decay=0.85, last_n=10):
                 continue
             recent_errors = errors[-last_n:]
             n = len(recent_errors)
-            ewma = recent_errors[0]
-            for err in recent_errors[1:]:
+            # Newest-weighted EWMA — same direction as the per-type loop above
+            ewma = recent_errors[-1]
+            for err in reversed(recent_errors[:-1]):
                 ewma = decay * ewma + (1.0 - decay) * err
             shrinkage = n / (n + CONFIDENCE_POOL)
             driver_circuit_biases[driver][ckey] = round(ewma * shrinkage, 2)
 
-    # Save
+    # Save — atomically, so predictor.load_context never reads a torn file
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     out_data = {
         "driver_biases": driver_biases,
         "driver_circuit_biases": driver_circuit_biases,  # Phase 6: per-circuit
     }
     try:
-        with open(BIAS_CORRECTIONS, "w", encoding="utf-8") as f:
+        tmp = BIAS_CORRECTIONS.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(out_data, f, indent=2)
+        os.replace(tmp, BIAS_CORRECTIONS)
     except Exception as e:
         print(f"Error saving bias corrections: {e}")
 

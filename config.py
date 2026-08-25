@@ -9,12 +9,10 @@ load_dotenv()
 
 # ─────────────────────────────────────────────
 # API CONFIGURATION
+# NOTE: weather is served by Open-Meteo (no key needed) — the old OpenWeatherMap
+# constants were removed. See weather.py.
 # ─────────────────────────────────────────────
-OWM_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY", "")
 F1_FANTASY_COOKIE = os.getenv("F1_FANTASY_COOKIE", "")
-
-OWM_BASE_URL = "https://api.openweathermap.org/data/3.0/onecall"
-OWM_GEO_URL  = "https://api.openweathermap.org/geo/1.0/direct"
 
 JOLPICA_BASE = "https://api.jolpi.ca/ergast/f1"
 OPENF1_BASE  = "https://api.openf1.org/v1"
@@ -71,6 +69,7 @@ SC_PROBABILITY = {
     "imola":        0.45,   # Narrow track, limited run-off
     "monaco":       0.70,   # Highest in calendar — guardrails everywhere
     "spain":        0.25,   # Barcelona — spacious, few incidents
+    "madring":      0.45,   # Madrid street circuit — estimate pending real data
     "canada":       0.55,   # Wall of Champions, frequent incidents
     "britain":      0.40,   # Silverstone — high speed but safe
     "austria":      0.35,   # Red Bull Ring — some first-lap incidents
@@ -98,6 +97,7 @@ VSC_PROBABILITY = {
     "imola":        0.40,
     "monaco":       0.55,
     "spain":        0.20,
+    "madring":      0.35,   # Madrid street circuit — estimate pending real data
     "canada":       0.40,
     "britain":      0.35,
     "austria":      0.25,
@@ -326,7 +326,9 @@ CIRCUITS = {
     },
 }
 
-# Sprint weekends 2026: China, Miami, Canada, Britain, Netherlands, Singapore (Dynamic/Doc Reference)
+# Sprint weekends 2026 (by GP name) — LEGACY reference only.
+# The authoritative source is the schedule's `sprint_date` field via
+# data_fetcher.is_sprint_weekend(); do NOT add new consumers of this constant.
 SPRINT_ROUNDS = frozenset([
     "Chinese Grand Prix",
     "Miami Grand Prix",
@@ -337,12 +339,55 @@ SPRINT_ROUNDS = frozenset([
 ])
 
 # ─────────────────────────────────────────────
+# STATIC ROSTER SEEDS (fallback only)
+# The live lineup is AUTO-DETECTED each run from Jolpica championship standings
+# (data_fetcher.get_season_roster) and cross-checked against the fantasy price
+# scrape. These static tables are used ONLY:
+#   - before round 1 of a new season (standings don't exist yet), or
+#   - fully offline.
+# Update DRIVER_TEAMS_<year> once when a season's seats are announced, then
+# forget about it — everything else is dynamic.
+# ─────────────────────────────────────────────
 # 2026 DRIVER REGISTRY (11 teams, 22 drivers)
 # ─────────────────────────────────────────────
 DRIVER_TEAMS_2026 = {
-    # Current 2026 lineup
+    # Synced with Jolpica standings-derived lineup (get_season_roster(2026)).
+    # NOTE: API shows Lawson at Red Bull and Hadjar/Tsunoda/Lindblad at
+    # Racing Bulls — trust the dynamic detection over announcements.
     "Max Verstappen":    "Red Bull",
-    "Isack Hadjar":      "Red Bull",
+    "Liam Lawson":       "Red Bull",
+    "Isack Hadjar":      "Racing Bulls",
+    "Arvid Lindblad":    "Racing Bulls",
+    "Yuki Tsunoda":      "Racing Bulls",
+    "Lando Norris":      "McLaren",
+    "Oscar Piastri":     "McLaren",
+    "Charles Leclerc":   "Ferrari",
+    "Lewis Hamilton":    "Ferrari",
+    "George Russell":    "Mercedes",
+    "Kimi Antonelli":    "Mercedes",
+    "Fernando Alonso":   "Aston Martin",
+    "Lance Stroll":      "Aston Martin",
+    "Pierre Gasly":      "Alpine",
+    "Franco Colapinto":  "Alpine",
+    "Carlos Sainz":      "Williams",
+    "Alexander Albon":   "Williams",
+    "Nico Hulkenberg":   "Audi",
+    "Gabriel Bortoleto": "Audi",
+    "Esteban Ocon":      "Haas",
+    "Oliver Bearman":    "Haas",
+    "Sergio Perez":      "Cadillac",
+    "Valtteri Bottas":   "Cadillac",
+}
+
+# ─────────────────────────────────────────────
+# 2025 DRIVER REGISTRY (real lineup — NOT an alias for 2026)
+# Mid-season moves resolved to the majority-season seat holder:
+#   Tsunoda ↔ Lawson swap (Red Bull/Racing Bulls, from R3)
+#   Doohan → Colapinto at Alpine (from ~R9)
+# ─────────────────────────────────────────────
+DRIVER_TEAMS_2025 = {
+    "Max Verstappen":    "Red Bull",
+    "Yuki Tsunoda":      "Red Bull",
     "Lando Norris":      "McLaren",
     "Oscar Piastri":     "McLaren",
     "Charles Leclerc":   "Ferrari",
@@ -354,41 +399,54 @@ DRIVER_TEAMS_2026 = {
     "Pierre Gasly":      "Alpine",
     "Franco Colapinto":  "Alpine",
     "Liam Lawson":       "Racing Bulls",
-    "Arvid Lindblad":    "Racing Bulls",
+    "Isack Hadjar":      "Racing Bulls",
     "Carlos Sainz":      "Williams",
     "Alexander Albon":   "Williams",
-    "Nico Hulkenberg":   "Audi",
+    "Nico Hulkenberg":   "Audi",       # raced as Sauber in 2025; canonicalized
     "Gabriel Bortoleto": "Audi",
     "Esteban Ocon":      "Haas",
     "Oliver Bearman":    "Haas",
-    "Sergio Perez":      "Cadillac",
-    "Valtteri Bottas":   "Cadillac",
+    # Jack Doohan also raced rounds 1–8 for Alpine (substituted by Colapinto)
 }
-
-# Alias so existing code using DRIVER_TEAMS_2025 still works
-DRIVER_TEAMS_2025 = DRIVER_TEAMS_2026
 
 CONSTRUCTORS_2026 = [
     "Red Bull", "McLaren", "Ferrari", "Mercedes",
     "Aston Martin", "Alpine", "Williams", "Racing Bulls",
     "Audi", "Haas", "Cadillac",
 ]
-CONSTRUCTORS_2025 = CONSTRUCTORS_2026  # alias
+CONSTRUCTORS_2025 = [
+    "Red Bull", "McLaren", "Ferrari", "Mercedes",
+    "Aston Martin", "Alpine", "Williams", "Racing Bulls",
+    "Audi", "Haas",
+]
 
 DRIVER_SHORT_2026 = {
-    "VER": "Max Verstappen",    "HAD": "Isack Hadjar",
+    "VER": "Max Verstappen",    "TSU": "Yuki Tsunoda",
+    "HAD": "Isack Hadjar",      "LIN": "Arvid Lindblad",
     "NOR": "Lando Norris",      "PIA": "Oscar Piastri",
     "LEC": "Charles Leclerc",   "HAM": "Lewis Hamilton",
     "RUS": "George Russell",    "ANT": "Kimi Antonelli",
     "ALO": "Fernando Alonso",   "STR": "Lance Stroll",
     "GAS": "Pierre Gasly",      "COL": "Franco Colapinto",
-    "LAW": "Liam Lawson",       "LIN": "Arvid Lindblad",
+    "LAW": "Liam Lawson",
     "SAI": "Carlos Sainz",      "ALB": "Alexander Albon",
     "HUL": "Nico Hulkenberg",   "BOR": "Gabriel Bortoleto",
     "OCO": "Esteban Ocon",      "BEA": "Oliver Bearman",
     "PER": "Sergio Perez",      "BOT": "Valtteri Bottas",
 }
-DRIVER_SHORT_2025 = DRIVER_SHORT_2026
+DRIVER_SHORT_2025 = {
+    "VER": "Max Verstappen",    "TSU": "Yuki Tsunoda",
+    "NOR": "Lando Norris",      "PIA": "Oscar Piastri",
+    "LEC": "Charles Leclerc",   "HAM": "Lewis Hamilton",
+    "RUS": "George Russell",    "ANT": "Kimi Antonelli",
+    "ALO": "Fernando Alonso",   "STR": "Lance Stroll",
+    "GAS": "Pierre Gasly",      "COL": "Franco Colapinto",
+    "LAW": "Liam Lawson",       "HAD": "Isack Hadjar",
+    "SAI": "Carlos Sainz",      "ALB": "Alexander Albon",
+    "HUL": "Nico Hulkenberg",   "BOR": "Gabriel Bortoleto",
+    "OCO": "Esteban Ocon",      "BEA": "Oliver Bearman",
+    "DOO": "Jack Doohan",
+}
 
 # ─────────────────────────────────────────────
 # ENCODING MAPS FOR ML FEATURES
@@ -411,8 +469,11 @@ QUALI_IMPORTANCE_ENC = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5}  # Already numeric 1-5
 WEATHER_VAR_ENC      = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5}  # Already numeric 1-5
 
 
-TEAM_COLORS = {
-    "Red Bull":     "#3671C6", "McLaren":    "#FF8000",
+# Single source of truth for the saved fantasy team file — used by BOTH the
+# web server and the CLI so team edits are visible in either mode.
+MY_TEAM_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "my_team.json")
+
+TEAM_COLORS = {    "Red Bull":     "#3671C6", "McLaren":    "#FF8000",
     "Ferrari":      "#E8002D", "Mercedes":   "#27F4D2",
     "Aston Martin": "#358C75", "Alpine":     "#FF87BC",
     "Williams":     "#64C4FF", "Racing Bulls":"#6692FF",

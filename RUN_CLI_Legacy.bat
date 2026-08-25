@@ -57,9 +57,10 @@ pause
 goto menu
 
 :update_deps
-:: Install/check deps silently
-echo  Checking dependencies...
-pip install -q fastf1 requests beautifulsoup4 pandas numpy scikit-learn scipy xgboost lightgbm python-dotenv rich tabulate joblib lxml playwright 2>nul
+:: Install/check ALL deps from requirements.txt (the old inline list omitted
+:: fastapi/uvicorn/pulp/tensorflow/juliacall/sse-starlette)
+echo  Checking dependencies (from requirements.txt)...
+pip install -q -r "%~dp0requirements.txt" 2>nul
 echo  Installing headless browser support...
 python -m playwright install chromium >nul 2>&1
 
