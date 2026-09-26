@@ -77,7 +77,8 @@ def _build_manifest(seasons: list[int]) -> list[tuple]:
             if not r_num:
                 continue
             try:
-                if datetime.datetime.strptime(race["date"], "%Y-%m-%d").date() > today:
+                from engine.core.data_fetcher import race_has_happened
+                if not race_has_happened(race, year):
                     continue
             except Exception:
                 pass

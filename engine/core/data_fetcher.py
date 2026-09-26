@@ -526,16 +526,15 @@ def get_sprint_rounds(year: int = CURRENT_SEASON) -> set[int]:
 
 
 def get_next_race(year: int = CURRENT_SEASON) -> Optional[dict]:
-    today = datetime.date.today()
     schedule = get_season_schedule(year)
     for race in schedule:
-        race_date = datetime.date.fromisoformat(race["date"])
-        if race_date >= today:
+        if not race_has_happened(race, year):
             race["circuit_config"] = _match_circuit_config(race["name"])
             return race
     if schedule:
-        last_race = schedule[-1]
+        last_race = dict(schedule[-1])
         last_race["circuit_config"] = _match_circuit_config(last_race["name"])
+        last_race["season_completed"] = True
         return last_race
     return None
 
@@ -739,10 +738,10 @@ def get_constructor_standings(year: int = CURRENT_SEASON, round_num: int = None)
 def _latest_completed_round_num(year: int) -> int:
     """Highest round of `year` whose race has happened, or 0 if none."""
     try:
-        today = datetime.date.today()
+        schedule = get_season_schedule(year)
         done = [
-            r["round"] for r in get_season_schedule(year)
-            if datetime.date.fromisoformat(r["date"]) < today
+            r["round"] for r in schedule
+            if race_has_happened(r, year)
         ]
         return max(done) if done else 0
     except Exception:
@@ -913,22 +912,88 @@ def get_qualifying_results(year: int, round_num: int) -> list[dict]:
         })
     return out
 
-def qualifying_has_happened(race: dict) -> bool:
-    """Check if qualifying has completed based on current UTC time."""
+def race_has_happened(race: dict, year: int = CURRENT_SEASON) -> bool:
+    """Check if a race has already completed (via actual results, UTC session time, or date)."""
+    if not race:
+        return False
+
+    round_num = race.get("round")
+    race_date_str = race.get("date")
+    race_time_str = race.get("time")
+
+    # 1. Official Results check: If classified results exist, race is 100% completed
+    if round_num:
+        try:
+            results = get_race_results(year, round_num)
+            if len(results) >= 10:
+                return True
+        except Exception:
+            pass
+
+    # 2. UTC Timestamp check (FIA Art. 5.4.b: Max Grand Prix time is 3 hours)
+    if race_date_str and race_time_str:
+        try:
+            time_clean = race_time_str.replace("Z", "+00:00")
+            race_dt = datetime.datetime.fromisoformat(f"{race_date_str}T{time_clean}")
+            race_end = race_dt + datetime.timedelta(hours=3)
+            if datetime.datetime.now(datetime.timezone.utc) > race_end:
+                return True
+        except Exception:
+            pass
+
+    # 3. Calendar Date check: If race date is strictly before current UTC date
+    if race_date_str:
+        try:
+            race_date = datetime.date.fromisoformat(race_date_str)
+            now_utc_date = datetime.datetime.now(datetime.timezone.utc).date()
+            if race_date < now_utc_date:
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
+def qualifying_has_happened(race: dict, year: int = CURRENT_SEASON) -> bool:
+    """Check if qualifying has completed based on actual results, current UTC time, or date."""
+    if not race:
+        return False
+
+    round_num = race.get("round")
     quali_date = race.get("quali_date")
     quali_time = race.get("quali_time")
-    if not quali_date or not quali_time:
-        return False
-    try:
-        # e.g., quali_time = "14:00:00Z"
-        time_str = quali_time.replace("Z", "+00:00")
-        dt_str = f"{quali_date}T{time_str}"
-        quali_dt = datetime.datetime.fromisoformat(dt_str)
-        # Add 2 hours for session duration + 30 mins buffer
-        quali_end = quali_dt + datetime.timedelta(hours=2, minutes=30)
-        return datetime.datetime.now(datetime.timezone.utc) > quali_end
-    except Exception:
-        return False
+
+    # 1. Official Results check
+    if round_num:
+        try:
+            q_results = get_qualifying_results(year, round_num)
+            if len(q_results) >= 10:
+                return True
+        except Exception:
+            pass
+
+    # 2. UTC Timestamp check (session + 2.5h buffer)
+    if quali_date and quali_time:
+        try:
+            time_clean = quali_time.replace("Z", "+00:00")
+            quali_dt = datetime.datetime.fromisoformat(f"{quali_date}T{time_clean}")
+            quali_end = quali_dt + datetime.timedelta(hours=2, minutes=30)
+            if datetime.datetime.now(datetime.timezone.utc) > quali_end:
+                return True
+        except Exception:
+            pass
+
+    # 3. Calendar Date check: If qualifying date is strictly before current UTC date
+    if quali_date:
+        try:
+            q_date = datetime.date.fromisoformat(quali_date)
+            now_utc_date = datetime.datetime.now(datetime.timezone.utc).date()
+            if q_date < now_utc_date:
+                return True
+        except Exception:
+            pass
+
+    return False
 
 def get_actual_qualifying_results(year: int, round_num: int) -> list[dict]:
     """Get the classified grid order, combining qualifying results with penalties if available."""
@@ -1824,8 +1889,7 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
     if until_round is not None:
         completed = [r for r in schedule if r["round"] < until_round]
     else:
-        today = datetime.date.today()
-        completed = [r for r in schedule if datetime.date.fromisoformat(r["date"]) < today]
+        completed = [r for r in schedule if race_has_happened(r, year)]
     recent = completed[-num_races:] if len(completed) >= num_races else completed
 
     driver_records: dict[str, list] = {}

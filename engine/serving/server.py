@@ -98,17 +98,45 @@ def status():
 
 @app.get("/api/race/next")
 def get_next_race():
-    from engine.core.data_fetcher import get_next_race as fetch_race
+    from engine.core.data_fetcher import get_next_race as fetch_race, _latest_completed_round_num, get_race_by_round
     from engine.core.config import CURRENT_SEASON
     race = fetch_race(CURRENT_SEASON)
+    if race:
+        latest_round = _latest_completed_round_num(CURRENT_SEASON)
+        race["latest_completed_round"] = latest_round
+        if latest_round:
+            latest_race = get_race_by_round(latest_round, CURRENT_SEASON)
+            if latest_race:
+                race["latest_completed_name"] = latest_race.get("name")
     return race
 
 @app.get("/api/races")
 def get_all_races(year: int = None):
-    from engine.core.data_fetcher import get_season_schedule
+    from engine.core.data_fetcher import get_season_schedule, race_has_happened
     from engine.core.config import CURRENT_SEASON
     target_year = year if year else CURRENT_SEASON
-    return get_season_schedule(target_year)
+    schedule = get_season_schedule(target_year)
+    for r in schedule:
+        r["is_completed"] = race_has_happened(r, target_year)
+    return schedule
+
+@app.get("/api/race/latest-completed")
+def get_latest_completed_race(year: int = None):
+    from engine.core.data_fetcher import _latest_completed_round_num, get_race_by_round, get_race_results
+    from engine.core.config import CURRENT_SEASON
+    target_year = year if year else CURRENT_SEASON
+    latest_rnd = _latest_completed_round_num(target_year)
+    if not latest_rnd:
+        return {"completed": False, "round": 0}
+    race = get_race_by_round(latest_rnd, target_year)
+    results = get_race_results(target_year, latest_rnd)
+    return {
+        "completed": True,
+        "round": latest_rnd,
+        "race": race,
+        "results_count": len(results),
+        "winner": results[0]["name"] if results else "N/A"
+    }
 
 @app.get("/api/race/{round_num}")
 def get_race_by_round_api(round_num: int):

@@ -470,14 +470,7 @@ def _latest_completed_round() -> int:
     """
     try:
         from engine.core import data_fetcher
-        import datetime
-
-        today = datetime.date.today()
-        done = [
-            r["round"] for r in data_fetcher.get_season_schedule(CURRENT_SEASON)
-            if datetime.date.fromisoformat(r["date"]) < today
-        ]
-        return max(done) if done else 0
+        return data_fetcher._latest_completed_round_num(CURRENT_SEASON)
     except Exception:
         return -1
 

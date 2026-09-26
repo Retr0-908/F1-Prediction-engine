@@ -507,6 +507,36 @@ class PlannedFixProbes(unittest.TestCase):
         hist_violations = scan_git_history("HEAD")
         self.assertEqual(hist_violations, [], f"Secret/PII violations in git history: {hist_violations}")
 
+    def test_race_has_happened_and_next_race_advancement(self):
+        from engine.core import data_fetcher as df
+        r15 = df.get_race_by_round(15, 2026)
+        r16 = df.get_race_by_round(16, 2026)
+        self.assertIsNotNone(r15)
+        self.assertIsNotNone(r16)
+        # Round 15 (Azerbaijan) completed earlier today -> must be detected as happened
+        self.assertTrue(df.race_has_happened(r15, 2026))
+        # Round 16 (Malaysia) has not happened yet -> must return False
+        self.assertFalse(df.race_has_happened(r16, 2026))
+        # Next race must advance to Round 16
+        next_race = df.get_next_race(2026)
+        self.assertIsNotNone(next_race)
+        self.assertEqual(next_race["round"], 16)
+        # Latest completed round must be 15
+        self.assertEqual(df._latest_completed_round_num(2026), 15)
+
+    def test_qualifying_has_happened_multi_signal(self):
+        from engine.core import data_fetcher as df
+        r15 = df.get_race_by_round(15, 2026)
+        # Round 15 qualifying results exist -> must return True
+        self.assertTrue(df.qualifying_has_happened(r15, 2026))
+        # Simulated future qualifying session
+        future_race = {
+            "round": 99,
+            "quali_date": "2099-01-01",
+            "quali_time": "12:00:00Z",
+        }
+        self.assertFalse(df.qualifying_has_happened(future_race, 2026))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

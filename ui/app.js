@@ -316,7 +316,11 @@ async function loadDashboardData() {
         const race = await raceRes.json();
         raceName = race.name; raceDate = race.date;
         document.getElementById('dash-race-name').innerText = race.name;
-        document.getElementById('dash-race-date').innerText = `Round ${race.round} \u00b7 ${race.date}`;
+        let dateSubtitle = `Round ${race.round} \u00b7 ${race.date}`;
+        if (race.latest_completed_round && race.latest_completed_name) {
+            dateSubtitle += `  (Latest Completed: R${race.latest_completed_round} ${race.latest_completed_name})`;
+        }
+        document.getElementById('dash-race-date').innerText = dateSubtitle;
         updateStatusRow('status-race', 'green', `${race.name} \u00b7 R${race.round}`);
         const cId = race.circuit_id || '';
         if (cId && trackMaps[cId]) {
@@ -2101,14 +2105,23 @@ async function loadRacesForYear() {
         const races = await res.json();
         
         raceSelector.innerHTML = '<option value="">Select a race...</option>';
+        let latestCompletedRound = null;
         races.forEach(r => {
             const opt = document.createElement('option');
             opt.value = r.round;
             opt.dataset.gpName = r.circuit_id || r.name.toLowerCase().replace(/ /g, '_');
             opt.dataset.name = r.name;
-            opt.text = `Round ${r.round}: ${r.name}`;
+            const statusLabel = r.is_completed ? ' (Completed)' : '';
+            opt.text = `Round ${r.round}: ${r.name}${statusLabel}`;
             raceSelector.appendChild(opt);
+            if (r.is_completed) {
+                latestCompletedRound = r.round;
+            }
         });
+        if (latestCompletedRound) {
+            raceSelector.value = latestCompletedRound;
+            loadPastRaceDetails();
+        }
     } catch (e) {
         showToast('Error loading race list', 'error');
     }
@@ -2319,12 +2332,20 @@ async function initPredictionAnalysis() {
         try {
             const res = await fetch('/api/races');
             const races = await res.json();
+            let latestCompletedRound = null;
             races.forEach(r => {
                 const opt = document.createElement('option');
                 opt.value = r.round;
-                opt.text = `Round ${r.round}: ${r.name}`;
+                const statusLabel = r.is_completed ? ' (Completed)' : '';
+                opt.text = `Round ${r.round}: ${r.name}${statusLabel}`;
                 selector.appendChild(opt);
+                if (r.is_completed) {
+                    latestCompletedRound = r.round;
+                }
             });
+            if (latestCompletedRound) {
+                selector.value = latestCompletedRound;
+            }
         } catch (e) {
             console.error('Error populating post-race round selector:', e);
         }

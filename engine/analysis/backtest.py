@@ -33,7 +33,7 @@ from engine.core.data_fetcher import (
     get_driver_standings, get_constructor_standings,
     get_circuit_history,
     compute_multiseason_driver_form, compute_multiseason_constructor_stats,
-    get_sprint_rounds, get_season_roster, standings_asof,
+    get_sprint_rounds, get_season_roster, standings_asof, race_has_happened,
 )
 from engine.models.predictor import F1Predictor, _match_circuit_cfg, to_rank
 
@@ -324,8 +324,7 @@ def _compute_form_asof(year: int, as_of_round: int) -> dict:
 def run_backtest_year(year: int, predictor: F1Predictor, specific_rounds=None):
     """Run one year's backtest using the already-trained predictor."""
     schedule = get_season_schedule(year)
-    today    = datetime.date.today()
-    completed = [r for r in schedule if datetime.date.fromisoformat(r["date"]) < today]
+    completed = [r for r in schedule if race_has_happened(r, year)]
     if specific_rounds:
         completed = [r for r in completed if r["round"] in specific_rounds]
     if not completed:
