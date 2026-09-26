@@ -605,6 +605,7 @@ function editPrice(type, name) {
 let _telemetryAnimFrame = null;
 let _telemetryPhase = 0;
 let _telemetrySpeedMultiplier = 1.0;
+let _mcCounterTimer = null;
 
 function initTelemetryWaveform() {
     const canvas = document.getElementById('telemetry-waveform-canvas');
@@ -714,12 +715,19 @@ function updateEnsembleSegments(rfWeight, xgbWeight, lgbWeight) {
 function animateMonteCarloCounter(current, target) {
     const el = document.getElementById('mc-iterations-counter');
     if (!el) return;
+    if (_mcCounterTimer) {
+        clearInterval(_mcCounterTimer);
+        _mcCounterTimer = null;
+    }
     let val = current;
     const step = Math.max(1, Math.round((target - current) / 10));
-    const timer = setInterval(() => {
+    _mcCounterTimer = setInterval(() => {
         val = Math.min(target, val + step);
         el.textContent = `${val.toLocaleString()} / 10,000 SIMS`;
-        if (val >= target) clearInterval(timer);
+        if (val >= target) {
+            clearInterval(_mcCounterTimer);
+            _mcCounterTimer = null;
+        }
     }, 25);
 }
 
@@ -860,6 +868,10 @@ function _resetRunButton() {
         _telemetryAnimFrame = null;
     }
     _telemetrySpeedMultiplier = 1.0;
+    if (_mcCounterTimer) {
+        clearInterval(_mcCounterTimer);
+        _mcCounterTimer = null;
+    }
     const runBtn = document.getElementById('btn-run-analysis');
     if (runBtn) {
         runBtn.disabled = false;
@@ -1061,6 +1073,10 @@ function connectStream(runId) {
                 _telemetryAnimFrame = null;
             }
             _telemetrySpeedMultiplier = 1.0;
+            if (_mcCounterTimer) {
+                clearInterval(_mcCounterTimer);
+                _mcCounterTimer = null;
+            }
             const anim = document.getElementById('analysis-animation-container');
             if (anim) anim.style.display = 'none';
             lastResults = data.data;
@@ -1080,6 +1096,10 @@ function connectStream(runId) {
                 _telemetryAnimFrame = null;
             }
             _telemetrySpeedMultiplier = 1.0;
+            if (_mcCounterTimer) {
+                clearInterval(_mcCounterTimer);
+                _mcCounterTimer = null;
+            }
             const anim = document.getElementById('analysis-animation-container');
             if (anim) anim.style.display = 'none';
             showToast('Analysis failed: ' + data.message, 'error');
