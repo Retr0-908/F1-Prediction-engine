@@ -1610,10 +1610,11 @@ class F1Predictor:
         race_pos  = race_entry["predicted_rank"]
         grid_pos  = quali_entry["predicted_grid"]
         # Plan 7c: positions beyond the field are always a data-integrity bug
-        if not (1 <= race_pos <= 22) or not (1 <= grid_pos <= 22):
+        max_pos = max(len(race_order), len(quali_order), 24)
+        if not (1 <= race_pos <= max_pos) or not (1 <= grid_pos <= max_pos):
             raise ValueError(
                 f"Fantasy-points integrity failure for {driver_name}: "
-                f"race_pos={race_pos}, grid_pos={grid_pos}")
+                f"race_pos={race_pos} (type={type(race_pos)}), grid_pos={grid_pos} (type={type(grid_pos)}), max_pos={max_pos} (type={type(max_pos)})")
         # Qualifying CLASSIFICATION (pre-penalty) drives quali bonus points in
         # F1 Fantasy; the effective grid (post-penalty) only matters for the
         # positions-gained calculation below.

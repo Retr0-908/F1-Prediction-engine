@@ -339,7 +339,7 @@ def compare_prediction(filename: str):
     if not (f.exists() and f.name.startswith("race_") and f.name.endswith(".json")):
         return {"error": "Not found"}
     
-    from engine.analysis.post_race_check import post_race_check
+    from engine.analysis import post_race_check
     metrics = post_race_check.validate_specific_prediction(f)
     if metrics:
         return {"status": "ok", "metrics": metrics}
@@ -587,7 +587,7 @@ async def trigger_post_race(round_num: int):
     def background_task():
         try:
             sync_progress_callback(run_id, "FETCH_RESULTS", "loading", f"Fetching actual results for Round {round_num}...")
-            from engine.analysis.post_race_check import post_race_check
+            from engine.analysis import post_race_check
             metrics = post_race_check.validate_round(round_num)
             
             if metrics:
@@ -607,12 +607,12 @@ async def trigger_post_race(round_num: int):
 
 @app.get("/api/model/health")
 def get_model_health():
-    from engine.strategy.self_improvement import self_improvement
+    from engine.strategy import self_improvement
     return self_improvement.get_model_health_report()
 
 @app.post("/api/model/reset-corrections")
 def reset_model_corrections():
-    from engine.strategy.self_improvement import self_improvement
+    from engine.strategy import self_improvement
     return self_improvement.reset_corrections()
 
 @app.get("/api/system/health")

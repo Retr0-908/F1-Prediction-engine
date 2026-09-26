@@ -284,7 +284,7 @@ def validate_specific_prediction(pred_file: Path, season: int = None) -> dict | 
 
     # Trigger self-improvement calculations
     try:
-        from engine.strategy.self_improvement import self_improvement
+        from engine.strategy import self_improvement
         self_improvement.compute_bias_corrections()
         self_improvement.compute_weight_adjustments()
         console.print("  [OK] Self-improvement bias corrections updated.")

@@ -134,11 +134,11 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             api_roster = get_season_roster(CURRENT_SEASON)
             if dynamic_roster:
                 seed_names = set(DRIVER_TEAMS_2026)
-                accepted = set(dynamic_roster) | seed_names
-                # Phantom exclusion: standings extras not in scrape∪seed
-                excluded_phantoms = sorted(set(api_roster or {}) - accepted) if api_roster else []
+                accepted = seed_names
+                # Phantom exclusion: standings/scrape extras not in seed
+                excluded_phantoms = sorted((set(dynamic_roster) | set(api_roster or {})) - accepted)
                 for name in excluded_phantoms:
-                    logger.warning("Excluded phantom driver (standings-only): %s", name)
+                    logger.warning("Excluded phantom driver: %s", name)
 
                 # Team attribution: curated seed wins; API fills unknowns
                 merged_roster: dict[str, str] = {}

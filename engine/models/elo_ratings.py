@@ -397,8 +397,6 @@ class Glicko2RatingSystem:
             new_phi_int = min(math.sqrt(phi_int ** 2 + tau_absent ** 2),
                               ROOKIE_INITIAL_PHI / GLICKO2_SCALE)
             d.phi = new_phi_int * GLICKO2_SCALE
-
-
 # ─────────────────────────────────────────────
 # CONSTRUCTOR GLICKO-2 SYSTEM
 # ─────────────────────────────────────────────
@@ -471,7 +469,8 @@ def _latest_completed_round() -> int:
     ratings immediately instead of serving them for up to 7 days.
     """
     try:
-        from engine.core.data_fetcher import data_fetcher
+        from engine.core import data_fetcher
+        import datetime
 
         today = datetime.date.today()
         done = [

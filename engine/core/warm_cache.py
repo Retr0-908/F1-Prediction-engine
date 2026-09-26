@@ -126,7 +126,7 @@ def verify_and_download_caches(progress_callback=None, max_workers: int = 4):
     print("  F1 FANTASY HIGH-SPEED BULK CACHE WARMER         ")
     print("==================================================")
     seasons = sorted(set(HISTORICAL_SEASONS) | {CURRENT_SEASON})
-    logger.info("Building work manifest for %d seasons...", seasons)
+    logger.info("Building work manifest for %d seasons...", len(seasons))
     units = _build_manifest(seasons)
     total_units = len(units)
     print(f"Manifest: {total_units} download units across {len(seasons)} seasons.\n")

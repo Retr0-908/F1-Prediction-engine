@@ -50,7 +50,7 @@ print(f'  Top-5/race:     {df.top5_hits.mean():.2f}/5')
 n = df.race_name.nunique() if "race_name" in df else len(df)
 baseline_mae = (n * n - 1) / (3 * n)   # expected |perm diff| for n drivers
 print()
-print(f'--- BASELINES (N≈{round((len(df)*2)/len(df) + 20)} drivers/race) ---')
+print(f'--- BASELINES (N~{round((len(df)*2)/len(df) + 20)} drivers/race) ---')
 print(f'  Random MAE:     ~{baseline_mae:.2f}')
 print(f'  Random rho:     ~0.00')
 print(f'  MAE improvement over random: {baseline_mae - df.race_mae.mean():.2f} positions')
