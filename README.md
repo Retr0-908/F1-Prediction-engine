@@ -222,13 +222,26 @@ F1-Prediction-engine/
 
 ---
 
-## ⚖️ Legal Disclaimer
+## ⚖️ Legal Disclaimer & Fair Use Notice
 
-This project is an **unofficial, non-commercial, open-source community tool** developed strictly for personal, educational, and analytical purposes. 
+This project is an **unofficial, non-commercial, open-source community tool** developed strictly for personal, educational, and analytical research purposes. 
 
 - It is **not** associated, affiliated, authorized, endorsed by, or in any way officially connected with **Formula 1**, **Formula One Licensing B.V.**, **Formula One Management Ltd**, the **FIA (Fédération Internationale de l'Automobile)**, or **F1 Fantasy**.
 - All official Formula 1 marks, team names, driver names, circuit names, logos, and related intellectual property are registered trademarks of Formula One Licensing B.V. or their respective owners.
-- Historical statistics and telemetry data are retrieved in compliance with fair-use analytical community protocols via open APIs (Ergast/Jolpica, OpenF1, FastF1).
+- Driver headshot cutouts and constructor insignias displayed in the UI are low-resolution assets utilized strictly for nominative identification under **Fair Use** principles. No copyright infringement is intended.
+- **Notice & Takedown**: If you are a copyright or trademark holder and request the removal or replacement of any specific media asset, please open a GitHub issue or contact the repository maintainer, and the asset will be promptly removed.
+
+---
+
+## 🙏 Acknowledgements & Data Sources
+
+This open-source project is made possible through the generous data and tooling provided by the motorsport engineering and open-source community:
+
+- **[FastF1](https://github.com/theOehrly/Fast-F1)**: Exceptional Python library for Formula 1 telemetry, session timing, and sector analysis.
+- **[Jolpica-F1 / Ergast](https://github.com/jolpica/jolpica-f1)**: Community-maintained REST API preserving historical championship classifications and standings.
+- **[OpenF1](https://openf1.org/)**: Real-time open telemetry and timing data feeds.
+- **[Open-Meteo](https://open-meteo.com/)**: High-precision meteorological forecast APIs.
+- **[PuLP & COIN-OR CBC](https://github.com/coin-or/pulp)**: Linear programming optimization engine.
 
 ---
 
