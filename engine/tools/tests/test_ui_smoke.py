@@ -76,6 +76,15 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn('id="ensemble-bar-wrap"', html)
         self.assertNotIn('class="f1-svg-loader"', html)
 
+    def test_ui_app_js_telemetry_controller(self):
+        """Verify app.js includes canvas telemetry loop and segmented HUD logic."""
+        res = self.client.get("/static/app.js")
+        self.assertEqual(res.status_code, 200)
+        js = res.text
+        self.assertIn("initTelemetryWaveform", js)
+        self.assertIn("updateEnsembleSegments", js)
+        self.assertIn("animateMonteCarloCounter", js)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 

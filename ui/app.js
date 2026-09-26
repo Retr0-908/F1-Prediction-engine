@@ -601,6 +601,128 @@ function editPrice(type, name) {
     }
 }
 
+// ── Live F1 Pit Wall Telemetry Waveform Engine ────────────────────────
+let _telemetryAnimFrame = null;
+let _telemetryPhase = 0;
+let _telemetrySpeedMultiplier = 1.0;
+
+function initTelemetryWaveform() {
+    const canvas = document.getElementById('telemetry-waveform-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Handle high DPI displays
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width > 0 ? rect.width : 600;
+    const height = rect.height > 0 ? rect.height : 110;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    function renderFrame() {
+        ctx.fillStyle = 'rgba(6, 10, 18, 0.35)'; // Slight trail fade
+        ctx.fillRect(0, 0, width, height);
+
+        // Draw background grid lines
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < width; x += 40) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < height; y += 22) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        _telemetryPhase += 0.04 * _telemetrySpeedMultiplier;
+
+        // Channel 1: Speed km/h Trace (Cyan)
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let x = 0; x < width; x += 3) {
+            const t = (x / 60) + _telemetryPhase;
+            const y = height * 0.45 + Math.sin(t) * 22 + Math.cos(t * 2.3) * 12 + (Math.sin(t * 0.5) * 8);
+            if (x === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Channel 2: Throttle % Trace (Teal/Green)
+        ctx.strokeStyle = '#00D2BE';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let x = 0; x < width; x += 4) {
+            const t = (x / 45) + _telemetryPhase * 1.2;
+            const rawThrottle = Math.sin(t * 1.5) > -0.2 ? (Math.sin(t * 1.5) * 25) : -20;
+            const y = height * 0.70 + rawThrottle;
+            if (x === 0) ctx.moveTo(x, Math.max(10, Math.min(height - 10, y)));
+            else ctx.lineTo(x, Math.max(10, Math.min(height - 10, y)));
+        }
+        ctx.stroke();
+
+        // Channel 3: Gear Shift Impulses (Purple vertical pulses)
+        ctx.strokeStyle = 'rgba(177, 56, 221, 0.6)';
+        ctx.lineWidth = 1.5;
+        const pulseSpacing = 120;
+        const shiftOffset = (_telemetryPhase * 35) % pulseSpacing;
+        for (let sx = shiftOffset; sx < width; sx += pulseSpacing) {
+            ctx.beginPath();
+            ctx.moveTo(sx, height - 15);
+            ctx.lineTo(sx, height - 35);
+            ctx.stroke();
+        }
+
+        if (_isPipelineRunning) {
+            _telemetryAnimFrame = requestAnimationFrame(renderFrame);
+        }
+    }
+
+    if (_telemetryAnimFrame) cancelAnimationFrame(_telemetryAnimFrame);
+    _telemetryAnimFrame = requestAnimationFrame(renderFrame);
+}
+
+function updateEnsembleSegments(rfWeight, xgbWeight, lgbWeight) {
+    const rf = Math.round((rfWeight !== undefined ? rfWeight : 0.25) * 100);
+    const xgb = Math.round((xgbWeight !== undefined ? xgbWeight : 0.35) * 100);
+    const lgb = Math.round((lgbWeight !== undefined ? lgbWeight : 0.40) * 100);
+
+    const segLgb = document.getElementById('ens-seg-lgb');
+    const segXgb = document.getElementById('ens-seg-xgb');
+    const segRf  = document.getElementById('ens-seg-rf');
+
+    if (segLgb) segLgb.style.width = `${lgb}%`;
+    if (segXgb) segXgb.style.width = `${xgb}%`;
+    if (segRf)  segRf.style.width  = `${rf}%`;
+
+    const lblLgb = document.getElementById('ens-lbl-lgb');
+    const lblXgb = document.getElementById('ens-lbl-xgb');
+    const lblRf  = document.getElementById('ens-lbl-rf');
+
+    if (lblLgb) lblLgb.textContent = `LGBM: ${lgb}%`;
+    if (lblXgb) lblXgb.textContent = `XGBoost: ${xgb}%`;
+    if (lblRf)  lblRf.textContent  = `RF: ${rf}%`;
+}
+
+function animateMonteCarloCounter(current, target) {
+    const el = document.getElementById('mc-iterations-counter');
+    if (!el) return;
+    let val = current;
+    const step = Math.max(1, Math.round((target - current) / 10));
+    const timer = setInterval(() => {
+        val = Math.min(target, val + step);
+        el.textContent = `${val.toLocaleString()} / 10,000 SIMS`;
+        if (val >= target) clearInterval(timer);
+    }, 25);
+}
+
 // ---- ANALYSIS / SSE (SCREEN 5) ----
 const stages = ["NEXT_RACE", "WEATHER", "PRICES", "ML_MODEL", "PREDICTIONS", "ANALYSIS", "COMPLETE"];
 let activeOverrides = {};
@@ -655,6 +777,10 @@ async function startAnalysis() {
     
     const anim = document.getElementById('analysis-animation-container');
     if (anim) anim.style.display = 'flex';
+    
+    // Live Telemetry Waveform Engine
+    _telemetrySpeedMultiplier = 1.0;
+    initTelemetryWaveform();
     
     // Reset HUD displays to clean pending placeholders
     const roundEl = document.getElementById('hud-round');
@@ -729,6 +855,11 @@ async function startAnalysis() {
 }
 
 function _resetRunButton() {
+    if (_telemetryAnimFrame) {
+        cancelAnimationFrame(_telemetryAnimFrame);
+        _telemetryAnimFrame = null;
+    }
+    _telemetrySpeedMultiplier = 1.0;
     const runBtn = document.getElementById('btn-run-analysis');
     if (runBtn) {
         runBtn.disabled = false;
@@ -897,8 +1028,13 @@ function connectStream(runId) {
                         ensembleEl.innerHTML = `RF:${Math.round(payload.rf_weight*100)}% | XGB:${Math.round(payload.xgb_weight*100)}% | LGB:${Math.round(payload.lgb_weight*100)}% <span class="hud-unit">WEIGHTS</span>`;
                     }
                 }
+                if (payload.rf_weight !== undefined) {
+                    updateEnsembleSegments(payload.rf_weight, payload.xgb_weight, payload.lgb_weight);
+                }
             }
             if (data.stage === 'PREDICTIONS') {
+                _telemetrySpeedMultiplier = 2.2;
+                animateMonteCarloCounter(0, payload.sims || payload.sims_done || 10000);
                 const simsEl = document.getElementById('hud-sims');
                 if (simsEl) {
                     if (data.status === 'loading' && payload.sims_done) {
@@ -910,6 +1046,8 @@ function connectStream(runId) {
             }
         } else if (data.stage === 'PREDICTIONS' && data.status === 'loading') {
             // General predicted pole/winner or status messages during predictions phase
+            _telemetrySpeedMultiplier = 2.2;
+            animateMonteCarloCounter(0, 10000);
             const simsEl = document.getElementById('hud-sims');
             if (simsEl) {
                 simsEl.innerHTML = `${data.message} <span class="hud-unit">PREDICTION INTERMEDIATE</span>`;
@@ -918,6 +1056,11 @@ function connectStream(runId) {
         
         if (data.stage === 'COMPLETE' && data.data) {
             evtSource.close();
+            if (_telemetryAnimFrame) {
+                cancelAnimationFrame(_telemetryAnimFrame);
+                _telemetryAnimFrame = null;
+            }
+            _telemetrySpeedMultiplier = 1.0;
             const anim = document.getElementById('analysis-animation-container');
             if (anim) anim.style.display = 'none';
             lastResults = data.data;
@@ -932,6 +1075,11 @@ function connectStream(runId) {
             }
         } else if (data.stage === 'ERROR') {
             evtSource.close();
+            if (_telemetryAnimFrame) {
+                cancelAnimationFrame(_telemetryAnimFrame);
+                _telemetryAnimFrame = null;
+            }
+            _telemetrySpeedMultiplier = 1.0;
             const anim = document.getElementById('analysis-animation-container');
             if (anim) anim.style.display = 'none';
             showToast('Analysis failed: ' + data.message, 'error');
@@ -946,6 +1094,11 @@ function connectStream(runId) {
     };
     
     evtSource.onerror = () => {
+        if (_telemetryAnimFrame) {
+            cancelAnimationFrame(_telemetryAnimFrame);
+            _telemetryAnimFrame = null;
+        }
+        _telemetrySpeedMultiplier = 1.0;
         const simsEl = document.getElementById('hud-sims');
         if (simsEl && simsEl.dataset.interval) {
             clearInterval(simsEl.dataset.interval);
