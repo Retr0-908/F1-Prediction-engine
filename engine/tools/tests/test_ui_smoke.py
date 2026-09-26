@@ -93,6 +93,14 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn(".ro-col-telemetry", css)
         self.assertIn("@media (max-width: 1360px)", css)
 
+    def test_ui_table_responsive_container(self):
+        """Verify style.css includes .table-responsive-container for bias and accuracy grids."""
+        res = self.client.get("/static/style.css")
+        self.assertEqual(res.status_code, 200)
+        css = res.text
+        self.assertIn(".table-responsive-container", css)
+        self.assertIn(".card-title", css)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 

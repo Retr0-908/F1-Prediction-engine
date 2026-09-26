@@ -2661,6 +2661,7 @@ function renderComparisonTable(comparison) {
     }
 
     let html = `
+        <div class="table-responsive-container">
         <div class="race-order-header" style="grid-template-columns: 50px 1fr 140px 100px 100px 80px; font-weight: bold; border-bottom: 2px solid var(--border-dim); padding-bottom: 8px;">
             <div>Pos</div>
             <div>Driver</div>
@@ -2699,16 +2700,17 @@ function renderComparisonTable(comparison) {
         html += `
             <div class="race-order-row" style="grid-template-columns: 50px 1fr 140px 100px 100px 80px;">
                 <div class="ro-col-pos ro-pos-out" style="width:36px; font-size:0.9rem; padding: 1px 0;">${c.actual >= 99 ? 'DNF' : idx + 1}</div>
-                <div class="ro-col-driver">
-                    <span style="border-left: 3px solid ${color}; padding-left: 8px; font-weight:600;">${c.driver}</span>
+                <div class="ro-col-driver" title="${c.driver}">
+                    <span style="border-left: 3px solid ${color}; padding-left: 8px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">${c.driver}</span>
                 </div>
-                <div class="ro-col-team" style="color: var(--text-dim);">${team}</div>
+                <div class="ro-col-team" title="${team}" style="color: var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${team}</div>
                 <div style="text-align:center; font-family:var(--font-heading); font-weight:700;">P${c.predicted}</div>
                 <div style="text-align:center; font-family:var(--font-heading); font-weight:700;">${actStr}</div>
                 <div style="text-align:center; font-family:var(--font-heading); font-weight:700;">${deltaHtml}</div>
             </div>
         `;
     });
+    html += `</div>`;
 
     wrapper.innerHTML = html;
 }
@@ -2730,27 +2732,27 @@ function renderAccuracyMetrics(metrics) {
 
     wrapper.innerHTML = `
         <div class="metric-pill">
-            <span class="metric-pill-label">Mean Absolute Error (MAE)</span>
+            <span class="metric-pill-label" title="Mean Absolute Error (MAE)">Mean Absolute Error (MAE)</span>
             <span class="metric-pill-val ${maeColor}">${mae.toFixed(2)} places</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">RMSE</span>
+            <span class="metric-pill-label" title="RMSE">RMSE</span>
             <span class="metric-pill-val">${rmse.toFixed(2)}</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Spearman Correlation (ρ)</span>
+            <span class="metric-pill-label" title="Spearman Correlation (ρ)">Spearman Correlation (ρ)</span>
             <span class="metric-pill-val ${rhoColor}">${rho.toFixed(3)}</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Winner Predicted Correctly</span>
+            <span class="metric-pill-label" title="Winner Predicted Correctly">Winner Predicted Correctly</span>
             <span class="metric-pill-val ${winColor}">${winnerHit ? '✅ YES' : '❌ NO'}</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Top-3 Predicted Hit Rate</span>
+            <span class="metric-pill-label" title="Top-3 Predicted Hit Rate">Top-3 Predicted Hit Rate</span>
             <span class="metric-pill-val">${top3}/3 (${(top3/3*100).toFixed(0)}%)</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Top-5 Predicted Hit Rate</span>
+            <span class="metric-pill-label" title="Top-5 Predicted Hit Rate">Top-5 Predicted Hit Rate</span>
             <span class="metric-pill-val">${top5}/5 (${(top5/5*100).toFixed(0)}%)</span>
         </div>
     `;
@@ -2767,7 +2769,8 @@ function renderBiasTable(biasData) {
     }
 
     let html = `
-        <div class="race-order-header" style="grid-template-columns: 180px 140px 100px 100px 100px 100px; font-weight: bold; border-bottom: 2px solid var(--border-dim); padding-bottom: 8px;">
+        <div class="table-responsive-container">
+        <div class="race-order-header" style="grid-template-columns: minmax(140px, 1.5fr) minmax(110px, 1fr) repeat(4, minmax(70px, 1fr)); font-weight: bold; border-bottom: 2px solid var(--border-dim); padding-bottom: 8px;">
             <div>Driver</div>
             <div>Team</div>
             <div style="text-align:center;">Permanent</div>
@@ -2797,11 +2800,11 @@ function renderBiasTable(biasData) {
         }
 
         html += `
-            <div class="race-order-row" style="grid-template-columns: 180px 140px 100px 100px 100px 100px;">
-                <div class="ro-col-driver">
-                    <span style="border-left: 3px solid ${color}; padding-left: 8px; font-weight:600;">${drv}</span>
+            <div class="race-order-row" style="grid-template-columns: minmax(140px, 1.5fr) minmax(110px, 1fr) repeat(4, minmax(70px, 1fr));">
+                <div class="ro-col-driver" title="${drv}">
+                    <span style="border-left: 3px solid ${color}; padding-left: 8px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">${drv}</span>
                 </div>
-                <div class="ro-col-team" style="color: var(--text-dim);">${team}</div>
+                <div class="ro-col-team" title="${team}" style="color: var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${team}</div>
                 <div style="text-align:center;">${getChipHtml(b.permanent)}</div>
                 <div style="text-align:center;">${getChipHtml(b.street)}</div>
                 <div style="text-align:center;">${getChipHtml(b.hybrid)}</div>
@@ -2809,6 +2812,7 @@ function renderBiasTable(biasData) {
             </div>
         `;
     });
+    html += `</div>`;
 
     wrapper.innerHTML = html;
 }
@@ -3110,6 +3114,7 @@ function renderCustomComparisonTable(comparison, elementId) {
     }
 
     let html = `
+        <div class="table-responsive-container">
         <div class="race-order-header" style="grid-template-columns: 50px 1fr 140px 100px 100px 80px; font-weight: bold; border-bottom: 2px solid var(--border-dim); padding-bottom: 8px;">
             <div>Pos</div>
             <div>Driver</div>
@@ -3144,16 +3149,17 @@ function renderCustomComparisonTable(comparison, elementId) {
         html += `
             <div class="race-order-row" style="grid-template-columns: 50px 1fr 140px 100px 100px 80px;">
                 <div class="ro-col-pos ro-pos-out" style="width:36px; font-size:0.9rem; padding: 1px 0;">${c.actual >= 99 ? 'DNF' : idx + 1}</div>
-                <div class="ro-col-driver">
-                    <span style="border-left: 3px solid ${color}; padding-left: 8px; font-weight:600;">${c.driver}</span>
+                <div class="ro-col-driver" title="${c.driver}">
+                    <span style="border-left: 3px solid ${color}; padding-left: 8px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">${c.driver}</span>
                 </div>
-                <div class="ro-col-team" style="color: var(--text-dim);">${team}</div>
+                <div class="ro-col-team" title="${team}" style="color: var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${team}</div>
                 <div style="text-align:center; font-family:var(--font-heading); font-weight:700;">P${c.predicted}</div>
                 <div style="text-align:center; font-family:var(--font-heading); font-weight:700;">${actStr}</div>
                 <div style="text-align:center; font-family:var(--font-heading); font-weight:700;">${deltaHtml}</div>
             </div>
         `;
     });
+    html += `</div>`;
     wrapper.innerHTML = html;
 }
 
@@ -3174,27 +3180,27 @@ function renderCustomAccuracyMetrics(metrics, elementId) {
 
     wrapper.innerHTML = `
         <div class="metric-pill">
-            <span class="metric-pill-label">MAE</span>
+            <span class="metric-pill-label" title="MAE">MAE</span>
             <span class="metric-pill-val ${maeColor}">${mae.toFixed(2)} places</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">RMSE</span>
+            <span class="metric-pill-label" title="RMSE">RMSE</span>
             <span class="metric-pill-val">${rmse.toFixed(2)}</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Spearman (ρ)</span>
+            <span class="metric-pill-label" title="Spearman (ρ)">Spearman (ρ)</span>
             <span class="metric-pill-val ${rhoColor}">${rho.toFixed(3)}</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Winner Hit</span>
+            <span class="metric-pill-label" title="Winner Hit">Winner Hit</span>
             <span class="metric-pill-val ${winColor}">${winnerHit ? '✅ YES' : '❌ NO'}</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Top-3 Hits</span>
+            <span class="metric-pill-label" title="Top-3 Hits">Top-3 Hits</span>
             <span class="metric-pill-val">${top3}/3 (${(top3/3*100).toFixed(0)}%)</span>
         </div>
         <div class="metric-pill">
-            <span class="metric-pill-label">Top-5 Hits</span>
+            <span class="metric-pill-label" title="Top-5 Hits">Top-5 Hits</span>
             <span class="metric-pill-val">${top5}/5 (${(top5/5*100).toFixed(0)}%)</span>
         </div>
     `;

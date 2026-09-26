@@ -589,14 +589,16 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 .status-row {
     display: flex;
-    align-items: flex-start;
-    padding: 14px 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
     background: rgba(0,0,0,0.08);
     border-radius: var(--radius-md) !important;  /* Phase 5 */
+    min-width: 0;
 }
 .status-indicator {
-    width: 10px; height: 10px; border-radius: 50%; margin-right: 14px; margin-top: 5px; flex-shrink: 0;
+    width: 10px; height: 10px; border-radius: 50%; margin-right: 14px; margin-top: 0; flex-shrink: 0;
 }
 .status-indicator.grey   { background: var(--color-grey); }
 .status-indicator.yellow { background: var(--color-yellow); }
@@ -617,8 +619,24 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
         box-shadow: none;
     }
 }
-.status-label { flex: 1; font-weight: 500; font-size: 1.1rem; }
-.status-val { font-size: 1rem; text-align: right; }
+.status-label {
+    flex: 1;
+    font-weight: 500;
+    font-size: 0.95rem;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.status-val {
+    font-size: 0.95rem;
+    text-align: right;
+    min-width: 0;
+    max-width: 60%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
 /* Utilities */
 .content-padding { padding: 30px 50px; top: 70px; height: calc(100vh - 70px); overflow-y: auto; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
@@ -642,7 +660,12 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     box-shadow: var(--shadow-focus-ring);
 }
 .input-field option { background-color: #0e1420; color: white; }
-.team-controls { display: flex; gap: 20px; align-items: center; }
+.team-controls {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+}
 
 /* Pickers */
 .grid-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }
@@ -709,8 +732,23 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     color: var(--text-dim);
     margin-bottom: 2px;
 }
-.card-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 2px; padding: 0 8px; }
-.card-team-name { font-size: 0.75rem; margin-bottom: 6px; }
+.card-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 2px;
+    padding: 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-team-name {
+    font-size: 0.75rem;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .card-price { color: var(--color-green); font-weight: 700; font-family: var(--font-heading); font-size: 1.15rem; }
 
 /* Constructor logo */
@@ -2615,4 +2653,76 @@ td.number, td.numeric, td[class*="num"] {
 .toggle-switch input[type="checkbox"]:checked + span:before {
     transform: translateX(16px);
 }
+
+/* ── Responsive Table Scroll Container ── */
+.table-responsive-container {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-sm);
+    margin-top: 10px;
+}
+
+.table-responsive-container::-webkit-scrollbar {
+    height: 6px;
+}
+.table-responsive-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-pill);
+}
+
+/* ── Card Title & Team Clamping ── */
+.card-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 2px;
+    padding: 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-team-name {
+    font-size: 0.75rem;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Team Controls Bar Wrapping ── */
+.team-controls {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* ── Status Row Overflow Protection ── */
+.status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    min-width: 0;
+}
+.status-label {
+    flex: 1;
+    font-weight: 500;
+    font-size: 0.95rem;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.status-val {
+    font-size: 0.95rem;
+    text-align: right;
+    min-width: 0;
+    max-width: 60%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 
