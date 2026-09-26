@@ -12,3 +12,5 @@ output/*.json
 output/*.txt
 output/*.html
 !output/.gitkeep
+.superpowers/
+.agents/
