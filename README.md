@@ -1,42 +1,247 @@
-# F1-Prediction-engine
+# 🏎️ F1 Fantasy Prediction Engine
 
-F1 Fantasy prediction engine for the 2026 season: ML ensemble (RF + XGBRanker + LGBMRanker + Ridge meta) over Glicko-2 ratings, LSTM form momentum, tire-degradation and per-circuit track features — with Monte Carlo risk modeling, lineup optimization, chip strategy, and a self-improving bias-correction loop.
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Tests Passing](https://img.shields.io/badge/Tests-45%20passed-success.svg)](#testing--verification)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#quick-start)
 
-## Quick start
+An advanced, production-grade **Formula 1 Fantasy Prediction & Lineup Optimization Engine**. Powered by an ensemble of machine learning rankers, ground-effect regulation Glicko-2 ratings, LSTM momentum tracking, 54 track-specific telemetry metrics, 5,000-run Monte Carlo stochastic simulations, and integer linear programming lineup optimization.
 
-| I want to... | Run |
-|---|---|
-| Use the web app | `F1 Fantasy.bat` (double-click) |
-| Re-download API data | `VERIFY_CACHES.bat` |
-| Backtest historical seasons | `BACKTEST.bat` |
-| Legacy terminal CLI | `RUN_CLI_Legacy.bat` or `python main.py` |
+---
 
-## Layout
+## 📸 Visual Showcase
 
+<div align="center">
+  <h3>Desktop Dashboard & Strategy Suite</h3>
+  <img src="Screenshots/desktop.png" alt="Desktop Dashboard View" width="95%" />
+</div>
+
+<br/>
+
+<div align="center">
+  <table>
+    <tr>
+      <td width="50%">
+        <h4 align="center">Race Predictions & Projected Delta</h4>
+        <img src="Screenshots/1.png" alt="Race Predictions Breakdown" width="100%" />
+      </td>
+      <td width="50%">
+        <h4 align="center">Linear Programming Team Optimization</h4>
+        <img src="Screenshots/2.png" alt="Lineup Optimizer & Chip Strategy" width="100%" />
+      </td>
+    </tr>
+  </table>
+  <p><em>Responsive interface available across desktop, tablet (<a href="Screenshots/tablet.png">tablet.png</a>), and mobile (<a href="Screenshots/mobile.png">mobile.png</a>).</em></p>
+</div>
+
+---
+
+## ⚡ Core Engine Capabilities
+
+### 1. 🏎️ 54 Track-Specific Telemetry Features
+Every championship circuit is modeled using canonical telemetry profiles defined in [`track_features/`](track_features/). Features encompass:
+- **Tire & Chassis Demands**: Lateral grip energy, longitudinal traction stress, asphalt micro/macro-abrasion, and degradation multipliers by compound (C1–C6).
+- **Aero & Drag Dynamics**: Low, medium, high downforce setups, drag sensitivity, DRS delta impact, and telemetry speed trap benchmarks.
+- **Circuit Environment & Chaos**: Safety Car / Virtual Safety Car baseline probabilities, pit lane transit time loss, elevation gradients, and overtaking difficulty indices.
+
+### 2. 🤖 Machine Learning Ranking Ensemble
+Replaces generic regressors with pairwise learning-to-rank algorithms tailored for motorsport grids:
+- **`XGBRanker` & `LGBMRanker`**: Optimize LambdaMART objective functions across historical race finishes, grid positions, and practice telemetry deltas.
+- **`RandomForestRegressor` + Meta-Estimator Stacking**: Blends tree predictions through a penalized `Ridge` meta-estimator to produce robust, variance-reduced point expectations.
+- **Strict Leakage Prevention**: Enforces temporal isolation between historical training partitions and active-season test rounds.
+
+### 3. 📈 Dynamic Ratings & Form Momentum
+- **Ground-Effect Era Glicko-2**: Dual-rating system that separates driver skill from constructor car development curves since the 2022 regulation reset, preventing historical inertia from skewing modern predictions.
+- **LSTM Form Momentum**: Recurrent neural network tracking recent form acceleration, capturing non-linear driver confidence and mid-season technical upgrade packages.
+
+### 4. 🎲 Monte Carlo Engine & PuLP Budget Optimizer
+- **5,000 Stochastic Iterations**: Simulates lap-1 incidents, safety cars, wet-weather transitions, mechanical retirements (DNF rate modeling), and overtaking difficulty per circuit.
+- **Integer Linear Programming (PuLP / CBC)**: Computes the mathematically global optimal 5-driver + 2-constructor team within official fantasy budget caps ($100M+).
+- **Strategic Chip Planning & 3-Race Lookahead**: Recommends optimal timing for *3X Booster*, *Limitless*, *Wildcard*, *No Negative*, *Extra DRS*, and *Autopilot* chips via dynamic programming transfer forecasts.
+
+### 5. 🔄 Self-Improving Feedback Loop
+- **Automated Post-Race Validation**: Pulls finalized FIA / Jolpica classification times post-race to compute error residual metrics (MAE, RMSE, Rank Correlation).
+- **EWMA Bias Calibration**: Continuously updates constructor efficiency and driver bias factors to auto-correct drift prior to the next grand prix weekend.
+
+---
+
+## 📐 Architecture Dataflow
+
+```mermaid
+flowchart TD
+    subgraph DataSources["External Data Feeds"]
+        FF1["FastF1 (Telemetry, Sectors, Weather)"]
+        JOL["Jolpica / Ergast API (Standings, Results)"]
+        OF1["OpenF1 API (Live Timing & Laps)"]
+        OM["Open-Meteo API (Forecasts)"]
+        F1F["F1 Fantasy API / Scraper (Prices & Chips)"]
+    end
+
+    subgraph Core["engine.core (Data Layer)"]
+        DF["Data Fetcher & Roster Resolver"]
+        CACHE[("Local Caches (Parquet / JSON)")]
+        TF["54 Track Feature Profiles (track_features/)"]
+        DF --> CACHE
+    end
+
+    subgraph Models["engine.models (Analytics & ML)"]
+        GLICKO["Regulation-Era Glicko-2 Ratings"]
+        LSTM["LSTM Form Momentum Model"]
+        TIRE["Compound Degradation Model"]
+        ENS["Ensemble Ranker\n(XGBRanker + LGBMRanker + RF + Ridge)"]
+        MC["Monte Carlo Simulator\n(5,000 Stochastic Runs)"]
+    end
+
+    subgraph Strategy["engine.strategy (Optimization)"]
+        PULP["PuLP Integer Linear Program\n(Budget & Roster Optimizer)"]
+        CHIP["Multi-Race Lookahead Chip Advisor"]
+        FB["Self-Improving EWMA Feedback Loop"]
+    end
+
+    subgraph Delivery["Serving & Interface"]
+        API["FastAPI Orchestrator (engine.serving)"]
+        SPA["Interactive Web Dashboard (ui/)"]
+        CLI["Terminal CLI (engine.cli)"]
+    end
+
+    DataSources --> DF
+    CACHE --> GLICKO & LSTM & TIRE
+    TF --> ENS & MC
+    GLICKO & LSTM & TIRE --> ENS
+    ENS --> MC
+    MC --> PULP & CHIP
+    PULP & CHIP --> API
+    API --> SPA
+    API --> CLI
+    JOL -. Post-Race Results .-> FB
+    FB -. Auto-Calibration .-> ENS
 ```
-engine/                  the package
-├── core/                config, data fetching (Jolpica/OpenF1/FastF1), weather, price scraping
-├── models/              predictor ensemble, Glicko-2, LSTM, tire model, Bayesian EV, Monte Carlo (+ Julia engine)
-├── strategy/            transfers/dream-team optimizer, chip advisor, price tracker, self-improvement
-├── analysis/            backtester, post-race validation, results analysis, HTML dashboard
-├── serving/             FastAPI server + pipeline orchestrator
-├── cli/                 terminal app (launched via root main.py shim)
-└── tools/               sanity checks, validators, dev scripts/tests
 
-ui/                      web frontend (vanilla JS SPA)
-track_features/          per-circuit JSON feature files
-cache/ logs/ output/     runtime data (auto-created; safe to delete cache/)
-Docs/                    plans & reference documents
-scratch/                 one-off dev scripts
+---
+
+## 🚀 Quick Start
+
+### 1. Automated Launchers
+
+#### Windows
+Double-click the desktop launcher:
+```bat
+F1 Fantasy.bat
+```
+*(Or run `RUN_CLI_Legacy.bat` for the classic terminal interface).*
+
+#### Linux / macOS
+Grant execution permissions and execute the startup shell script:
+```bash
+chmod +x run_app.sh
+./run_app.sh
 ```
 
-Lineups are **auto-detected** each run from championship standings (`engine.core.data_fetcher.get_season_roster`) — static tables in `engine/core/config.py` are only pre-round-1/offline seeds.
+---
 
-## Setup
+### 2. Manual Installation
 
-```powershell
+```bash
+# 1. Clone the repository
+git clone https://github.com/Retr0-908/F1-Prediction-engine.git
+cd F1-Prediction-engine
+
+# 2. Set up virtual environment
+python -m venv venv
+# On Linux / macOS:
+source venv/bin/activate
+# On Windows:
+.\venv\Scripts\Activate.ps1
+
+# 3. Install dependencies
 pip install -r requirements.txt
-python -m playwright install chromium   # optional: live fantasy price scraping
+
+# 4. (Optional) Install Playwright Chromium for live fantasy market scraping
+python -m playwright install chromium
+
+# 5. Start the engine server & dashboard
+python -m engine.serving.server
 ```
 
-See `Docs/REORGANIZATION_PLAN.md` for the layout rationale and `Docs/BUGFIX_PLAN.md` for the correctness audit this codebase went through.
+Open your browser at **`http://localhost:8000`** to access the strategy dashboard.
+
+---
+
+## 🧪 Testing & Verification
+
+Comprehensive test suites and validation utilities ensure high reliability:
+
+```bash
+# Run unit, contract, and pipeline integrity tests
+python -m unittest discover engine/tools/tests
+
+# Verify and warm telemetry / external API caches
+python -m engine.tools.verify_caches
+
+# Execute historical multi-season backtest (2023 - 2025)
+# Windows:
+BACKTEST.bat
+# Linux / macOS:
+./backtest.sh
+```
+
+---
+
+## 📂 Project Structure
+
+```
+F1-Prediction-engine/
+├── engine/                       # Core python engine package
+│   ├── core/                     # API fetchers, config, filesystem paths, weather
+│   ├── models/                   # ML rankers, Glicko-2, LSTM, tire, Monte Carlo
+│   ├── strategy/                 # PuLP lineup optimizer, chip advisor, feedback loop
+│   ├── analysis/                 # Historical backtester, race reporter, validators
+│   ├── serving/                  # FastAPI web server and pipeline orchestrator
+│   ├── cli/                      # Command-line interface application
+│   └── tools/                    # Automated testing suites and cache utilities
+├── ui/                           # Single-page web dashboard (HTML5, CSS3, JS)
+├── track_features/               # 54 canonical telemetry features per Grand Prix circuit
+├── Docs/                         # Engineering documentation & architecture plans
+│   ├── MAINTENANCE.md            # Season handover, track updates & maintenance guide
+│   ├── CONTRIBUTING.md           # Developer guidelines & contribution standards
+│   └── REORGANIZATION_PLAN.md    # Architectural foundation documentation
+├── Screenshots/                  # High-resolution application screenshots
+├── F1 Fantasy.bat                # Windows native web launcher
+├── run_app.sh                    # Unix native web launcher
+├── requirements.txt              # Production Python package dependencies
+└── LICENSE                       # GNU General Public License v3.0
+```
+
+---
+
+## 📖 Documentation & Maintenance
+
+- **Maintenance Guide**: Refer to [`Docs/MAINTENANCE.md`](Docs/MAINTENANCE.md) for annual driver market changes, calendar updates, adding new circuit telemetry files, and updating dependencies.
+- **Contribution Standards**: Review [`CONTRIBUTING.md`](CONTRIBUTING.md) for pull request workflows, code style, and test coverage requirements.
+
+---
+
+## ⚖️ Legal Disclaimer
+
+This project is an **unofficial, non-commercial, open-source community tool** developed strictly for personal, educational, and analytical purposes. 
+
+- It is **not** associated, affiliated, authorized, endorsed by, or in any way officially connected with **Formula 1**, **Formula One Licensing B.V.**, **Formula One Management Ltd**, the **FIA (Fédération Internationale de l'Automobile)**, or **F1 Fantasy**.
+- All official Formula 1 marks, team names, driver names, circuit names, logos, and related intellectual property are registered trademarks of Formula One Licensing B.V. or their respective owners.
+- Historical statistics and telemetry data are retrieved in compliance with fair-use analytical community protocols via open APIs (Ergast/Jolpica, OpenF1, FastF1).
+
+---
+
+## 📄 License
+
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.  
+See the [`LICENSE`](LICENSE) file for the full license terms.
+
+```
+Copyright (C) 2024-2026 Retr0-908 & Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+```

@@ -1,7 +1,6 @@
 cache/
 __pycache__/
 *.pyc
-Screenshots/
 logs/*
 !logs/.gitkeep
 *.log
