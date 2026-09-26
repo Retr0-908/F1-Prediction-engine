@@ -37,7 +37,30 @@ An advanced, production-grade **Formula 1 Fantasy Prediction & Lineup Optimizati
 
 ---
 
-## ⚡ Core Engine Capabilities
+## 🤖 The Story: 100% AI-Crafted, Vibe Coded & Rigorously Tested
+
+> *"What happens when an engineering student pairs up with frontier AI models to tackle a complex motorsport optimization puzzle?"*
+
+### 🎓 An Engineering Student's Weekend Passion Project
+I am primarily an **engineering student**. Outside of university lectures, labs, and coursework, Formula 1 fantasy analytics became a hobby I picked up to explore the intersection of motorsport physics, data science, and mathematical optimization. 
+
+### ⚡ Built Entirely With AI ("Vibe Coded")
+This entire project was conceived, architected, implemented, and refactored **100% through human-AI co-piloting and "vibe coding"**. Rather than writing every routine by hand or sticking to trivial scripts, I wanted to explore the outer boundaries of what modern foundation models can achieve when guided by an inquisitive engineer:
+
+- **Google Gemini**: Spearheaded large-scale codebase synthesis, complex multi-file architectural reorganizations, and holistic pipeline orchestration.
+- **Anthropic Claude**: Guided nuanced mathematical formulation — including regulation-era Glicko-2 dynamics, LambdaMART pairwise ranking, integer linear programming via PuLP, and EWMA self-improvement loops.
+- **Zhipu GLM**: Contributed to rapid algorithmic iteration, telemetry feature exploration, and modular utility scripts.
+
+### 🛡️ "Vibe Coding" With Engineering Rigor: Verification First
+"Vibe coding" has a reputation for producing fragile, hallucinated code when left unchecked. To prevent that, every single model output was held to strict engineering standards:
+
+- **Collaborative Human-AI Testing**: Every architectural layer went through intense adversarial review and verification loops. If a model proposed a change, it had to prove itself with reproducible evidence.
+- **Automated Contract Suite (45/45 Green)**: We built and maintained regression tests covering data-ingestion bounds, driver identity drift, fantasy points contracts, and UI asset serving.
+- **Multi-Season Backtesting**: Every ranking ensemble was benchmarked against historical races (2022–2025) using time-series cross-validation to guarantee zero future data leakage.
+
+This repository is living proof of the modern paradigm of software engineering: a solo engineering student directing frontier AI models to build a production-grade, highly specialized predictive system.
+
+---
 
 ### 1. 🏎️ 54 Track-Specific Telemetry Features
 Every championship circuit is modeled using canonical telemetry profiles defined in [`track_features/`](track_features/). Features encompass:
