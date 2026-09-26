@@ -1,7 +1,7 @@
 # F1 Fantasy Prediction Engine - Project Analysis Report
 
 **Analysis Date:** July 13, 2026  
-**Project Directory:** C:\Users\Retr0-908\Desktop\Tools\f1-predictor - Copy
+**Project Directory:** C:\Users\<developer>\Desktop\Tools\f1-predictor - Copy
 
 ---
 

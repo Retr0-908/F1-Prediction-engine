@@ -78,7 +78,7 @@ Full inventory of remaining medium/low findings is embedded in the phase section
   (current pattern only ignores typed extensions; a future `output/foo.parquet` would slip through).
 
 ### B00.2 🟢 Broken absolute paths in `scratch/*.py`
-Three scripts reference an old machine layout (`c:/Users/Retr0-908/Desktop/Tools/f1-predictor`):
+Three scripts reference an old machine layout (`c:/Users/<developer>/Desktop/Tools/f1-predictor`):
 - `scratch/test_rookie_predictor.py:3`
 - `scratch/download_missing_cache.py:6`
 - `scratch/check_driver_standings.py:4`
