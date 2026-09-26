@@ -66,6 +66,16 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("#telemetry-waveform-canvas", css)
         self.assertNotIn("f1-drive", css)
 
+    def test_ui_analysis_screen_canvas_and_hud(self):
+        """Verify index.html contains telemetry canvas and segmented ensemble container."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        html = res.text
+        self.assertIn('id="telemetry-waveform-canvas"', html)
+        self.assertIn('id="mc-iterations-counter"', html)
+        self.assertIn('id="ensemble-bar-wrap"', html)
+        self.assertNotIn('class="f1-svg-loader"', html)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 

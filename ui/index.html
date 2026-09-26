@@ -227,63 +227,29 @@
             
             <div class="analysis-split-layout">
                 <div class="analysis-left">
-                    <div id="analysis-animation-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 0;">
-                        <!-- SVG F1 analysis loader -->
-                        <svg class="f1-svg-loader" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
-                            <!-- Track -->
-                            <line x1="0" y1="48" x2="200" y2="48" stroke="#333" stroke-width="2" stroke-dasharray="8 6"/>
-                            <!-- Car body -->
-                            <g id="f1-car-svg">
-                                <!-- Rear exhaust flame/glow -->
-                                <path id="exhaust-glow" d="M -8,38 L 4,37 L 4,40 L -8,39 Z" fill="url(#exhaustGrad)" opacity="0.9"/>
-                                <!-- Rear Wing -->
-                                <rect x="6" y="16" width="3" height="24" rx="0.5" fill="#111"/>
-                                <path d="M 9,18 L 20,18 L 18,24 L 9,22 Z" fill="#00F0FF"/>
-                                <!-- Underfloor -->
-                                <path d="M 28,44 L 70,44 L 70,46 L 28,46 Z" fill="#111"/>
-                                <!-- Engine Cover & Sidepods (sleek curve) -->
-                                <path d="M 18,34 C 18,34 26,20 40,20 C 50,20 54,26 56,28 C 62,31 68,34 76,36 L 86,39 C 89,39.5 91,40.5 92,41.5 L 92,44 L 18,44 Z" fill="#00F0FF"/>
-                                <!-- Sidepod air intake -->
-                                <path d="M 58,30 L 61,26 L 66,26 L 63,30 Z" fill="#111"/>
-                                <!-- Nose & Front Wing -->
-                                <path d="M 86,39 L 91,40 C 93,40.5 94,42 94,44 L 86,44 Z" fill="#00F0FF"/>
-                                <rect x="94" y="38" width="2" height="7" rx="0.5" fill="#111"/>
-                                <path d="M 88,43 L 95,43 L 95,45 L 88,45 Z" fill="#111"/>
-                                <!-- Cockpit & Driver -->
-                                <circle cx="50" cy="25" r="3.5" fill="#EEEEEE"/>
-                                <path d="M 50.5,23.5 L 53.5,24.2 L 53,25.8 L 50,25.2 Z" fill="#111"/>
-                                <path d="M 45,28 C 47,23 54,23 56,28" stroke="#111" stroke-width="1.5" fill="none"/>
-                                <rect x="40" y="17" width="3" height="3" fill="#CCFF00"/>
-                                <!-- Rear wheel -->
-                                <g class="wheel-group">
-                                    <circle cx="24" cy="40" r="8" fill="#151515" stroke="#333" stroke-width="1"/>
-                                    <circle cx="24" cy="40" r="4.5" fill="#050505"/>
-                                    <circle cx="24" cy="40" r="6" stroke="#CCFF00" stroke-width="0.8" stroke-dasharray="3 2" fill="none" class="spinning-tire"/>
-                                </g>
-                                <!-- Front wheel -->
-                                <g class="wheel-group">
-                                    <circle cx="74" cy="40" r="8" fill="#151515" stroke="#333" stroke-width="1"/>
-                                    <circle cx="74" cy="40" r="4.5" fill="#050505"/>
-                                    <circle cx="74" cy="40" r="6" stroke="#CCFF00" stroke-width="0.8" stroke-dasharray="3 2" fill="none" class="spinning-tire"/>
-                                </g>
-                            </g>
-                            <!-- Gradient for exhaust & Filters -->
-                            <defs>
-                                <linearGradient id="exhaustGrad" x1="100%" y1="0%" x2="0%" y2="0%">
-                                    <stop offset="0%" stop-color="#ff0055"/>
-                                    <stop offset="50%" stop-color="#ffaa00" stop-opacity="0.8"/>
-                                    <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
-                                </linearGradient>
-                            </defs>
-                            <!-- Speed Lines Group -->
-                            <g id="speed-lines">
-                                <line class="speed-line sl-1" x1="190" y1="15" x2="210" y2="15" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-                                <line class="speed-line sl-2" x1="170" y1="28" x2="195" y2="28" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
-                                <line class="speed-line sl-3" x1="180" y1="42" x2="200" y2="42" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-                            </g>
-                        </svg>
-                        <h3 style="margin-top: 16px; font-weight: 700; color: #00F0FF; letter-spacing: 3px; font-size: 0.9rem;" id="animation-status-text" class="pulse-text">INITIALIZING ENGINE...</h3>
-                        <p style="color: #666; font-size: 0.75rem; margin-top: 6px;">This may take 1-2 minutes on the first run</p>
+                    <div id="analysis-animation-container">
+                        <div class="telemetry-console-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                                <div style="font-family:var(--font-heading); font-size:0.85rem; font-weight:700; color:var(--telemetry-cyan); letter-spacing:1.5px;">
+                                    LIVE TELEMETRY STREAM
+                                </div>
+                                <div id="live-hz-badge" class="telemetry-hz-badge" style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim);">
+                                    60 Hz ● SYNCED
+                                </div>
+                            </div>
+                            <canvas id="telemetry-waveform-canvas" width="600" height="110"></canvas>
+                            <div class="telemetry-channel-legend">
+                                <div class="chan-indicator"><span class="chan-dot chan-speed"></span> SPEED (KM/H)</div>
+                                <div class="chan-indicator"><span class="chan-dot chan-throttle"></span> THROTTLE %</div>
+                                <div class="chan-indicator"><span class="chan-dot chan-gear"></span> GEAR SHIFT</div>
+                            </div>
+                            <div class="monte-carlo-counter-wrap">
+                                <span class="monte-carlo-label">MONTE CARLO PROJECTION</span>
+                                <span id="mc-iterations-counter" class="monte-carlo-val">READY (10,000 SIMS)</span>
+                            </div>
+                        </div>
+                        <h3 style="margin-top: 16px; font-weight: 700; color: var(--telemetry-cyan); letter-spacing: 2px; font-size: 0.9rem;" id="animation-status-text" class="pulse-text">INITIALIZING ENGINE...</h3>
+                        <p style="color: var(--text-dim); font-size: 0.78rem; margin-top: 4px;">Real-time FastF1 telemetry &amp; stochastic simulation pipeline</p>
                     </div>
                     
                     <!-- Diagnostics HUD -->
@@ -306,12 +272,21 @@
                                 <div class="hud-label">TRACK CHARACTERISTICS</div>
                                 <div class="hud-val" id="hud-track">— <span class="hud-unit">—</span></div>
                             </div>
-                            <div class="hud-item">
+                            <div class="hud-item" style="grid-column: 1 / -1;">
                                 <div class="hud-label">ENSEMBLE MODEL WEIGHTS</div>
-                                <div class="hud-val" id="hud-ensemble">Fitting... <span class="hud-unit">—</span></div>
+                                <div id="ensemble-bar-wrap" class="ensemble-bar-wrap">
+                                    <div id="ens-seg-lgb" class="ensemble-segment ensemble-lgb" style="width: 33.3%;"></div>
+                                    <div id="ens-seg-xgb" class="ensemble-segment ensemble-xgb" style="width: 33.3%;"></div>
+                                    <div id="ens-seg-rf"  class="ensemble-segment ensemble-rf"  style="width: 33.4%;"></div>
+                                </div>
+                                <div class="ensemble-labels">
+                                    <span id="ens-lbl-lgb">LGBM: —%</span>
+                                    <span id="ens-lbl-xgb">XGBoost: —%</span>
+                                    <span id="ens-lbl-rf">Random Forest: —%</span>
+                                </div>
                             </div>
-                            <div class="hud-item">
-                                <div class="hud-label">MONTE CARLO PROJECTION</div>
+                            <div class="hud-item" style="grid-column: 1 / -1;">
+                                <div class="hud-label">SIMULATION PROGRESS &amp; SAFETY CAR RISK</div>
                                 <div class="hud-val" id="hud-sims">Pending... <span class="hud-unit">—</span></div>
                             </div>
                         </div>
