@@ -1003,58 +1003,114 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 
 /* ── Predicted Race / Sprint Order Table ───────────────────────── */
 .race-order-table { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
+
 .race-order-header {
     display: grid;
-    grid-template-columns: 44px minmax(130px, 1.2fr) minmax(110px, 1fr) 52px minmax(100px, 120px);
-    gap: 8px; padding: 6px 10px;
-    font-family: var(--font-heading); font-size: 0.75rem; font-weight: 700;
+    grid-template-columns: 46px minmax(130px, 1.4fr) minmax(100px, 1fr) 95px 50px minmax(75px, 105px);
+    gap: 8px; padding: 6px 12px;
+    font-family: var(--font-heading); font-size: 0.72rem; font-weight: 700;
     color: var(--text-dim); letter-spacing: 1px; border-bottom: 1px solid var(--border-dim);
     margin-bottom: 4px;
     align-items: center;
 }
+
 .race-order-row {
     display: grid;
-    grid-template-columns: 44px minmax(130px, 1.2fr) minmax(110px, 1fr) 52px minmax(100px, 120px);
+    grid-template-columns: 46px minmax(130px, 1.4fr) minmax(100px, 1fr) 95px 50px minmax(75px, 105px);
     gap: 8px; align-items: center;
-    padding: 7px 10px;
-    border-radius: var(--radius-sm) !important;  /* Phase 5 */
-    background: linear-gradient(90deg, rgba(14,18,30,0.85) 0%, rgba(0,0,0,0.38) 100%);
-    border: 1px solid rgba(255,255,255,0.05);
+    padding: 7px 12px;
+    border-radius: var(--radius-sm) !important;
+    background: linear-gradient(90deg, rgba(14, 19, 32, 0.85) 0%, rgba(6, 10, 18, 0.45) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     border-left: 3px solid transparent;
-    /* Phase 2: transform managed by GSAP — only non-transform transitions here */
     transition: background-color 0.18s ease, border-color 0.18s ease;
 }
+
 .race-order-row:hover {
-    background: linear-gradient(90deg, rgba(28,34,52,0.92) 0%, rgba(10,12,22,0.65) 100%);
-    border-color: rgba(255,255,255,0.14);
+    background: linear-gradient(90deg, rgba(24, 32, 54, 0.92) 0%, rgba(12, 17, 30, 0.75) 100%);
+    border-color: rgba(0, 229, 255, 0.25);
 }
 
-/* Position badge */
 .ro-col-pos {
-    font-family: var(--font-heading); font-size: 1.05rem; font-weight: 700;
-    text-align: center; width: 44px; border-radius: var(--radius-xs) !important;  /* Phase 5 */
+    font-family: var(--font-heading); font-size: 1rem; font-weight: 700;
+    text-align: center; width: 42px; border-radius: var(--radius-xs) !important;
     padding: 2px 0; background: rgba(255,255,255,0.06); flex-shrink: 0;
 }
-.ro-pos-top3    { background: rgba(232,0,45,0.2);  color: #ff4d6d; border: 1px solid rgba(232,0,45,0.4); }
-.ro-pos-points  { background: rgba(0,210,190,0.1); color: var(--color-green); border: 1px solid rgba(0,210,190,0.25); }
+.ro-pos-top3    { background: rgba(255, 215, 0, 0.18); color: #FFD700; border: 1px solid rgba(255, 215, 0, 0.4); }
+.ro-pos-points  { background: rgba(0, 210, 190, 0.12); color: var(--telemetry-green); border: 1px solid rgba(0, 210, 190, 0.25); }
 .ro-pos-out     { color: var(--text-dim); }
 
-/* Driver col */
-.ro-col-driver  { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
-.ro-thumb       { width: 28px; height: 28px; object-fit: contain; border-radius: 0 !important; background: rgba(255,255,255,0.04); flex-shrink: 0; }
-.ro-name        { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; }
-.ro-rookie-badge { font-size: 0.62rem; padding: 1px 4px; border-radius: 0 !important; background: rgba(116,143,252,0.15); color: #748ffc; border: 1px solid rgba(116,143,252,0.3); flex-shrink: 0; }
-.ro-dnf-risk    { font-size: 0.65rem; color: #f9a825; flex-shrink: 0; }
-.ro-momentum    { font-size: 0.72rem; flex-shrink: 0; }
+/* Driver & Team Columns with Strict Ellipsis */
+.ro-col-driver {
+    display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden;
+}
+.ro-thumb {
+    width: 28px; height: 28px; object-fit: contain; border-radius: 50% !important;
+    background: rgba(255,255,255,0.04); flex-shrink: 0; border: 1px solid var(--border-subtle);
+}
+.ro-name {
+    font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; min-width: 0; flex: 1;
+}
 
-.ro-col-team    { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ro-col-pred    { font-family: var(--font-heading); font-size: 0.95rem; font-weight: 700; color: var(--text-main); white-space: nowrap; }
+.ro-col-team {
+    font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; min-width: 0;
+}
 
-/* Confidence bar */
-.ro-col-conf    { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.ro-conf-bar    { flex: 1; height: 5px; background: rgba(255,255,255,0.08); border-radius: var(--radius-pill) !important; overflow: hidden; min-width: 30px; }
-.ro-conf-fill   { height: 100%; border-radius: var(--radius-pill) !important; transition: width 0.4s ease; }
-.ro-conf-pct    { font-family: var(--font-heading); font-size: 0.8rem; font-weight: 700; width: 32px; text-align: right; flex-shrink: 0; }
+/* ── Dedicated Risk & Form Pill Group ── */
+.ro-col-telemetry {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.telemetry-mini-pill {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: var(--radius-xs);
+    white-space: nowrap;
+}
+.pill-rookie { background: rgba(177, 56, 221, 0.2); color: var(--telemetry-purple); border: 1px solid rgba(177, 56, 221, 0.4); }
+.pill-dnf    { background: rgba(255, 59, 48, 0.2);  color: var(--telemetry-danger); border: 1px solid rgba(255, 59, 48, 0.4); }
+.pill-momentum-up   { color: var(--telemetry-green); }
+.pill-momentum-down { color: var(--telemetry-danger); }
+.pill-momentum-flat { color: var(--text-dim); }
+
+.ro-col-pred {
+    font-family: var(--font-heading); font-size: 0.95rem; font-weight: 700;
+    color: var(--text-main); text-align: center;
+}
+
+.ro-col-conf {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.ro-conf-bar {
+    flex: 1; height: 5px; background: rgba(255,255,255,0.08); border-radius: var(--radius-pill); overflow: hidden;
+}
+.ro-conf-fill { height: 100%; border-radius: var(--radius-pill); }
+.ro-conf-pct { font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600; }
+
+/* Overrides for 5-column sub-tables */
+#res-quali-order-left .race-order-header,
+#res-quali-order-left .race-order-row,
+#res-quali-order-right .race-order-header,
+#res-quali-order-right .race-order-row,
+#past-race-results .race-order-header,
+#past-race-results .race-order-row {
+    grid-template-columns: 46px minmax(130px, 1.4fr) minmax(100px, 1fr) 90px minmax(75px, 105px);
+}
+
+/* ── Responsive Reflow for Race Columns ── */
+@media (max-width: 1360px) {
+    .race-columns {
+        grid-template-columns: 1fr !important;
+        gap: 16px;
+    }
+}
+
 
 /* ── Practice Session Data ──────────────────────────────────────── */
 .practice-list  { display: flex; flex-direction: column; gap: 5px; }

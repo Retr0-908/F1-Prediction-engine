@@ -1342,6 +1342,7 @@ function renderRaceOrder(order, containerId, isSprint = false) {
             <span class="ro-col-pos">POS</span>
             <span class="ro-col-driver">DRIVER</span>
             <span class="ro-col-team">TEAM</span>
+            <span class="ro-col-telemetry">STATUS</span>
             <span class="ro-col-pred">PRED</span>
             <span class="ro-col-conf">CONFIDENCE</span>
         </div>
@@ -1356,24 +1357,27 @@ function renderRaceOrder(order, containerId, isSprint = false) {
         const teamColor  = teamColors[team] || '#FF003C';
         const imgUrl     = driverHeadshots[name];
         const thumbHtml  = imgUrl ? `<img class="ro-thumb" src="${imgUrl}" alt="" onerror="this.style.visibility='hidden'">` : '';
-        const isRookie   = d.is_rookie ? '<span class="ro-rookie-badge">ROOKIE</span>' : '';
+        const isRookie   = d.is_rookie ? '<span class="telemetry-mini-pill pill-rookie" title="Rookie Driver">ROOKIE</span>' : '';
         const dnf        = d.dnf_prob_pct || 0;
-        const dnfHtml    = dnf >= 15 ? `<span class="ro-dnf-risk" title="DNF risk: ${dnf.toFixed(0)}%">⚠ ${dnf.toFixed(0)}%</span>` : '';
+        const dnfHtml    = dnf >= 15 ? `<span class="telemetry-mini-pill pill-dnf" title="DNF Risk: ${dnf.toFixed(0)}%">⚠ ${dnf.toFixed(0)}%</span>` : '';
         const momentum   = d.momentum || 0;
+        const mClass     = momentum > 0.5 ? 'pill-momentum-up' : momentum < -0.5 ? 'pill-momentum-down' : 'pill-momentum-flat';
         const mArrow     = momentum > 0.5 ? '▲' : momentum < -0.5 ? '▼' : '–';
-        const mColor     = momentum > 0.5 ? 'var(--color-green)' : momentum < -0.5 ? 'var(--accent-danger)' : 'var(--text-dim)';
+        const momentumHtml = `<span class="telemetry-mini-pill ${mClass}" title="Momentum: ${momentum > 0 ? '+' : ''}${momentum.toFixed(1)}">${mArrow}</span>`;
         const posClass   = rank <= 3 ? 'ro-pos-top3' : rank <= 10 ? 'ro-pos-points' : 'ro-pos-out';
 
         return `<div class="race-order-row">
             <span class="ro-col-pos ${posClass}">${rank}</span>
             <span class="ro-col-driver">
                 ${thumbHtml}
-                <span class="ro-name">${name}</span>
+                <span class="ro-name" title="${name}">${name}</span>
+            </span>
+            <span class="ro-col-team" style="color:${teamColor}" title="${team}">${team}</span>
+            <span class="ro-col-telemetry">
                 ${isRookie}
                 ${dnfHtml}
-                <span class="ro-momentum" style="color:${mColor}">${mArrow}</span>
+                ${momentumHtml}
             </span>
-            <span class="ro-col-team" style="color:${teamColor}">${team}</span>
             <span class="ro-col-pred">P${pred}</span>
             <span class="ro-col-conf">
                 <div class="ro-conf-bar">

@@ -85,6 +85,15 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("updateEnsembleSegments", js)
         self.assertIn("animateMonteCarloCounter", js)
 
+    def test_ui_adaptive_leaderboard_classes(self):
+        """Verify CSS contains .ro-col-telemetry and responsive race columns breakpoint."""
+        res = self.client.get("/static/style.css")
+        self.assertEqual(res.status_code, 200)
+        css = res.text
+        self.assertIn(".ro-col-telemetry", css)
+        self.assertIn("@media (max-width: 1360px)", css)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
+
 
