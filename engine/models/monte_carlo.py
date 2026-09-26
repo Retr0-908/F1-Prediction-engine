@@ -154,18 +154,26 @@ def _simulate_one_race(
     # ── 1. Build initial grid/race order positions ──
     # race_order already sorted by predicted_rank
     positions = {d["driver"]: d["predicted_rank"] for d in race_order}
-    effective_grid: dict[str, int] = {}
+    raw_effective = []
     for q in quali_order:
         drv_name = q["driver"]
+        base_grid = q.get("predicted_grid", 20)
         # Post-quali mode: predicted_grid already reflects penalties (locked
         # actual grid). Only add penalties to a raw pre-quali prediction.
         if q.get("is_actual", False):
-            effective_grid[drv_name] = q["predicted_grid"]
+            target_grid = base_grid
         else:
-            effective_grid[drv_name] = q["predicted_grid"] + (grid_penalties or {}).get(drv_name, 0)
+            target_grid = base_grid + (grid_penalties or {}).get(drv_name, 0)
+        raw_effective.append((target_grid, base_grid, drv_name))
+
+    # Resolve penalties: sort primarily by penalized target grid,
+    # break ties stably using original qualifying position
+    raw_effective.sort(key=lambda x: (x[0], x[1]))
+    effective_grid: dict[str, int] = {
+        drv_name: i + 1 for i, (_, _, drv_name) in enumerate(raw_effective)
+    }
     grid      = effective_grid
-    # Plan 7c: grid integrity — duplicates mean two cars share a slot, which
-    # corrupts positions-gained math and every downstream points simulation.
+    # Plan 7c: grid integrity check
     if len(set(effective_grid.values())) != len(effective_grid):
         dupes = [d for d, g in effective_grid.items()
                  if list(effective_grid.values()).count(g) > 1]

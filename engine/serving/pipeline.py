@@ -420,10 +420,11 @@ def calculate_lookahead_ev(
         quali_order = predictor.predict_qualifying_order()
         sprint_order = predictor.predict_sprint_order() if is_sprint else None
         
-        # Pass None as progress_callback for lookahead MC to keep it quiet and fast
+        # Pass None as progress_callback for lookahead MC to keep it quiet and fast.
+        # Future rounds do not inherit current-round grid penalties.
         mc_results = simulate_race_weekend(
             race_order, quali_order, circuit_cfg, weather, sims, is_sprint, sprint_order,
-            grid_penalties=getattr(predictor, "_grid_penalties", {})
+            grid_penalties={}
         )
         ev_pts = get_expected_value_pts(mc_results)
         

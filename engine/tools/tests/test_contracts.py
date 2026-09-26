@@ -462,6 +462,42 @@ class PlannedFixProbes(unittest.TestCase):
         finally:
             df._latest_completed_round_num = orig
 
+    def test_grid_penalty_resolution_handles_collisions_cleanly(self):
+        from engine.models.monte_carlo import _simulate_one_race
+        race_order = [{"driver": f"D{i}", "predicted_rank": i} for i in range(1, 21)]
+        quali_order = [{"driver": f"D{i}", "predicted_grid": i, "is_actual": False} for i in range(1, 21)]
+        # Assign huge penalties to several drivers so they all target grid >= 20
+        penalties = {"D1": 20, "D2": 20, "D3": 20}
+        rng = random.Random(42)
+        # Must execute without throwing ValueError: MC grid integrity failure
+        res = _simulate_one_race(
+            race_order=race_order,
+            quali_order=quali_order,
+            sc_prob=0.3,
+            vsc_prob=0.2,
+            rain_risk="none",
+            is_sprint=False,
+            sprint_order=None,
+            rng=rng,
+            grid_penalties=penalties,
+        )
+        self.assertEqual(len(res), 20)
+
+    def test_grid_penalties_guard_unpopulated_api_data(self):
+        from engine.core import data_fetcher as df
+        orig_q = df.get_qualifying_results
+        orig_r = df.get_race_results
+        try:
+            # Simulate unpopulated grid where all grid positions are 20
+            df.get_qualifying_results = lambda y, r: [{"name": f"D{i}", "position": i} for i in range(1, 21)]
+            df.get_race_results = lambda y, r: [{"name": f"D{i}", "grid": 20} for i in range(1, 21)]
+            penalties = df.get_grid_penalties(2026, 99)
+            # Must return empty dict rather than synthetic huge penalties
+            self.assertEqual(penalties, {})
+        finally:
+            df.get_qualifying_results = orig_q
+            df.get_race_results = orig_r
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

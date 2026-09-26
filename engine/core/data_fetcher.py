@@ -1134,6 +1134,12 @@ def get_grid_penalties(year: int, round_num: int) -> dict[str, int]:
     quali_pos = {r["name"]: r["position"] for r in quali}
     grid_pos  = {r["name"]: r["grid"] for r in race if r.get("grid", 0) > 0}
 
+    # Integrity guard: A valid starting grid must have diverse positions.
+    # If the API returned placeholder grids (e.g. all 20s or unpopulated),
+    # penalties are unknowable and cannot be calculated.
+    if len(set(grid_pos.values())) < max(12, int(len(grid_pos) * 0.6)):
+        return {}
+
     penalties = {}
     for name, q_pos in quali_pos.items():
         g_pos = grid_pos.get(name, q_pos)
