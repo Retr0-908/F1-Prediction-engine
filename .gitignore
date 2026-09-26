@@ -6,6 +6,8 @@ logs/*
 !logs/.gitkeep
 *.log
 .env
+.env.*
+!.env.example
 output/*.csv
 output/*.json
 output/*.txt
