@@ -57,3 +57,15 @@ class UISmokeTests(unittest.TestCase):
         r16 = next(r for r in races if r["round"] == 16)
         self.assertFalse(r16.get("is_completed"))
 
+    def test_ui_telemetry_tokens_and_canvas_css(self):
+        """Verify style.css includes new telemetry tokens and waveform canvas."""
+        res = self.client.get("/static/style.css")
+        self.assertEqual(res.status_code, 200)
+        css = res.text
+        self.assertIn("--telemetry-cyan", css)
+        self.assertIn("#telemetry-waveform-canvas", css)
+        self.assertNotIn("f1-drive", css)
+
+# Alias for compatibility with test runners targeting TestUISmoke
+TestUISmoke = UISmokeTests
+

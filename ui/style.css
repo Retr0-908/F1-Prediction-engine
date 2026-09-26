@@ -1,56 +1,60 @@
 :root {
-    --bg-dark: #09090B;
-    --bg-sidebar: rgba(18, 18, 20, 0.7);
-    --bg-card: #18181B;
-    --bg-card-hover: #27272A;
-    --text-primary: #FFFFFF;
-    --text-muted: #A1A1AA;
+    /* ── Official F1 & Cockpit Brand Accents ── */
+    --f1-red: #E10600;
+    --f1-red-hover: #FF1801;
     --accent-primary: #E10600;
-    --border-subtle: rgba(255,255,255,0.05);
-    --font-main: 'Inter', system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
-    --bg-dark: #030509;
-    --bg-panel: rgba(10, 16, 28, 0.88);
-    --bg-glass: rgba(12, 18, 32, 0.80);       /* Phase 6: true glass — semi-transparent */
-    --bg-glass-overlay: rgba(10, 16, 28, 0.68);
-    --border-dim: rgba(0, 240, 255, 0.18);
-    --glass-border: rgba(255, 255, 255, 0.09);
-    --glass-border-hover: rgba(0, 240, 255, 0.45);
+    --f1-carbon: #0E1017;
 
-    /* Telemetry Accents & High Contrast Colors */
-    --neon-cyan: #00F0FF;     /* 13.83:1 contrast on dark glass (PASS AAA) */
-    --neon-lime: #CCFF00;     /* 16.58:1 contrast on dark glass (PASS AAA) */
-    --f1-red: #00F0FF;
-    --f1-red-hover: #CCFF00;
-    --pit-red: #FF335C;       /* 4.86:1 contrast on dark cards (PASS AA) */
-    --color-red: #FF335C;
-    --color-green: #00F0FF;
-    --color-yellow: #CCFF00;
+    /* ── Canonical F1 Timing & Telemetry Semantic Accents ── */
+    --telemetry-purple: #B138DD;
+    --telemetry-green: #00D2BE;
+    --telemetry-amber: #FF9500;
+    --telemetry-danger: #FF3B30;
+    --telemetry-cyan: #00E5FF;
+    --color-green: #00D2BE;
+    --color-yellow: #FF9500;
+    --color-red: #FF3B30;
     --color-sprint: #FF8000;
-    --color-grey: #94A3B8;    /* Slate-400: 6.70:1 contrast (PASS AA) */
+    --color-grey: #94A3B8;
 
-    --text-main: #f8f8f8;
-    --text-primary: #f8f8f8;
-    --text-dim: #94A3B8;      /* Slate-400 */
-    --text-secondary: #94A3B8;
+    /* ── Cupertino Dark Obsidian Glass Materials ── */
+    --bg-dark: #07090E;
+    --bg-panel: rgba(12, 17, 29, 0.85);
+    --bg-card: rgba(16, 22, 38, 0.70);
+    --bg-card-hover: rgba(26, 35, 60, 0.85);
+    --bg-glass: rgba(12, 17, 29, 0.82);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-dim: rgba(0, 229, 255, 0.18);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-border-hover: rgba(0, 229, 255, 0.35);
+
+    /* ── Typography & Contrast ── */
+    --text-primary: #F8FAFC;
+    --text-main: #F8FAFC;
+    --text-dim: #94A3B8;
     --text-muted: #64748B;
-    --text-on-accent: #030509; /* Dark text for bright Lime/Cyan buttons */
-
-    /* Phase 5 TYPOGRAPHY — Inter as body, mono only for telemetry */
+    --text-on-accent: #FFFFFF;
     --font-heading: 'Space Grotesk', sans-serif;
     --font-body: 'Inter', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
-    /* Phase 5 RADIUS SCALE — Apple continuous-curve hierarchy */
-    --radius-xs:   6px;      /* badges, tiny chips */
-    --radius-sm:  10px;      /* buttons, inputs, price rows */
-    --radius-md:  14px;      /* cards, nav items, status rows */
-    --radius-lg:  20px;      /* panels, modals, hero card */
+    /* ── Apple Continuous Radius Scale ── */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
     --radius-pill: 9999px;
-    /* Legacy aliases kept for compatibility */
     --radius-panel: 14px;
     --radius-inner: 10px;
-    --radius-badge:  6px;
+    --radius-badge: 6px;
+
+    /* ── Legacy Aliases & Fallbacks ── */
+    --font-main: var(--font-body);
+    --neon-cyan: var(--telemetry-cyan);
+    --neon-lime: var(--telemetry-green);
+    --bg-sidebar: var(--bg-card);
+    --bg-glass-overlay: rgba(10, 16, 28, 0.68);
+    --text-secondary: #94A3B8;
 
     /* SPACING SCALE */
     --space-1: 4px;
@@ -1288,30 +1292,117 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     border: 0;
 }
 
-/* F1 SVG Loading Animation */
+/* ── F1 Pit Wall Telemetry Waveform Console ── */
 #analysis-animation-container {
     overflow: hidden;
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 0;
+    position: relative;
 }
 
-.f1-svg-loader {
-    width: 320px;
-    height: 96px;
+.telemetry-console-card {
+    width: 100%;
+    background: rgba(4, 7, 14, 0.75);
+    border: 1px solid var(--border-dim);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    position: relative;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+#telemetry-waveform-canvas {
+    width: 100%;
+    height: 110px;
+    display: block;
+    border-radius: var(--radius-sm);
+    background: rgba(6, 10, 18, 0.95);
+    border: 1px solid rgba(0, 229, 255, 0.15);
+}
+
+.telemetry-channel-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 10px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+.chan-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.chan-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.chan-speed { background: var(--telemetry-cyan); box-shadow: 0 0 6px var(--telemetry-cyan); }
+.chan-throttle { background: var(--telemetry-green); }
+.chan-gear { background: var(--telemetry-purple); }
+
+/* ── Monte Carlo Dynamic Iterations Arc ── */
+.monte-carlo-counter-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 12px;
+    padding: 8px 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+
+.monte-carlo-label {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+}
+
+.monte-carlo-val {
+    font-family: var(--font-mono);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--telemetry-cyan);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Segmented Ensemble Progress Bar ── */
+.ensemble-bar-wrap {
+    display: flex;
+    height: 10px;
+    width: 100%;
+    border-radius: var(--radius-pill);
     overflow: hidden;
-    max-width: 100%;
+    background: rgba(255, 255, 255, 0.08);
+    margin-top: 6px;
+    gap: 2px;
 }
 
-#f1-car-svg {
-    animation: f1-drive 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.ensemble-segment {
+    height: 100%;
+    transition: width 0.4s ease;
+}
+.ensemble-lgb { background: var(--telemetry-green); }
+.ensemble-xgb { background: var(--telemetry-purple); }
+.ensemble-rf  { background: var(--telemetry-amber); }
+
+.ensemble-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 4px;
 }
 
-@keyframes f1-drive {
-    0%   { transform: translateX(-100px); opacity: 0; }
-    8%   { opacity: 1; }
-    50%  { transform: translateX(60px); }
-    92%  { opacity: 1; }
-    100% { transform: translateX(220px); opacity: 0; }
-}
 
 /* --- Standings Tab Styling --- */
 .standings-list {
@@ -1394,55 +1485,8 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     50% { opacity: 0.4; letter-spacing: 4px; }
 }
 
-.speed-line {
-    animation: speed-lines-anim 0.8s linear infinite;
-}
-
-.sl-1 { animation-delay: 0s; }
-.sl-2 { animation-delay: 0.2s; }
-.sl-3 { animation-delay: 0.4s; }
-
-@keyframes speed-lines-anim {
-    0% { transform: translateX(120px); opacity: 0; }
-    30% { opacity: 0.7; }
-    70% { opacity: 0.7; }
-    100% { transform: translateX(-80px); opacity: 0; }
-}
-
-.engine-running #f1-car-svg {
-}
-
-.engine-running .speed-line {
-    animation-duration: 0.4s; /* faster speed lines when engine runs */
-    stroke: rgba(232, 0, 45, 0.4);
-}
-
-/* --- SVG Tire Spin & Exhaust Animation --- */
-@keyframes spin-tire {
-    from { stroke-dashoffset: 24; }
-    to { stroke-dashoffset: 0; }
-}
-.spinning-tire {
-    animation: spin-tire 0.6s linear infinite;
-    transform-origin: center;
-}
-.engine-running .spinning-tire {
-    animation-duration: 0.2s;
-}
-
-@keyframes exhaust-flicker {
-    0%, 100% { opacity: 0.6; transform: scaleX(0.85); }
-    50% { opacity: 1; transform: scaleX(1.25); }
-}
-#exhaust-glow {
-    animation: exhaust-flicker 0.12s ease-in-out infinite;
-    transform-origin: -4px 38px;
-}
-.engine-running #exhaust-glow {
-    animation-duration: 0.06s;
-}
-
 /* --- Split Layout for Running Pipeline --- */
+
 #analysis-screen {
     overflow: hidden;
 }
@@ -2292,7 +2336,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
         transform: none !important;
     }
 
-    .particle-field, .spinner, .spinning-tire {
+    .particle-field, .spinner {
         animation: none !important;
     }
 }
