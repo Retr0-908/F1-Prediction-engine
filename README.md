@@ -51,14 +51,14 @@ This entire project was conceived, architected, implemented, and refactored **10
 - **Anthropic Claude**: Guided nuanced mathematical formulation — including regulation-era Glicko-2 dynamics, LambdaMART pairwise ranking, integer linear programming via PuLP, and EWMA self-improvement loops.
 - **Zhipu GLM**: Contributed to rapid algorithmic iteration, telemetry feature exploration, and modular utility scripts.
 
-### 🛡️ "Vibe Coding" With Engineering Rigor: Verification First
-"Vibe coding" has a reputation for producing fragile, hallucinated code when left unchecked. To prevent that, every single model output was held to strict engineering standards:
+### 🛡️ "Vibe Coding" With Zero Compromise on Quality
+"Vibe coding" often carries a stereotype of producing fragile, unverified scripts. For this project, **being AI-assisted did not mean cutting corners or compromising on quality** — in fact, it demanded even stricter engineering discipline:
 
-- **Collaborative Human-AI Testing**: Every architectural layer went through intense adversarial review and verification loops. If a model proposed a change, it had to prove itself with reproducible evidence.
-- **Automated Contract Suite (45/45 Green)**: We built and maintained regression tests covering data-ingestion bounds, driver identity drift, fantasy points contracts, and UI asset serving.
+- **Collaborative Human-AI Testing**: Every architectural layer went through intense adversarial review and verification loops. If an AI model proposed a change, it had to prove itself with reproducible evidence, rigorous math, and robust error handling.
+- **Automated Contract Suite (45/45 Green)**: We engineered and maintained regression tests covering data-ingestion bounds, driver identity drift, fantasy points contracts, and UI asset serving.
 - **Multi-Season Backtesting**: Every ranking ensemble was benchmarked against historical races (2022–2025) using time-series cross-validation to guarantee zero future data leakage.
 
-This repository is living proof of the modern paradigm of software engineering: a solo engineering student directing frontier AI models to build a production-grade, highly specialized predictive system.
+This repository is living proof of the modern paradigm of software engineering: a solo engineering student directing frontier AI models to build a production-grade, highly specialized predictive system without sacrificing an ounce of code quality or scientific rigor.
 
 ---
 
