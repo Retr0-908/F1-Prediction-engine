@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest an idea, algorithm enhancement, or new feature for the prediction engine.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature! Please provide details about the proposal and its potential impact on prediction accuracy or user experience.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Motivation
+      description: Is your feature request related to a problem or limitation? A clear and concise description of what the issue is.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: A clear and concise description of what you want to happen.
+      placeholder: Describe the new feature, algorithm, or improvement...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: A clear and concise description of any alternative solutions or features you've considered.
+      placeholder: Alternative approaches...
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context / F1 References
+      description: Add any other context, formulas, papers, or links about the feature request here.
+      placeholder: Links to telemetry resources, academic papers, F1 Fantasy scoring updates, etc.
+    validations:
+      required: false

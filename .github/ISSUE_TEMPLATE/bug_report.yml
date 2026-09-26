@@ -1,0 +1,78 @@
+name: Bug Report
+description: Report a bug, incorrect calculation, or unexpected behavior in the prediction engine.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please provide as much detail as possible to help us reproduce and resolve the problem.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which part of the project is experiencing the issue?
+      options:
+        - "ML Models & Predictions (engine/models)"
+        - "Lineup Optimizer & Strategy (engine/strategy)"
+        - "Data Fetching & APIs (engine/core)"
+        - "FastAPI Server & Web UI (engine/serving, ui)"
+        - "Terminal CLI (engine/cli)"
+        - "Track Features Database (track_features)"
+        - "Backtester & Post-Race Validation (engine/analysis)"
+        - "Other / Unsure"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the problem...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to reproduce the issue.
+      placeholder: |
+        1. Run '...'
+        2. Set round to '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+      placeholder: What should have happened instead...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs or Error Output
+      description: Please copy and paste any terminal output or stack traces.
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Info
+      description: Operating system, Python version, dependencies, etc.
+      placeholder: |
+        - OS: [e.g. Windows 11, Ubuntu 22.04, macOS Sonoma]
+        - Python Version: [e.g. 3.11.8]
+        - Commit / Release: [e.g. main branch, commit abc1234]
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate.
+          required: true
+        - label: I have verified that all dependencies in `requirements.txt` are installed.
+          required: false
