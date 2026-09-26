@@ -78,7 +78,7 @@ UI_DIR = PROJECT_ROOT / "ui"
 UI_DIR.mkdir(exist_ok=True)
 
 # Mount the UI directory as static files
-app.mount("/static", StaticFiles(directory="ui"), name="static")
+app.mount("/static", StaticFiles(directory=str(UI_DIR)), name="static")
 
 @app.get("/")
 def read_index():
@@ -628,6 +628,7 @@ def get_system_health():
     cache_count = len(list(CACHE_DIR.glob("jolpica_*.json")))
     
     return {
+        "status": "ok",
         "engine": "Bayesian (MCMC)" if has_compiler else "Iterative (Fallback)",
         "compiler": "Detected" if has_compiler else "Missing (Slow Mode)",
         "cache_size": f"{cache_count} sessions",
