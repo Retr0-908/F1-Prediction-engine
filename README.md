@@ -191,6 +191,56 @@ Open your browser at **`http://localhost:8000`** to access the strategy dashboar
 
 ---
 
+## 🔑 Configuration & API Keys (How to Get Them)
+
+### ⚡ Out-of-the-Box: Zero API Keys Required!
+The engine works **100% out of the box without requiring any API keys**. All core telemetry, historical results, and circuit forecasts are retrieved from free, open community APIs:
+- **FastF1 Telemetry**: Directly accessible with zero authentication.
+- **Jolpica / Ergast API**: Open motorsport classification database.
+- **OpenF1**: Open-access timing and telemetry stream.
+- **Open-Meteo**: Free weather forecasts with no API key or sign-up needed.
+
+You can clone the repository, install dependencies, and run full predictions immediately without registering anywhere.
+
+---
+
+### 🍪 (Optional) F1 Fantasy Session Cookie (`F1_FANTASY_COOKIE`)
+*Used to automatically sync your live F1 Fantasy team, remaining bank budget, and chip status from the official website into the optimizer.*
+
+> [!TIP]
+> If you omit this, the app still works completely! You can simply enter your team and budget into the web interface manually.
+
+If you want automatic one-click syncing with your official fantasy account:
+1. Log in to **[fantasy.formula1.com](https://fantasy.formula1.com/)** in your browser (Chrome, Edge, Brave, or Firefox).
+2. Open Developer Tools by pressing **`F12`** (or right-click anywhere and click **Inspect**).
+3. Switch to the **Application** tab (in Firefox, this is the **Storage** tab).
+4. In the left sidebar, expand **Cookies** &rarr; select **`https://fantasy.formula1.com`**.
+5. Locate the **`login-session`** cookie (or copy the entire `Cookie` string from any Network request header).
+6. Create your local `.env` file by copying the template:
+   ```bash
+   cp .env.example .env
+   ```
+7. Open `.env` and paste your cookie string:
+   ```env
+   F1_FANTASY_COOKIE=login-session="your_cookie_here"
+   ```
+   *(Alternatively, run `python main.py --set-cookie` in the terminal to set it interactively).*
+
+---
+
+### ☀️ (Optional) OpenWeatherMap API Key (`OPENWEATHERMAP_API_KEY`)
+*The engine uses **Open-Meteo** by default (free, no key needed). If you prefer to use OpenWeatherMap as a supplemental source:*
+
+1. Visit [OpenWeatherMap Sign Up](https://home.openweathermap.org/users/sign_up) and create a free account.
+2. Go to your **API Keys** dashboard tab: [home.openweathermap.org/api_keys](https://home.openweathermap.org/api_keys).
+3. Copy your default 32-character API key.
+4. Add it to your `.env` file:
+   ```env
+   OPENWEATHERMAP_API_KEY=your_32_character_api_key_here
+   ```
+
+---
+
 ## 🧪 Testing & Verification
 
 Comprehensive test suites and validation utilities ensure high reliability:
