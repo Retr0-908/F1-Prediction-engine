@@ -1,10 +1,17 @@
 import unittest
-from fastapi.testclient import TestClient
+
+try:
+    from fastapi.testclient import TestClient
+except (ImportError, RuntimeError):
+    TestClient = None
+
 from engine.serving.server import app
 
 class UISmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if TestClient is None:
+            raise unittest.SkipTest("fastapi TestClient requires httpx/httpx2")
         cls.client = TestClient(app)
 
     def test_root_index_html(self):
