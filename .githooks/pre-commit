@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# Zero-Tolerance Pre-Commit Secret and PII Hook
+
+echo "[HOOK] Running nuclear secret & PII scanner..."
+python engine/tools/secret_scanner.py
+STATUS=$?
+
+if [ $STATUS -ne 0 ]; then
+    echo ""
+    echo "=========================================================="
+    echo "  [ABORT] COMMIT BLOCKED BY PRE-COMMIT NUCLEAR SCANNER!"
+    echo "  Secrets, credentials, or personal PII detected."
+    echo "=========================================================="
+    exit 1
+fi
+
+exit 0

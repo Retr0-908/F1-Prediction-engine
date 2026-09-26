@@ -11,18 +11,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Run Nuclear Secret & PII Scanner
+        run: |
+          python engine/tools/secret_scanner.py
+
       - name: Run Contract Tests
         run: |
           python -m unittest engine.tools.tests.test_contracts
+
       - name: Run UI Smoke Tests
         run: |
           python -m unittest engine.tools.tests.test_ui_smoke

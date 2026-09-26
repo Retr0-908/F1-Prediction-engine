@@ -498,6 +498,15 @@ class PlannedFixProbes(unittest.TestCase):
             df.get_qualifying_results = orig_q
             df.get_race_results = orig_r
 
+    def test_nuclear_secret_and_pii_scanner_clean(self):
+        from engine.tools.secret_scanner import scan_working_tree, scan_git_history
+        # Scan tracked tree
+        tree_violations = scan_working_tree()
+        self.assertEqual(tree_violations, [], f"Secret/PII violations in working tree: {tree_violations}")
+        # Scan git history
+        hist_violations = scan_git_history("HEAD")
+        self.assertEqual(hist_violations, [], f"Secret/PII violations in git history: {hist_violations}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
