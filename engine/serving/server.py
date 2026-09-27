@@ -218,6 +218,41 @@ async def save_team(request: Request):
         json.dump(data, f)
     return {"status": "ok"}
 
+
+@app.get("/api/f1-sync/teams")
+async def get_f1_teams(cookie: Optional[str] = None):
+    """Fetch all user teams from F1 Fantasy via session cookie."""
+    from engine.core.fantasy_sync import fetch_user_teams, F1FantasySyncError
+    try:
+        teams = fetch_user_teams(cookie=cookie)
+        return {"status": "ok", "teams": teams}
+    except F1FantasySyncError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        logger.error(f"Unexpected error syncing F1 Fantasy teams: {e}", exc_info=True)
+        return {"status": "error", "message": f"Unexpected error: {str(e)}"}
+
+
+@app.post("/api/f1-sync/import")
+async def import_f1_team(request: Request):
+    """Import a specific team (1, 2, or 3) from F1 Fantasy into local team state."""
+    from engine.core.fantasy_sync import import_user_team, F1FantasySyncError
+    try:
+        data = await request.json()
+        team_no = int(data.get("team_no", 1))
+        cookie = data.get("cookie")
+        imported = import_user_team(team_no=team_no, cookie=cookie)
+        return {
+            "status": "ok",
+            "imported": imported,
+            "message": f"Successfully imported Team #{team_no} ({imported.get('team_name', '')})"
+        }
+    except F1FantasySyncError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        logger.error(f"Failed to import team: {e}", exc_info=True)
+        return {"status": "error", "message": f"Import failed: {str(e)}"}
+
 @app.get("/api/chips")
 def get_chips():
     from engine.strategy.chip_advisor import load_chip_state

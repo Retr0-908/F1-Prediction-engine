@@ -101,6 +101,34 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn(".table-responsive-container", css)
         self.assertIn(".card-title", css)
 
+    def test_f1_sync_ui_elements(self):
+        """Verify index.html and app.js include F1 sync button and modal handlers."""
+        res_html = self.client.get("/")
+        self.assertEqual(res_html.status_code, 200)
+        self.assertIn("btn-sync-f1", res_html.text)
+        self.assertIn("f1-sync-modal", res_html.text)
+
+        res_js = self.client.get("/static/app.js")
+        self.assertEqual(res_js.status_code, 200)
+        self.assertIn("openF1SyncModal", res_js.text)
+        self.assertIn("importF1Team", res_js.text)
+
+    def test_f1_sync_api_endpoints(self):
+        """Verify /api/f1-sync/teams and /api/f1-sync/import endpoints function properly."""
+        res_teams = self.client.get("/api/f1-sync/teams")
+        self.assertEqual(res_teams.status_code, 200)
+        data = res_teams.json()
+        self.assertEqual(data.get("status"), "ok")
+        teams = data.get("teams", [])
+        self.assertGreaterEqual(len(teams), 1)
+
+        # Test importing Team 1
+        res_import = self.client.post("/api/f1-sync/import", json={"team_no": 1})
+        self.assertEqual(res_import.status_code, 200)
+        import_data = res_import.json()
+        self.assertEqual(import_data.get("status"), "ok")
+        self.assertIn("Bobby_Racing", import_data.get("imported", {}).get("team_name", ""))
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 

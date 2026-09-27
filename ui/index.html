@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="F1 Fantasy Predictor — AI-powered race predictions, chip strategy, and dream team optimization for Formula 1 Fantasy.">
     <title>F1 Fantasy Predictor</title>
-    <link rel="stylesheet" href="/static/style.css?v=7">
+    <link rel="stylesheet" href="/static/style.css?v=9">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Phase 5: Inter with full optical-size range, Space Grotesk, JetBrains Mono for telemetry -->
@@ -187,6 +187,7 @@
                 <label title="Spare cash left in your F1 Fantasy account after buying your current team">Budget Left ($M): <input type="number" id="team-budget" value="100.0" step="0.1" class="input-field"></label>
                 <label>Points: <input type="number" id="team-points" value="0.0" step="1" class="input-field"></label>
                 <label>Transfers: <input type="number" id="team-transfers" value="1" min="0" max="10" class="input-field"></label>
+                <button class="btn btn-secondary" id="btn-sync-f1" onclick="openF1SyncModal()" title="Sync live team from your official F1 Fantasy account">⚡ Sync from F1 Fantasy</button>
                 <button class="btn btn-primary" onclick="saveTeam()">Save Team</button>
             </div>
         </div>
@@ -752,8 +753,46 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=7"></script>
     </main>
     </div>
+
+    <!-- F1 Fantasy Multi-Team Sync Modal (direct child of body for topmost viewport overlay) -->
+    <div id="f1-sync-modal" class="f1-sync-overlay" style="display:none;" onclick="if(event.target===this)closeF1SyncModal()">
+        <div class="f1-sync-dialog">
+            <div class="f1-sync-modal-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:1.3rem;">⚡</span>
+                    <div>
+                        <h3 style="margin:0; font-family:var(--font-heading); font-size:1.15rem; letter-spacing:0.5px; color:#fff;">CHOOSE TEAM TO IMPORT</h3>
+                        <p class="dim-text" style="margin:2px 0 0 0; font-size:0.75rem;">Official F1 Fantasy Account • 3 Teams Available</p>
+                    </div>
+                </div>
+                <button class="f1-sync-close-btn" onclick="closeF1SyncModal()">&times;</button>
+            </div>
+            <div class="f1-sync-modal-body">
+                <div id="f1-sync-loading" style="text-align:center; padding:36px 16px;">
+                    <div class="f1-sync-spinner"></div>
+                    <p style="margin-top:16px; color:var(--text-main); font-weight:600;">Connecting to F1 Fantasy...</p>
+                    <p class="dim-text" style="font-size:0.85rem;">Authenticating via your session cookie &amp; fetching team lineups</p>
+                </div>
+                <div id="f1-sync-error" style="display:none; padding:16px; background:rgba(232, 0, 45, 0.12); border:1px solid rgba(232, 0, 45, 0.35); border-radius:8px; margin-bottom:16px;">
+                    <div style="font-weight:700; color:#ff4d6a; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                        <span>⚠️</span> Sync Failed
+                    </div>
+                    <div id="f1-sync-error-msg" style="font-size:0.88rem; color:var(--text-main); line-height:1.4;"></div>
+                </div>
+                <div id="f1-sync-content" style="display:none;">
+                    <p class="dim-text" style="margin-bottom:14px; font-size:0.85rem;">
+                        Select which of your official F1 Fantasy teams you would like to load into the engine:
+                    </p>
+                    <div id="f1-sync-teams-cards" class="f1-sync-teams-grid">
+                        <!-- Dynamically populated team cards -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=9"></script>
 </body>
 </html>

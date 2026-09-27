@@ -87,7 +87,7 @@ from engine.strategy.price_tracker import (
 )
 
 console = Console()
-from engine.core.paths import OUTPUT_DIR, LOGS_DIR, LOG_FILE
+from engine.core.paths import OUTPUT_DIR, LOGS_DIR, LOG_FILE, PROJECT_ROOT, MY_TEAM_PATH
 OUTPUT_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 
@@ -166,6 +166,23 @@ def parse_args():
         help="League mode: compare your team vs template and maximise rank gain",
     )
     p.add_argument("--reset-chips", action="store_true", help="Reset chip state to all-unused (new season)")
+    p.add_argument(
+        "--sync-team",
+        action="store_true",
+        help="Sync and import team directly from F1 Fantasy via your session cookie",
+    )
+    p.add_argument(
+        "--team",
+        type=int,
+        choices=[1, 2, 3],
+        default=None,
+        help="Team number to sync/import (1, 2, or 3). If omitted, displays interactive picker",
+    )
+    p.add_argument(
+        "--set-cookie",
+        action="store_true",
+        help="Interactively prompt to set or update F1_FANTASY_COOKIE in .env",
+    )
     p.add_argument(
         "--prices-file",
         type=str,
@@ -1032,6 +1049,108 @@ def main():
             console.print("[yellow]No saved reports found.[/yellow]")
         return
 
+    if getattr(args, "set_cookie", False):
+        console.print(Panel(
+            "[bold cyan]Set F1 Fantasy Session Cookie[/bold cyan]\n"
+            "1. Log in to https://fantasy.formula1.com in your browser.\n"
+            "2. Open DevTools (F12) -> Application -> Cookies -> fantasy.formula1.com.\n"
+            "3. Copy the 'login-session' value (or full cookie string) and paste below.",
+            border_style="cyan"
+        ))
+        cookie_input = Prompt.ask("Paste cookie string").strip()
+        if not cookie_input:
+            console.print("[red]No cookie entered. Aborted.[/red]")
+            return
+
+        try:
+            from engine.core.fantasy_sync import fetch_user_teams
+            console.print("[dim]Verifying cookie with F1 Fantasy...[/dim]")
+            teams = fetch_user_teams(cookie=cookie_input)
+            console.print(f"[green][OK] Authentication verified! Found {len(teams)} teams.[/green]")
+        except Exception as e:
+            console.print(f"[red]Authentication test warning: {e}[/red]")
+            proceed = Prompt.ask("Save anyway?", choices=["y", "n"], default="n")
+            if proceed != "y":
+                return
+
+        env_file = PROJECT_ROOT / ".env"
+        env_var_key = "F1_FANTASY_COOKIE"
+        lines = []
+        cookie_written = False
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                if line.startswith(f"{env_var_key}="):
+                    lines.append(f'{env_var_key}="{cookie_input}"')
+                    cookie_written = True
+                else:
+                    lines.append(line)
+        if not cookie_written:
+            lines.append(f'{env_var_key}="{cookie_input}"')
+        env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        console.print(f"[green][OK] {env_var_key} saved to {env_file.name}[/green]")
+        return
+
+    if getattr(args, "sync_team", False):
+        from engine.core.fantasy_sync import fetch_user_teams, import_user_team, F1FantasySyncError
+        console.print(Panel(
+            "[bold red][ F1 FANTASY LIVE TEAM SYNC ][/bold red]\n"
+            "Connecting to official F1 Fantasy servers via your session cookie...",
+            border_style="red"
+        ))
+        try:
+            teams = fetch_user_teams()
+        except F1FantasySyncError as e:
+            console.print(f"[bold red]Sync Error:[/bold red] {e}")
+            return
+
+        target_team_no = getattr(args, "team", None)
+        if not target_team_no:
+            table = Table(title="Your F1 Fantasy Teams", border_style="cyan")
+            table.add_column("Team #", style="bold yellow", justify="center")
+            table.add_column("Team Name", style="bold white")
+            table.add_column("Points", justify="right", style="green")
+            table.add_column("Bank ($M)", justify="right", style="cyan")
+            table.add_column("Transfers", justify="center")
+            table.add_column("Drivers & Constructors", style="dim")
+
+            for t in teams:
+                lineup_summary = ", ".join(t["drivers"][:3]) + "... + " + ", ".join(t["constructors"])
+                table.add_row(
+                    str(t["team_no"]),
+                    t["team_name"],
+                    f"{t['current_points']:,.1f}",
+                    f"${t['budget_remaining']:.1f}M",
+                    str(t["transfers"]),
+                    lineup_summary
+                )
+            console.print(table)
+
+            valid_choices = [str(t["team_no"]) for t in teams]
+            chosen = Prompt.ask(
+                "Select team to import [1, 2, or 3]",
+                choices=valid_choices,
+                default=valid_choices[0] if valid_choices else "1"
+            )
+            target_team_no = int(chosen)
+
+        try:
+            imported = import_user_team(team_no=target_team_no)
+            console.print(Panel(
+                f"[bold green][OK] Successfully imported Team #{target_team_no}: {imported.get('team_name')}[/bold green]\n\n"
+                f"  Budget Remaining:  [bold cyan]${imported['budget_remaining']}M[/bold cyan]\n"
+                f"  Current Points:    [bold yellow]{imported['current_points']}[/bold yellow]\n"
+                f"  Free Transfers:    [bold white]{imported['transfers']}[/bold white]\n"
+                f"  Drivers:           {', '.join(imported['drivers'])}\n"
+                f"  Constructors:      {', '.join(imported['constructors'])}\n"
+                f"  Turbo Driver (2x): {imported.get('turbo_driver') or 'None'}\n\n"
+                f"[dim]Saved to {MY_TEAM_PATH}[/dim]",
+                title="F1 Fantasy Sync Complete",
+                border_style="green"
+            ))
+        except Exception as e:
+            console.print(f"[bold red]Failed to import team #{target_team_no}:[/bold red] {e}")
+        return
+
     # ══════════════════════════════════════════════════════════
     # HEADER
     # ══════════════════════════════════════════════════════════
@@ -1335,7 +1454,6 @@ def main():
 
     # Shared with the web server via config.MY_TEAM_PATH — team edits in either
     # mode are visible in the other.
-    from engine.core.config import MY_TEAM_PATH
     team_cache_file = Path(MY_TEAM_PATH)
     auto_team = None
     if team_cache_file.exists():

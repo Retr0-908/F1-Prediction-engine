@@ -630,5 +630,9 @@ def fuzzy_match_driver(input_name: str, price_data: dict) -> Optional[str]:
     return None
 
 
-# Removed cookie auth my_team fetches
-
+# Authenticated user team sync (SportzInteractive API)
+from engine.core.fantasy_sync import (
+    fetch_user_teams,
+    import_user_team,
+    F1FantasySyncError,
+)

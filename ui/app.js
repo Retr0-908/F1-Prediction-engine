@@ -13,7 +13,18 @@ document.addEventListener('DOMContentLoaded', () => {
     initApp();
     setupNavigation();
     setupTabs();
+    setupF1SyncButton();
 });
+
+function setupF1SyncButton() {
+    const btn = document.getElementById('btn-sync-f1');
+    if (btn) {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openF1SyncModal();
+        });
+    }
+}
 
 // Boot welcome sequence — runs only before server responds.
 // Stops automatically when waitForServer() calls setLaunchStatus().
@@ -555,6 +566,139 @@ async function saveTeam() {
     updateStatusRow('status-team', 'green', `${currentTeam.drivers.length} drivers selected`);
     showToast('Team saved successfully!', 'success');
 }
+
+// ---- F1 FANTASY LIVE SYNC ----
+async function openF1SyncModal() {
+    const modal = document.getElementById('f1-sync-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+
+    const loadingEl = document.getElementById('f1-sync-loading');
+    const errorEl = document.getElementById('f1-sync-error');
+    const contentEl = document.getElementById('f1-sync-content');
+    const cardsEl = document.getElementById('f1-sync-teams-cards');
+
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    contentEl.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/f1-sync/teams');
+        const data = await res.json();
+
+        loadingEl.style.display = 'none';
+
+        if (data.status !== 'ok' || !data.teams || data.teams.length === 0) {
+            errorEl.style.display = 'block';
+            document.getElementById('f1-sync-error-msg').innerText = data.message || 'No teams could be retrieved. Please check your F1_FANTASY_COOKIE in .env.';
+            return;
+        }
+
+        contentEl.style.display = 'block';
+        cardsEl.innerHTML = '';
+
+        data.teams.forEach(t => {
+            const card = document.createElement('div');
+            card.className = 'f1-team-card';
+
+            const driverItemsHtml = (t.drivers || []).map(d => {
+                const isTurbo = t.turbo_driver === d;
+                return `
+                    <div class="f1-team-lineup-item">
+                        <span>${d}${isTurbo ? ' <span class="f1-team-turbo-tag">2x TURBO</span>' : ''}</span>
+                    </div>
+                `;
+            }).join('');
+
+            const ctorItemsHtml = (t.constructors || []).map(c => `
+                <div class="f1-team-lineup-item" style="color:var(--telemetry-cyan);">
+                    <span>🏎️ ${c}</span>
+                </div>
+            `).join('');
+
+            card.innerHTML = `
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span class="f1-team-badge">Team ${t.team_no}</span>
+                        <span style="font-size:0.75rem; color:var(--text-dim);">${t.transfers} free transfer${t.transfers !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="f1-team-title" title="${t.team_name}">${t.team_name}</div>
+                    <div class="f1-team-meta-row">
+                        <div>Pts: <span class="f1-team-meta-val">${t.current_points}</span></div>
+                        <div>Bank: <span class="f1-team-meta-val" style="color:#00ff41;">$${t.budget_remaining}M</span></div>
+                    </div>
+                    <div class="f1-team-lineup-box">
+                        <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Drivers &amp; Constructors</div>
+                        ${driverItemsHtml}
+                        ${ctorItemsHtml}
+                    </div>
+                </div>
+                <button class="f1-team-import-btn" id="btn-import-team-${t.team_no}" onclick="importF1Team(${t.team_no})">
+                    ⚡ Load Team ${t.team_no}
+                </button>
+            `;
+            cardsEl.appendChild(card);
+        });
+
+    } catch (err) {
+        loadingEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        document.getElementById('f1-sync-error-msg').innerText = 'Network error contacting backend: ' + err.message;
+    }
+}
+
+function closeF1SyncModal() {
+    const modal = document.getElementById('f1-sync-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function importF1Team(teamNo) {
+    const btn = document.getElementById(`btn-import-team-${teamNo}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Importing...';
+    }
+
+    try {
+        const res = await fetch('/api/f1-sync/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ team_no: teamNo })
+        });
+        const data = await res.json();
+
+        if (data.status === 'ok' && data.imported) {
+            currentTeam = data.imported;
+            currentTeam.transfers = currentTeam.transfers || 1;
+
+            document.getElementById('team-budget').value = currentTeam.budget_remaining || 0.0;
+            document.getElementById('team-points').value = currentTeam.current_points || 0.0;
+            document.getElementById('team-transfers').value = currentTeam.transfers;
+
+            renderTeamPickers();
+            updateStatusRow('status-team', 'green', `Team ${teamNo}: ${currentTeam.team_name}`);
+            closeF1SyncModal();
+            showToast(`Team ${teamNo} (${currentTeam.team_name}) imported successfully!`, 'success');
+        } else {
+            showToast('Import error: ' + (data.message || 'Unknown error'), 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = `⚡ Load Team ${teamNo}`;
+            }
+        }
+    } catch (err) {
+        showToast('Failed to import team: ' + err.message, 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = `⚡ Load Team ${teamNo}`;
+        }
+    }
+}
+
+// Ensure global accessibility for inline HTML onclick handlers
+window.openF1SyncModal = openF1SyncModal;
+window.closeF1SyncModal = closeF1SyncModal;
+window.importF1Team = importF1Team;
 
 // ---- PRICES (SCREEN 4) ----
 function renderPriceLists() {
