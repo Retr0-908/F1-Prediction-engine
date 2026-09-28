@@ -292,8 +292,8 @@
 
   /* ─── PHASE 8: NAV ACTIVE INDICATOR SPRING ─────────────────────── */
   /**
-   * Animate the active underline indicator sliding between nav buttons.
-   * Creates a floating indicator <span> that springs to the active button.
+   * Animate the active vertical accent pill indicator sliding between nav buttons.
+   * Creates a floating indicator <span> that springs vertically to the active button.
    */
   function initNavIndicator() {
     const navLinks = document.querySelector('.nav-links');
@@ -303,43 +303,86 @@
     indicator.id = 'nav-spring-indicator';
     indicator.style.cssText = `
       position: absolute;
-      bottom: 0;
-      height: 2px;
+      top: 0;
+      left: 0;
+      width: 3px;
       background: var(--neon-cyan);
-      border-radius: 2px 2px 0 0;
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
       pointer-events: none;
-      box-shadow: 0 0 8px rgba(0,240,255,0.5);
       transition: none;
     `;
     navLinks.style.position = 'relative';
     navLinks.appendChild(indicator);
 
     function moveIndicator(btn) {
-      if (!btn) { gsap.set(indicator, { scaleX: 0, opacity: 0 }); return; }
-      const navRect  = navLinks.getBoundingClientRect();
-      const btnRect  = btn.getBoundingClientRect();
-      const left = btnRect.left - navRect.left;
-      const width = btnRect.width;
+      if (!btn) {
+        if (reducedMotion()) {
+          gsap.set(indicator, { opacity: 0, scaleY: 0 });
+        } else {
+          gsap.to(indicator, { opacity: 0, scaleY: 0, duration: 0.2, overwrite: 'auto' });
+        }
+        return;
+      }
+
+      if (window.innerWidth <= 767 && window.getComputedStyle(navLinks).flexDirection !== 'column') {
+        gsap.set(indicator, { opacity: 0, scaleY: 0 });
+        return;
+      }
+
+      const navRect = navLinks.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      const top = btnRect.top - navRect.top;
+      const height = btnRect.height;
+
+      if (height === 0) {
+        gsap.set(indicator, { opacity: 0, scaleY: 0 });
+        return;
+      }
 
       if (reducedMotion()) {
-        gsap.set(indicator, { x: left, width, opacity: 1, scaleX: 1 });
+        gsap.set(indicator, { y: top, height: height, opacity: 1, scaleY: 1 });
       } else {
-        gsap.to(indicator, { x: left, width, opacity: 1, scaleX: 1,
-          duration: 0.3, ease: 'power2.inOut', overwrite: 'auto' });
+        gsap.to(indicator, {
+          y: top,
+          height: height,
+          opacity: 1,
+          scaleY: 1,
+          duration: 0.3,
+          ease: 'power2.inOut',
+          overwrite: 'auto'
+        });
       }
     }
 
     // Position on first active button
     const initialActive = navLinks.querySelector('.nav-btn.active');
     if (initialActive) {
-      gsap.set(indicator, { scaleX: 0, opacity: 0 });
+      gsap.set(indicator, { scaleY: 0, opacity: 0 });
       setTimeout(() => moveIndicator(initialActive), 200);
+    } else {
+      gsap.set(indicator, { scaleY: 0, opacity: 0 });
     }
 
     // Move on nav click
     navLinks.addEventListener('click', e => {
       const btn = e.target.closest('.nav-btn');
       if (btn) moveIndicator(btn);
+    });
+
+    // React to programmatic active state changes
+    if (typeof MutationObserver !== 'undefined') {
+      const observer = new MutationObserver(() => {
+        const active = navLinks.querySelector('.nav-btn.active');
+        if (active) moveIndicator(active);
+      });
+      observer.observe(navLinks, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
+
+    // Adapt on resize
+    window.addEventListener('resize', () => {
+      const active = navLinks.querySelector('.nav-btn.active');
+      if (active) moveIndicator(active);
     });
   }
 

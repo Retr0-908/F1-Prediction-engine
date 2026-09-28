@@ -168,6 +168,17 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("Next<br>Race", js)
         self.assertIn("✓", js)
 
+    def test_nav_indicator_orientation(self):
+        """Verify navigation indicator uses vertical accent styling without rogue bottom underline."""
+        res = self.client.get("/static/apple-springs.js")
+        self.assertEqual(res.status_code, 200)
+        js = res.text
+        self.assertIn("nav-spring-indicator", js)
+        self.assertNotIn("bottom: 0;", js)
+        self.assertNotIn("height: 2px;", js)
+        self.assertIn("left: 0;", js)
+        self.assertIn("width: 3px;", js)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 
