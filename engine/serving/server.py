@@ -409,6 +409,24 @@ def compare_prediction(filename: str):
     return {"status": "error", "message": "Failed to validate or results not available yet."}
 
 
+@app.get("/api/analysis/stage-comparison/{round_num}")
+def get_stage_comparison_api(round_num: int, season: int = None):
+    from engine.analysis.stage_comparator import get_stage_comparison
+    from engine.core.config import CURRENT_SEASON
+    target_season = season if season else CURRENT_SEASON
+    return get_stage_comparison(round_num, target_season)
+
+
+@app.get("/api/analysis/available-rounds")
+def get_available_rounds_api():
+    from engine.core.data_fetcher import get_season_schedule, race_has_happened
+    from engine.core.config import CURRENT_SEASON
+    sched = get_season_schedule(CURRENT_SEASON)
+    completed = [r for r in sched if race_has_happened(r, CURRENT_SEASON)]
+    return {"status": "ok", "rounds": completed}
+
+
+
 @app.post("/api/memory/reset")
 def reset_memory():
     """Wipe user-specific state (team, chips, price/ownership history).

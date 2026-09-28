@@ -179,6 +179,23 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("left: 0;", js)
         self.assertIn("width: 3px;", js)
 
+    def test_stage_comparison_api(self):
+        """Verify /api/analysis/stage-comparison endpoint structure and calculation."""
+        res = self.client.get("/api/analysis/stage-comparison/15")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data.get("status"), "ok")
+        self.assertIn("matrix", data)
+        self.assertIn("metrics", data)
+        self.assertIn("round", data)
+
+        # Also check available-rounds endpoint
+        res_rounds = self.client.get("/api/analysis/available-rounds")
+        self.assertEqual(res_rounds.status_code, 200)
+        data_rounds = res_rounds.json()
+        self.assertEqual(data_rounds.get("status"), "ok")
+        self.assertIn("rounds", data_rounds)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 
