@@ -113,8 +113,7 @@
     'team-screen',
     'prices-screen',
     'standings-screen',
-    'past-archive-screen',
-    'pred-analysis-screen',
+    'archive-analytics-screen',
     'settings-screen',
     'analysis-screen',
     'results-screen'
@@ -176,29 +175,47 @@
 
   /* ─── PHASE 4: TAB SWITCHING SPRING ────────────────────────────── */
   function attachTabSprings() {
+    function triggerChartResize() {
+      window.dispatchEvent(new Event('resize'));
+      if (typeof Chart !== 'undefined' && Chart.instances) {
+        try {
+          Object.values(Chart.instances).forEach(chart => {
+            if (chart && typeof chart.resize === 'function') {
+              chart.resize();
+            }
+          });
+        } catch (err) {
+          console.warn('[apple-springs] Chart resize error:', err);
+        }
+      }
+    }
+
     // Hook into the existing setupTabs function's event listeners via delegation
-    document.querySelectorAll('.results-tabs, .tab-row').forEach(tabBar => {
+    document.querySelectorAll('.results-tabs, .tab-row, .archive-analytics-tabs').forEach(tabBar => {
       tabBar.addEventListener('click', e => {
         const btn = e.target.closest('.tab-btn');
         if (!btn) return;
-        const targetId = btn.getAttribute('data-tab');
+        const targetId = btn.getAttribute('data-tab') || btn.getAttribute('data-subtab');
         if (!targetId) return;
 
         const screen = btn.closest('.screen');
         if (!screen) return;
 
-        const prevContent = screen.querySelector('.tab-content.active');
+        const prevContent = screen.querySelector('.tab-content.active, .subtab-pane.active');
         const nextContent = document.getElementById(targetId);
 
         if (!nextContent || prevContent === nextContent) return;
 
         // Determine direction from DOM order
-        const allTabs = Array.from(screen.querySelectorAll('.tab-content'));
+        const allTabs = Array.from(screen.querySelectorAll('.tab-content, .subtab-pane'));
         const prevIdx = allTabs.indexOf(prevContent);
         const nextIdx = allTabs.indexOf(nextContent);
         const dir = nextIdx > prevIdx ? 1 : -1;
 
-        if (reducedMotion()) return; // let existing JS handle it
+        if (reducedMotion()) {
+          triggerChartResize();
+          return; // let existing JS handle it
+        }
 
         // Intercept: animate out old, animate in new
         if (prevContent) {
@@ -214,7 +231,11 @@
               gsap.fromTo(nextContent,
                 { opacity: 0, x: dir * 20 },
                 { opacity: 1, x: 0, duration: 0.3, ease: 'power3.out',
-                  onComplete: () => gsap.set(nextContent, { clearProps: 'all' }) }
+                  onComplete: () => {
+                    gsap.set(nextContent, { clearProps: 'all' });
+                    triggerChartResize();
+                  }
+                }
               );
             }
           });

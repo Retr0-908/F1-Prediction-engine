@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initApp();
     setupNavigation();
     setupTabs();
+    setupArchiveAnalyticsSubtabs();
     setupF1SyncButton();
 });
 
@@ -96,17 +97,25 @@ function setupNavigation() {
             
             const targetId = e.target.getAttribute('data-target');
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            document.getElementById(targetId).classList.add('active');
+            const screenEl = document.getElementById(targetId);
+            if (screenEl) screenEl.classList.add('active');
             
             if (targetId === 'results-screen') {
                 clearNavBadge('nav-results');
             } else if (targetId === 'standings-screen') {
                 fetchStandings();
+            } else if (targetId === 'archive-analytics-screen') {
+                const activeTabBtn = document.querySelector('.archive-analytics-tabs .tab-btn.active');
+                const subtabId = activeTabBtn ? activeTabBtn.getAttribute('data-subtab') : 'tab-stage-comparison';
+                switchArchiveAnalyticsSubtab(subtabId);
             } else if (targetId === 'past-archive-screen') {
-                initPastRaces();
-                initPastPredictions();
+                showScreen('archive-analytics-screen');
+                activateNavBtn('archive-analytics-screen');
+                switchArchiveAnalyticsSubtab('tab-past-races');
             } else if (targetId === 'pred-analysis-screen') {
-                initPredictionAnalysis();
+                showScreen('archive-analytics-screen');
+                activateNavBtn('archive-analytics-screen');
+                switchArchiveAnalyticsSubtab('tab-model-health');
             }
         });
     });
@@ -116,15 +125,18 @@ function setupTabs() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const targetTab = btn.getAttribute('data-tab');
+            if (!targetTab) return;
             const parent = btn.closest('.screen');
+            if (!parent) return;
             
             // Toggle buttons
-            parent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            parent.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             
             // Toggle content
             parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.getElementById(targetTab).classList.add('active');
+            const contentEl = document.getElementById(targetTab);
+            if (contentEl) contentEl.classList.add('active');
             
             // Force chart resize if needed
             window.dispatchEvent(new Event('resize'));
@@ -132,9 +144,82 @@ function setupTabs() {
     });
 }
 
+function setupArchiveAnalyticsSubtabs() {
+    document.querySelectorAll('.archive-analytics-tabs .tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const subtabId = btn.getAttribute('data-subtab');
+            if (subtabId) {
+                switchArchiveAnalyticsSubtab(subtabId);
+            }
+        });
+    });
+}
+
+function switchArchiveAnalyticsSubtab(subtabId) {
+    const screen = document.getElementById('archive-analytics-screen');
+    if (!screen) return;
+
+    // Toggle active state on buttons
+    screen.querySelectorAll('.archive-analytics-tabs .tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-subtab') === subtabId);
+    });
+
+    // Toggle active state and visibility on subtab panes
+    screen.querySelectorAll('.subtab-pane').forEach(pane => {
+        if (pane.id === subtabId) {
+            pane.style.display = 'block';
+            pane.classList.add('active');
+        } else {
+            pane.style.display = 'none';
+            pane.classList.remove('active');
+        }
+    });
+
+    // Lazy load or initialize subtab contents
+    if (subtabId === 'tab-stage-comparison') {
+        if (typeof initStageComparison === 'function') {
+            initStageComparison();
+        }
+    } else if (subtabId === 'tab-model-health') {
+        initPredictionAnalysis();
+    } else if (subtabId === 'tab-past-predictions') {
+        initPastPredictions();
+    } else if (subtabId === 'tab-past-races') {
+        initPastRaces();
+    }
+
+    // Force chart resize
+    window.dispatchEvent(new Event('resize'));
+    if (typeof Chart !== 'undefined' && Chart.instances) {
+        try {
+            Object.values(Chart.instances).forEach(chart => {
+                if (chart && typeof chart.resize === 'function') {
+                    chart.resize();
+                }
+            });
+        } catch (err) {
+            console.warn('[app.js] Chart resize error:', err);
+        }
+    }
+}
+
 function showScreen(screenId) {
+    if (screenId === 'past-archive-screen') {
+        showScreen('archive-analytics-screen');
+        activateNavBtn('archive-analytics-screen');
+        switchArchiveAnalyticsSubtab('tab-past-races');
+        return;
+    }
+    if (screenId === 'pred-analysis-screen') {
+        showScreen('archive-analytics-screen');
+        activateNavBtn('archive-analytics-screen');
+        switchArchiveAnalyticsSubtab('tab-model-health');
+        return;
+    }
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(screenId).classList.add('active');
+    const el = document.getElementById(screenId);
+    if (el) el.classList.add('active');
 }
 
 function activateNavBtn(targetId) {

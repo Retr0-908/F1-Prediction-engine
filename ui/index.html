@@ -57,14 +57,14 @@
             <a href="#" data-target="analysis-screen" class="nav-btn" id="nav-analysis">Analysis</a>
             <a href="#" data-target="results-screen" class="nav-btn" id="nav-results" style="display:none;">Results</a>
             <a href="#" data-target="settings-screen" class="nav-btn" id="nav-settings">Settings & Cache</a>
-            <a href="#" data-target="past-archive-screen" class="nav-btn" id="nav-past-archive">Past Archive</a>
-            <a href="#" data-target="pred-analysis-screen" class="nav-btn" id="nav-pred-analysis">Model Health</a>
+            <a href="#" data-target="archive-analytics-screen" class="nav-btn" id="nav-archive-analytics">Archive & Analytics</a>
         </div>
         <div class="nav-actions">
             <select id="mode-selector" class="mode-select">
-                <option value="auto" style="color: black;">⚙ Auto Mode</option>
-                <option value="pre-quali" style="color: black;">Pre-Qualifying</option>
-                <option value="post-quali" style="color: black;">Post-Qualifying</option>
+                <option value="auto" style="color: black;">⚡ Auto (Live Detection)</option>
+                <option value="pre-practice" style="color: black;">1. Pre-Practice (Baseline)</option>
+                <option value="post-practice" style="color: black;">2. Post-Practice (FP Telemetry)</option>
+                <option value="post-quali" style="color: black;">3. Post-Qualifying (Grid Locked)</option>
             </select>
             <button id="btn-run-analysis" class="btn btn-primary" onclick="startAnalysis()">&#9654; Run Analysis</button>
         </div>
@@ -619,47 +619,99 @@
         </div>
     </div>
 
-    <!-- Screen 9: Past Archive -->
-    <div id="past-archive-screen" class="screen content-padding scrollable">
-        <div class="header-row">
-            <h2>PAST ARCHIVE</h2>
-            <div class="tab-row" style="margin-left: auto;">
-                <button class="tab-btn active" data-tab="tab-past-races">Races</button>
-                <button class="tab-btn" data-tab="tab-past-predictions">Predictions</button>
-            </div>
+    <!-- Screen: Archive & Analytics -->
+    <div id="archive-analytics-screen" class="screen content-padding scrollable">
+        <div class="screen-header">
+            <h2>ARCHIVE & MODEL ANALYTICS</h2>
+            <p class="subtitle">Cross-stage prediction evolution, season accuracy verification, model health, and past race telemetry.</p>
         </div>
 
-        <div id="tab-past-races" class="tab-content active">
-            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
-                <label for="past-year-selector">Year:</label>
-                <select id="past-year-selector" class="input-field" onchange="onYearChange()" style="width: 100px;">
-                    <!-- Populated dynamically via JS -->
-                </select>
-                <label for="past-race-selector">Select Race:</label>
-                <select id="past-race-selector" class="input-field select-large" onchange="loadPastRaceDetails()" style="width: 250px;">
-                    <option value="">Select a race...</option>
-                </select>
-            </div>
-            
-            <div id="past-race-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
-                <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">🏁</div>
-                <p class="dim-text">Select a completed race from the dropdown above to view results and telemetry.</p>
-            </div>
-            <div id="past-race-content" class="results-layout" style="display: none;">
-                <div class="panel" style="grid-column: 1 / -1;">
-                    <div class="panel-header">RACE RESULTS</div>
-                    <div id="past-race-results" class="race-order-table"></div>
+        <div class="archive-analytics-tabs subtab-group" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
+            <button class="tab-btn active" data-subtab="tab-stage-comparison">📊 Stage Comparison</button>
+            <button class="tab-btn" data-subtab="tab-model-health">🩺 Model Health & Biases</button>
+            <button class="tab-btn" data-subtab="tab-past-predictions">📜 Past Predictions</button>
+            <button class="tab-btn" data-subtab="tab-past-races">🏁 Race Telemetry</button>
+        </div>
+
+        <!-- Subtab 1: Stage Comparison -->
+        <div id="tab-stage-comparison" class="subtab-pane active">
+            <div id="stage-comparison-root"></div>
+        </div>
+
+        <!-- Subtab 2: Model Health & Biases -->
+        <div id="tab-model-health" class="subtab-pane" style="display:none;">
+            <div class="panel">
+                <div class="panel-header">RUN POST-RACE VERIFICATION</div>
+                <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 12px;">Compare model predictions against the actual grand prix results once a race is complete. This calculates accuracy metrics and updates the self-improvement biases.</p>
+                <div style="display: flex; gap: 15px; align-items: center; padding: 15px 0; flex-wrap: wrap;">
+                    <label for="post-race-round-selector">Select Round:</label>
+                    <select id="post-race-round-selector" class="input-field" style="width: 200px;">
+                        <option value="">Select a round...</option>
+                        <!-- Populated dynamically via JS -->
+                    </select>
+                    <button id="btn-run-post-race" class="btn btn-primary" onclick="triggerPostRaceCheck()">📊 Compare predicted vs actual results</button>
                 </div>
-                <div class="panel" style="grid-column: 1 / -1;">
-                    <div class="panel-header">TIRE STINTS & PACE DEGRADATION</div>
-                    <div class="chart-container" style="height: 350px;">
-                        <canvas id="past-race-telemetry-chart"></canvas>
+                <!-- SSE progress feedback for post-race comparison -->
+                <div id="post-race-progress-panel" class="panel progress-panel hidden" style="margin-top: 15px;">
+                    <div class="progress-header">
+                        <span id="post-race-progress-stage">INITIALIZING</span>
+                        <span id="post-race-progress-status" class="status-badge loading">RUNNING</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div id="post-race-progress-bar" class="progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <p id="post-race-progress-message">Setting up comparison pipeline...</p>
+                </div>
+            </div>
+
+            <div id="post-race-results-container" style="display: none; margin-top: 20px;">
+                <div class="prices-container" style="margin-bottom: 20px;">
+                    <div class="panel" style="flex: 2; min-width: 300px;">
+                        <div class="panel-header">PREDICTION VS ACTUAL COMPARISON</div>
+                        <div id="comparison-table-wrapper" class="race-order-table">
+                            <!-- Table dynamically loaded -->
+                        </div>
+                    </div>
+                    <div class="panel" style="flex: 1; min-width: 250px;">
+                        <div class="panel-header">RACE ACCURACY METRICS</div>
+                        <div id="accuracy-metrics-pills" class="metrics-container" style="display: flex; flex-direction: column; gap: 10px; padding: 15px 0;">
+                            <!-- Metrics dynamically loaded -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" style="margin-top: 20px;">
+                <div class="panel-header">SEASON ACCURACY TREND</div>
+                <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Historical Mean Absolute Error (MAE) and Spearman Rank Correlation (&rho;) trend across the season.</p>
+                <div class="chart-container" style="height: 350px; position: relative;">
+                    <canvas id="accuracy-trend-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="pred-analysis-panels" style="margin-top: 20px;">
+                <div class="panel" style="flex: 2; min-width: 300px;">
+                    <div class="panel-header">ACTIVE DRIVER BIAS CORRECTIONS (EWMA, cap: ±2)</div>
+                    <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Calculated from past race errors. Subtracted from raw ML position predictions to correct systematic biases.</p>
+                    <div id="bias-table-wrapper" class="race-order-table">
+                        <!-- Bias table dynamically loaded -->
+                    </div>
+                </div>
+                <div class="panel" style="flex: 1; min-width: 250px;">
+                    <div class="panel-header">CIRCUIT-TYPE FEATURE BLEND NUDGES</div>
+                    <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Adjustments to feature weights based on circuit predictability (MAE vs overall MAE).</p>
+                    <div id="weight-adjustments-wrapper" style="padding: 15px 0;">
+                        <!-- Weight adjustments list dynamically loaded -->
+                    </div>
+                    <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; text-align: center;">
+                        <button id="btn-reset-corrections" class="btn" style="background-color: #5c181e; color: #f8d7da; border: 1px solid #721c24;" onclick="resetModelCorrections()">🔄 Reset All Corrections</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div id="tab-past-predictions" class="tab-content">
+        <!-- Subtab 3: Past Predictions -->
+        <div id="tab-past-predictions" class="subtab-pane" style="display:none;">
             <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
                 <label for="past-pred-selector">Select Prediction:</label>
                 <select id="past-pred-selector" class="input-field select-large" onchange="loadPastPrediction()" style="width: 350px;">
@@ -686,80 +738,34 @@
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Screen 10: Prediction Analysis -->
-    <div id="pred-analysis-screen" class="screen content-padding scrollable">
-        <div class="header-row">
-            <h2>PREDICTION ANALYSIS & SELF-IMPROVEMENT</h2>
-            <p class="dim-text">Monitor model accuracy, run post-race verification, and view active bias corrections.</p>
-        </div>
-
-        <div class="panel">
-            <div class="panel-header">RUN POST-RACE VERIFICATION</div>
-            <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 12px;">Compare model predictions against the actual grand prix results once a race is complete. This calculates accuracy metrics and updates the self-improvement biases.</p>
-            <div style="display: flex; gap: 15px; align-items: center; padding: 15px 0; flex-wrap: wrap;">
-                <label for="post-race-round-selector">Select Round:</label>
-                <select id="post-race-round-selector" class="input-field" style="width: 200px;">
-                    <option value="">Select a round...</option>
+        <!-- Subtab 4: Race Telemetry -->
+        <div id="tab-past-races" class="subtab-pane" style="display:none;">
+            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
+                <label for="past-year-selector">Year:</label>
+                <select id="past-year-selector" class="input-field" onchange="onYearChange()" style="width: 100px;">
                     <!-- Populated dynamically via JS -->
                 </select>
-                <button id="btn-run-post-race" class="btn btn-primary" onclick="triggerPostRaceCheck()">📊 Compare predicted vs actual results</button>
+                <label for="past-race-selector">Select Race:</label>
+                <select id="past-race-selector" class="input-field select-large" onchange="loadPastRaceDetails()" style="width: 250px;">
+                    <option value="">Select a race...</option>
+                </select>
             </div>
-            <!-- SSE progress feedback for post-race comparison -->
-            <div id="post-race-progress-panel" class="panel progress-panel hidden" style="margin-top: 15px;">
-                <div class="progress-header">
-                    <span id="post-race-progress-stage">INITIALIZING</span>
-                    <span id="post-race-progress-status" class="status-badge loading">RUNNING</span>
-                </div>
-                <div class="progress-bar-container">
-                    <div id="post-race-progress-bar" class="progress-bar" style="width: 0%;"></div>
-                </div>
-                <p id="post-race-progress-message">Setting up comparison pipeline...</p>
+            
+            <div id="past-race-empty-state" class="panel" style="text-align: center; padding: 50px 20px;">
+                <div style="font-size: 2.5rem; opacity: 0.15; margin-bottom: 12px;">🏁</div>
+                <p class="dim-text">Select a completed race from the dropdown above to view results and telemetry.</p>
             </div>
-        </div>
-
-        <div id="post-race-results-container" style="display: none; margin-top: 20px;">
-            <div class="prices-container" style="margin-bottom: 20px;">
-                <div class="panel" style="flex: 2; min-width: 300px;">
-                    <div class="panel-header">PREDICTION VS ACTUAL COMPARISON</div>
-                    <div id="comparison-table-wrapper" class="race-order-table">
-                        <!-- Table dynamically loaded -->
+            <div id="past-race-content" class="results-layout" style="display: none;">
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">RACE RESULTS</div>
+                    <div id="past-race-results" class="race-order-table"></div>
+                </div>
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">TIRE STINTS & PACE DEGRADATION</div>
+                    <div class="chart-container" style="height: 350px;">
+                        <canvas id="past-race-telemetry-chart"></canvas>
                     </div>
-                </div>
-                <div class="panel" style="flex: 1; min-width: 250px;">
-                    <div class="panel-header">RACE ACCURACY METRICS</div>
-                    <div id="accuracy-metrics-pills" class="metrics-container" style="display: flex; flex-direction: column; gap: 10px; padding: 15px 0;">
-                        <!-- Metrics dynamically loaded -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="panel" style="margin-top: 20px;">
-            <div class="panel-header">SEASON ACCURACY TREND</div>
-            <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Historical Mean Absolute Error (MAE) and Spearman Rank Correlation (&rho;) trend across the season.</p>
-            <div class="chart-container" style="height: 350px; position: relative;">
-                <canvas id="accuracy-trend-chart"></canvas>
-            </div>
-        </div>
-
-        <div class="pred-analysis-panels" style="margin-top: 20px;">
-            <div class="panel" style="flex: 2; min-width: 300px;">
-                <div class="panel-header">ACTIVE DRIVER BIAS CORRECTIONS (EWMA, cap: ±2)</div>
-                <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Calculated from past race errors. Subtracted from raw ML position predictions to correct systematic biases.</p>
-                <div id="bias-table-wrapper" class="race-order-table">
-                    <!-- Bias table dynamically loaded -->
-                </div>
-            </div>
-            <div class="panel" style="flex: 1; min-width: 250px;">
-                <div class="panel-header">CIRCUIT-TYPE FEATURE BLEND NUDGES</div>
-                <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 15px;">Adjustments to feature weights based on circuit predictability (MAE vs overall MAE).</p>
-                <div id="weight-adjustments-wrapper" style="padding: 15px 0;">
-                    <!-- Weight adjustments list dynamically loaded -->
-                </div>
-                <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; text-align: center;">
-                    <button id="btn-reset-corrections" class="btn" style="background-color: #5c181e; color: #f8d7da; border: 1px solid #721c24;" onclick="resetModelCorrections()">🔄 Reset All Corrections</button>
                 </div>
             </div>
         </div>

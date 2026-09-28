@@ -196,6 +196,19 @@ class UISmokeTests(unittest.TestCase):
         self.assertEqual(data_rounds.get("status"), "ok")
         self.assertIn("rounds", data_rounds)
 
+    def test_consolidated_archive_analytics_screen(self):
+        """Verify Model Health and Past Archive are consolidated into a single unified screen."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("archive-analytics-screen", res.text)
+        self.assertIn("nav-archive-analytics", res.text)
+        self.assertNotIn("nav-past-archive", res.text)
+        self.assertNotIn("nav-pred-analysis", res.text)
+
+        res_springs = self.client.get("/static/apple-springs.js")
+        self.assertIn("archive-analytics-screen", res_springs.text)
+        self.assertNotIn("past-archive-screen", res_springs.text)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 
