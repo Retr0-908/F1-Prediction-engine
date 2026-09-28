@@ -1397,7 +1397,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     border: 0;
 }
 
-/* ── F1 Pit Wall Telemetry Waveform Console ── */
+/* ── Strategy Simulation Pipeline Visualizer ── */
 #analysis-animation-container {
     overflow: hidden;
     width: 100%;
@@ -1409,46 +1409,196 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     position: relative;
 }
 
-.telemetry-console-card {
+.pipeline-visualizer {
     width: 100%;
-    background: rgba(4, 7, 14, 0.75);
-    border: 1px solid var(--border-dim);
+    background: rgba(8, 12, 22, 0.78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(0, 229, 255, 0.18);
     border-radius: var(--radius-md);
-    padding: 16px;
+    padding: 18px;
     position: relative;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-#telemetry-waveform-canvas {
-    width: 100%;
-    height: 110px;
-    display: block;
-    border-radius: var(--radius-sm);
-    background: rgba(6, 10, 18, 0.95);
-    border: 1px solid rgba(0, 229, 255, 0.15);
+.pipeline-visualizer.active {
+    border-color: rgba(0, 229, 255, 0.35);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(0, 229, 255, 0.1);
 }
 
-.telemetry-channel-legend {
+.pipeline-visualizer-header {
     display: flex;
-    gap: 16px;
-    margin-top: 10px;
-    font-size: 0.75rem;
-    font-family: var(--font-mono);
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.chan-indicator {
+.pipeline-title-group {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
 }
-.chan-dot {
+
+.pipeline-pulse-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    background: var(--telemetry-cyan);
+    box-shadow: 0 0 8px var(--telemetry-cyan);
+    animation: pipeline-dot-pulse 1.8s infinite ease-in-out;
 }
-.chan-speed { background: var(--telemetry-cyan); box-shadow: 0 0 6px var(--telemetry-cyan); }
-.chan-throttle { background: var(--telemetry-green); }
-.chan-gear { background: var(--telemetry-purple); }
+
+@keyframes pipeline-dot-pulse {
+    0%, 100% {
+        transform: scale(0.9);
+        opacity: 0.6;
+        box-shadow: 0 0 4px var(--telemetry-cyan);
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 1;
+        box-shadow: 0 0 10px var(--telemetry-cyan), 0 0 18px rgba(0, 229, 255, 0.5);
+    }
+}
+
+.pipeline-title {
+    font-family: var(--font-heading);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--telemetry-cyan);
+    letter-spacing: 1.5px;
+}
+
+.pipeline-live-badge {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--telemetry-green);
+    background: rgba(0, 210, 190, 0.08);
+    border: 1px solid rgba(0, 210, 190, 0.25);
+    padding: 3px 8px;
+    border-radius: var(--radius-xs);
+    letter-spacing: 0.5px;
+}
+
+/* Radar & Orbital Simulation Centerpiece */
+.radar-simulation-container {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 14px;
+    background: rgba(4, 7, 14, 0.6);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.radar-core {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    min-width: 84px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 229, 255, 0.06) 0%, rgba(6, 10, 20, 0.95) 75%);
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    overflow: hidden;
+    box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.15);
+}
+
+.radar-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: 1px dashed rgba(0, 229, 255, 0.2);
+    pointer-events: none;
+}
+.radar-ring.ring-1 { width: 30%; height: 30%; }
+.radar-ring.ring-2 { width: 60%; height: 60%; }
+.radar-ring.ring-3 { width: 90%; height: 90%; }
+
+.radar-crosshair-h {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: rgba(0, 229, 255, 0.12);
+    pointer-events: none;
+}
+
+.radar-crosshair-v {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: rgba(0, 229, 255, 0.12);
+    pointer-events: none;
+}
+
+.radar-sweep {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg at 50% 50%, rgba(0, 229, 255, 0) 0deg, rgba(0, 229, 255, 0.35) 45deg, rgba(0, 229, 255, 0) 60deg);
+    animation: radar-spin 2.4s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes radar-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.radar-center-blip {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 6px;
+    margin: -3px 0 0 -3px;
+    background: var(--telemetry-cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--telemetry-cyan);
+}
+
+.pipeline-phase-badge-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.pipeline-phase-label {
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+}
+
+.pipeline-phase-badge {
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    border-left: 3px solid var(--telemetry-cyan);
+    border-radius: var(--radius-xs);
+    padding: 8px 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.2px;
+}
 
 /* ── Monte Carlo Dynamic Iterations Arc ── */
 .monte-carlo-counter-wrap {

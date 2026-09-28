@@ -69,31 +69,31 @@ class UISmokeTests(unittest.TestCase):
         r16 = next(r for r in races if r["round"] == 16)
         self.assertFalse(r16.get("is_completed"))
 
-    def test_ui_telemetry_tokens_and_canvas_css(self):
-        """Verify style.css includes new telemetry tokens and waveform canvas."""
+    def test_ui_telemetry_tokens_and_visualizer_css(self):
+        """Verify style.css includes telemetry tokens and pipeline visualizer."""
         res = self.client.get("/static/style.css")
         self.assertEqual(res.status_code, 200)
         css = res.text
         self.assertIn("--telemetry-cyan", css)
-        self.assertIn("#telemetry-waveform-canvas", css)
+        self.assertIn(".pipeline-visualizer", css)
         self.assertNotIn("f1-drive", css)
 
     def test_ui_analysis_screen_canvas_and_hud(self):
-        """Verify index.html contains telemetry canvas and segmented ensemble container."""
+        """Verify index.html contains pipeline visualizer and segmented ensemble container."""
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
         html = res.text
-        self.assertIn('id="telemetry-waveform-canvas"', html)
+        self.assertIn('id="pipeline-visualizer"', html)
         self.assertIn('id="mc-iterations-counter"', html)
         self.assertIn('id="ensemble-bar-wrap"', html)
         self.assertNotIn('class="f1-svg-loader"', html)
 
     def test_ui_app_js_telemetry_controller(self):
-        """Verify app.js includes canvas telemetry loop and segmented HUD logic."""
+        """Verify app.js includes visualizer controller and segmented HUD logic."""
         res = self.client.get("/static/app.js")
         self.assertEqual(res.status_code, 200)
         js = res.text
-        self.assertIn("initTelemetryWaveform", js)
+        self.assertIn("initPipelineVisualizer", js)
         self.assertIn("updateEnsembleSegments", js)
         self.assertIn("animateMonteCarloCounter", js)
 
@@ -140,6 +140,15 @@ class UISmokeTests(unittest.TestCase):
         import_data = res_import.json()
         self.assertEqual(import_data.get("status"), "ok")
         self.assertIn("Bobby_Racing", import_data.get("imported", {}).get("team_name", ""))
+
+    def test_pipeline_visualizer_cleanliness(self):
+        """Verify fake telemetry waveform elements are removed and pipeline visualizer is present."""
+        res_html = self.client.get("/")
+        self.assertEqual(res_html.status_code, 200)
+        self.assertNotIn("telemetry-channel-legend", res_html.text)
+        self.assertNotIn("SPEED (KM/H)", res_html.text)
+        self.assertIn('id="pipeline-visualizer"', res_html.text)
+        self.assertIn('id="pipeline-active-phase"', res_html.text)
 
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests

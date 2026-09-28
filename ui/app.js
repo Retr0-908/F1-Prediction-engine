@@ -809,93 +809,45 @@ function editPrice(type, name) {
     }
 }
 
-// ── Live F1 Pit Wall Telemetry Waveform Engine ────────────────────────
-let _telemetryAnimFrame = null;
-let _telemetryPhase = 0;
-let _telemetrySpeedMultiplier = 1.0;
+// ── AI Strategy Simulation Visualizer ─────────────────────────────────
 let _mcCounterTimer = null;
 
-function initTelemetryWaveform() {
-    const canvas = document.getElementById('telemetry-waveform-canvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Handle high DPI displays
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const width = rect.width > 0 ? rect.width : 600;
-    const height = rect.height > 0 ? rect.height : 110;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.scale(dpr, dpr);
-
-    function renderFrame() {
-        ctx.fillStyle = 'rgba(6, 10, 18, 0.35)'; // Slight trail fade
-        ctx.fillRect(0, 0, width, height);
-
-        // Draw background grid lines
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-        ctx.lineWidth = 1;
-        for (let x = 0; x < width; x += 40) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, height);
-            ctx.stroke();
-        }
-        for (let y = 0; y < height; y += 22) {
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
-            ctx.stroke();
-        }
-
-        _telemetryPhase += 0.04 * _telemetrySpeedMultiplier;
-
-        // Channel 1: Speed km/h Trace (Cyan)
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (let x = 0; x < width; x += 3) {
-            const t = (x / 60) + _telemetryPhase;
-            const y = height * 0.45 + Math.sin(t) * 22 + Math.cos(t * 2.3) * 12 + (Math.sin(t * 0.5) * 8);
-            if (x === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-
-        // Channel 2: Throttle % Trace (Teal/Green)
-        ctx.strokeStyle = '#00D2BE';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        for (let x = 0; x < width; x += 4) {
-            const t = (x / 45) + _telemetryPhase * 1.2;
-            const rawThrottle = Math.sin(t * 1.5) > -0.2 ? (Math.sin(t * 1.5) * 25) : -20;
-            const y = height * 0.70 + rawThrottle;
-            if (x === 0) ctx.moveTo(x, Math.max(10, Math.min(height - 10, y)));
-            else ctx.lineTo(x, Math.max(10, Math.min(height - 10, y)));
-        }
-        ctx.stroke();
-
-        // Channel 3: Gear Shift Impulses (Purple vertical pulses)
-        ctx.strokeStyle = 'rgba(177, 56, 221, 0.6)';
-        ctx.lineWidth = 1.5;
-        const pulseSpacing = 120;
-        const shiftOffset = (_telemetryPhase * 35) % pulseSpacing;
-        for (let sx = shiftOffset; sx < width; sx += pulseSpacing) {
-            ctx.beginPath();
-            ctx.moveTo(sx, height - 15);
-            ctx.lineTo(sx, height - 35);
-            ctx.stroke();
-        }
-
-        if (_isPipelineRunning) {
-            _telemetryAnimFrame = requestAnimationFrame(renderFrame);
-        }
+function setPipelineActivePhase(text) {
+    const el = document.getElementById('pipeline-active-phase');
+    if (el) {
+        el.textContent = text;
     }
+}
 
-    if (_telemetryAnimFrame) cancelAnimationFrame(_telemetryAnimFrame);
-    _telemetryAnimFrame = requestAnimationFrame(renderFrame);
+function initPipelineVisualizer() {
+    const visualizer = document.getElementById('pipeline-visualizer');
+    if (visualizer) {
+        visualizer.classList.add('active');
+    }
+    const badge = document.getElementById('pipeline-live-badge');
+    if (badge) {
+        badge.innerHTML = '<span class="status-indicator-live"></span> ACTIVE';
+    }
+    setPipelineActivePhase('Initializing Strategy Pipeline...');
+    const counter = document.getElementById('mc-iterations-counter');
+    if (counter) {
+        counter.textContent = 'READY (10,000 SIMS)';
+    }
+}
+
+function stopPipelineVisualizer() {
+    const visualizer = document.getElementById('pipeline-visualizer');
+    if (visualizer) {
+        visualizer.classList.remove('active');
+    }
+    const badge = document.getElementById('pipeline-live-badge');
+    if (badge) {
+        badge.textContent = 'STANDBY';
+    }
+    if (_mcCounterTimer) {
+        clearInterval(_mcCounterTimer);
+        _mcCounterTimer = null;
+    }
 }
 
 function updateEnsembleSegments(rfWeight, xgbWeight, lgbWeight) {
@@ -994,9 +946,8 @@ async function startAnalysis() {
     const anim = document.getElementById('analysis-animation-container');
     if (anim) anim.style.display = 'flex';
     
-    // Live Telemetry Waveform Engine
-    _telemetrySpeedMultiplier = 1.0;
-    initTelemetryWaveform();
+    // AI Strategy Simulation Visualizer
+    initPipelineVisualizer();
     
     // Reset HUD displays to clean pending placeholders
     const roundEl = document.getElementById('hud-round');
@@ -1071,15 +1022,7 @@ async function startAnalysis() {
 }
 
 function _resetRunButton() {
-    if (_telemetryAnimFrame) {
-        cancelAnimationFrame(_telemetryAnimFrame);
-        _telemetryAnimFrame = null;
-    }
-    _telemetrySpeedMultiplier = 1.0;
-    if (_mcCounterTimer) {
-        clearInterval(_mcCounterTimer);
-        _mcCounterTimer = null;
-    }
+    stopPipelineVisualizer();
     const runBtn = document.getElementById('btn-run-analysis');
     if (runBtn) {
         runBtn.disabled = false;
@@ -1214,6 +1157,7 @@ function connectStream(runId) {
         if (data.data) {
             const payload = data.data;
             if (data.stage === 'NEXT_RACE') {
+                setPipelineActivePhase('Calibrating Glicko-2 & LSTM Driver Form');
                 const roundEl = document.getElementById('hud-round');
                 const circuitEl = document.getElementById('hud-circuit');
                 const trackEl = document.getElementById('hud-track');
@@ -1236,10 +1180,15 @@ function connectStream(runId) {
                 }
             }
             if (data.stage === 'WEATHER') {
+                setPipelineActivePhase('Analyzing Micro-Climate & Track Surface Forecast');
                 const weatherEl = document.getElementById('hud-weather');
                 if (weatherEl) weatherEl.innerHTML = `${payload.temp}°C <span class="hud-unit">${payload.summary} (${payload.rain_risk} RISK)</span>`;
             }
+            if (data.stage === 'PRICES') {
+                setPipelineActivePhase('Evaluating Market Dynamics & Sentiment Deltas');
+            }
             if (data.stage === 'ML_MODEL') {
+                setPipelineActivePhase('Fitting Multi-Model Stacking Ensemble (LGBM / XGB / RF)');
                 const ensembleEl = document.getElementById('hud-ensemble');
                 if (ensembleEl) {
                     if (payload.training_status) {
@@ -1253,7 +1202,7 @@ function connectStream(runId) {
                 }
             }
             if (data.stage === 'PREDICTIONS') {
-                _telemetrySpeedMultiplier = 2.2;
+                setPipelineActivePhase('Executing 10,000 Monte Carlo Simulations & DNF Risk Matrix');
                 animateMonteCarloCounter(0, payload.sims || payload.sims_done || 10000);
                 const simsEl = document.getElementById('hud-sims');
                 if (simsEl) {
@@ -1264,27 +1213,25 @@ function connectStream(runId) {
                     }
                 }
             }
+            if (data.stage === 'ANALYSIS') {
+                setPipelineActivePhase('Optimizing Team Roster via Integer Linear Programming');
+            }
         } else if (data.stage === 'PREDICTIONS' && data.status === 'loading') {
             // General predicted pole/winner or status messages during predictions phase
-            _telemetrySpeedMultiplier = 2.2;
+            setPipelineActivePhase(data.message || 'Executing 10,000 Monte Carlo Simulations...');
             animateMonteCarloCounter(0, 10000);
             const simsEl = document.getElementById('hud-sims');
             if (simsEl) {
                 simsEl.innerHTML = `${data.message} <span class="hud-unit">PREDICTION INTERMEDIATE</span>`;
             }
+        } else if (data.stage === 'ANALYSIS') {
+            setPipelineActivePhase('Optimizing Team Roster via Integer Linear Programming');
         }
         
         if (data.stage === 'COMPLETE' && data.data) {
             evtSource.close();
-            if (_telemetryAnimFrame) {
-                cancelAnimationFrame(_telemetryAnimFrame);
-                _telemetryAnimFrame = null;
-            }
-            _telemetrySpeedMultiplier = 1.0;
-            if (_mcCounterTimer) {
-                clearInterval(_mcCounterTimer);
-                _mcCounterTimer = null;
-            }
+            setPipelineActivePhase('Pipeline Complete — Synthesizing Strategy Recommendations');
+            stopPipelineVisualizer();
             const anim = document.getElementById('analysis-animation-container');
             if (anim) anim.style.display = 'none';
             lastResults = data.data;
@@ -1299,15 +1246,8 @@ function connectStream(runId) {
             }
         } else if (data.stage === 'ERROR') {
             evtSource.close();
-            if (_telemetryAnimFrame) {
-                cancelAnimationFrame(_telemetryAnimFrame);
-                _telemetryAnimFrame = null;
-            }
-            _telemetrySpeedMultiplier = 1.0;
-            if (_mcCounterTimer) {
-                clearInterval(_mcCounterTimer);
-                _mcCounterTimer = null;
-            }
+            setPipelineActivePhase('Simulation Encountered Error');
+            stopPipelineVisualizer();
             const anim = document.getElementById('analysis-animation-container');
             if (anim) anim.style.display = 'none';
             showToast('Analysis failed: ' + data.message, 'error');
@@ -1322,11 +1262,7 @@ function connectStream(runId) {
     };
     
     evtSource.onerror = () => {
-        if (_telemetryAnimFrame) {
-            cancelAnimationFrame(_telemetryAnimFrame);
-            _telemetryAnimFrame = null;
-        }
-        _telemetrySpeedMultiplier = 1.0;
+        stopPipelineVisualizer();
         const simsEl = document.getElementById('hud-sims');
         if (simsEl && simsEl.dataset.interval) {
             clearInterval(simsEl.dataset.interval);

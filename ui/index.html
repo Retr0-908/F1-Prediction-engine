@@ -229,28 +229,40 @@
             <div class="analysis-split-layout">
                 <div class="analysis-left">
                     <div id="analysis-animation-container">
-                        <div class="telemetry-console-card">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                                <div style="font-family:var(--font-heading); font-size:0.85rem; font-weight:700; color:var(--telemetry-cyan); letter-spacing:1.5px;">
-                                    LIVE TELEMETRY STREAM
+                        <div id="pipeline-visualizer" class="pipeline-visualizer">
+                            <div class="pipeline-visualizer-header">
+                                <div class="pipeline-title-group">
+                                    <span class="pipeline-pulse-dot"></span>
+                                    <span class="pipeline-title">STRATEGY SIMULATION ENGINE</span>
                                 </div>
-                                <div id="live-hz-badge" class="telemetry-hz-badge" style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim);">
-                                    60 Hz ● SYNCED
+                                <div id="pipeline-live-badge" class="pipeline-live-badge">
+                                    LIVE ● ACTIVE
                                 </div>
                             </div>
-                            <canvas id="telemetry-waveform-canvas" width="600" height="110"></canvas>
-                            <div class="telemetry-channel-legend">
-                                <div class="chan-indicator"><span class="chan-dot chan-speed"></span> SPEED (KM/H)</div>
-                                <div class="chan-indicator"><span class="chan-dot chan-throttle"></span> THROTTLE %</div>
-                                <div class="chan-indicator"><span class="chan-dot chan-gear"></span> GEAR SHIFT</div>
+                            
+                            <div class="radar-simulation-container">
+                                <div class="radar-core">
+                                    <div class="radar-ring ring-1"></div>
+                                    <div class="radar-ring ring-2"></div>
+                                    <div class="radar-ring ring-3"></div>
+                                    <div class="radar-sweep"></div>
+                                    <div class="radar-crosshair-h"></div>
+                                    <div class="radar-crosshair-v"></div>
+                                    <div class="radar-center-blip"></div>
+                                </div>
+                                <div class="pipeline-phase-badge-wrap">
+                                    <span class="pipeline-phase-label">ACTIVE COMPUTATION PHASE</span>
+                                    <div id="pipeline-active-phase" class="pipeline-phase-badge">Initializing Strategy Pipeline...</div>
+                                </div>
                             </div>
+
                             <div class="monte-carlo-counter-wrap">
                                 <span class="monte-carlo-label">MONTE CARLO PROJECTION</span>
                                 <span id="mc-iterations-counter" class="monte-carlo-val">READY (10,000 SIMS)</span>
                             </div>
                         </div>
                         <h3 style="margin-top: 16px; font-weight: 700; color: var(--telemetry-cyan); letter-spacing: 2px; font-size: 0.9rem;" id="animation-status-text" class="pulse-text">INITIALIZING ENGINE...</h3>
-                        <p style="color: var(--text-dim); font-size: 0.78rem; margin-top: 4px;">Real-time FastF1 telemetry &amp; stochastic simulation pipeline</p>
+                        <p style="color: var(--text-dim); font-size: 0.78rem; margin-top: 4px;">Stochastic Monte Carlo simulation &amp; machine learning optimization pipeline</p>
                     </div>
                     
                     <!-- Diagnostics HUD -->
