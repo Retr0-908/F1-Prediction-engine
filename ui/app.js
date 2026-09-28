@@ -972,12 +972,23 @@ async function startAnalysis() {
     
     // Render progress track
     const track = document.getElementById('analysis-progress');
-    track.innerHTML = stages.map(s => `
-        <div class="track-node" id="node-${s}">
-            <div class="node-circle"></div>
-            <div class="node-label">${s.replace('_', ' ')}</div>
-        </div>
-    `).join('');
+    const stageDisplayLabels = {
+        'NEXT_RACE': 'Next<br>Race',
+        'WEATHER': 'Weather',
+        'PRICES': 'Prices',
+        'ML_MODEL': 'ML<br>Model',
+        'PREDICTIONS': 'Predict',
+        'ANALYSIS': 'Analysis',
+        'COMPLETE': 'Done'
+    };
+    if (track) {
+        track.innerHTML = stages.map((s, idx) => `
+            <div class="track-node" id="node-${s}">
+                <div class="node-circle">${idx + 1}</div>
+                <div class="node-label">${stageDisplayLabels[s] || s.replace('_', ' ')}</div>
+            </div>
+        `).join('');
+    }
     
     // Collect overrides
     Object.entries(marketPrices.drivers).forEach(([name, d]) => { activeOverrides[name] = { price: d.price }; });
@@ -1139,17 +1150,23 @@ function connectStream(runId) {
         }
         
         // Update Track
-        stages.forEach(s => {
+        stages.forEach((s, idx) => {
             const node = document.getElementById(`node-${s}`);
             if (!node) return;
-            if (s === data.stage) {
-                if (data.status === 'done') {
-                    node.classList.remove('active'); node.classList.add('done');
-                } else {
-                    node.classList.add('active');
-                }
-            } else if (stages.indexOf(s) < stages.indexOf(data.stage)) {
-                node.classList.remove('active'); node.classList.add('done');
+            const circle = node.querySelector('.node-circle');
+            const currentIndex = stages.indexOf(data.stage);
+            const thisIndex = stages.indexOf(s);
+            if (thisIndex < currentIndex || (thisIndex === currentIndex && (data.status === 'done' || data.stage === 'COMPLETE'))) {
+                node.classList.remove('active');
+                node.classList.add('done');
+                if (circle) circle.textContent = '✓';
+            } else if (thisIndex === currentIndex) {
+                node.classList.remove('done');
+                node.classList.add('active');
+                if (circle) circle.textContent = String(idx + 1);
+            } else {
+                node.classList.remove('active', 'done');
+                if (circle) circle.textContent = String(idx + 1);
             }
         });
         

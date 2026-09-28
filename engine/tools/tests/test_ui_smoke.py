@@ -150,6 +150,24 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn('id="pipeline-visualizer"', res_html.text)
         self.assertIn('id="pipeline-active-phase"', res_html.text)
 
+    def test_progress_track_layout_contract(self):
+        """Verify progress track nodes have scalable typography, centered text, and numbered badges."""
+        res_css = self.client.get("/static/style.css")
+        self.assertEqual(res_css.status_code, 200)
+        css = res_css.text
+
+        # Node label must not use unconstrained 1.1rem size
+        self.assertNotIn("font-size: 1.1rem; color: var(--color-grey);", css)
+        self.assertIn(".node-label", css)
+        self.assertIn("0.68rem", css)
+        self.assertIn(".node-circle", css)
+
+        res_js = self.client.get("/static/app.js")
+        self.assertEqual(res_js.status_code, 200)
+        js = res_js.text
+        self.assertIn("Next<br>Race", js)
+        self.assertIn("✓", js)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 
