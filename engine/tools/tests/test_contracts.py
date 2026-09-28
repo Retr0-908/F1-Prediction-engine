@@ -537,6 +537,30 @@ class PlannedFixProbes(unittest.TestCase):
         }
         self.assertFalse(df.qualifying_has_happened(future_race, 2026))
 
+    def test_predictor_stage_isolation(self):
+        """Verify pre-practice mode strictly ignores practice pace and quali data."""
+        from engine.models.predictor import F1Predictor
+        from engine.core.data_fetcher import get_race_by_round
+        race = get_race_by_round(15, 2026)
+        p = F1Predictor()
+        # 1. pre-practice: no practice pace, no actual grid
+        p.load_context(race.get("circuit_config", {}), {}, mode="pre-practice", race_info=race)
+        self.assertEqual(len(p._practice_pace), 0, "Pre-practice must have empty practice pace")
+        self.assertEqual(len(p._actual_grid), 0, "Pre-practice must have empty actual grid")
+        self.assertEqual(p._mode, "pre-practice")
+
+        # 2. post-practice: has practice pace, no actual grid
+        p.load_context(race.get("circuit_config", {}), {}, mode="post-practice", race_info=race)
+        self.assertGreater(len(p._practice_pace), 0, "Post-practice must have practice pace")
+        self.assertEqual(len(p._actual_grid), 0, "Post-practice must have empty actual grid")
+        self.assertEqual(p._mode, "post-practice")
+
+        # 3. post-quali: has practice pace and actual grid
+        p.load_context(race.get("circuit_config", {}), {}, mode="post-quali", race_info=race)
+        self.assertGreater(len(p._practice_pace), 0, "Post-quali must have practice pace")
+        self.assertGreater(len(p._actual_grid), 0, "Post-quali must have actual grid")
+        self.assertEqual(p._mode, "post-quali")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

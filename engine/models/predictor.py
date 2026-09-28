@@ -359,20 +359,26 @@ class F1Predictor:
     def load_context(
         self,
         circuit_config: dict,
-        weather: dict,
+        weather: dict = None,
         roster: dict[str, str] = None,
-        mode: str = "pre-quali",
+        mode: str = "auto",
         race_info: dict = None,
         grid_overrides: dict = None,
+        team_budgets: dict = None,
+        **kwargs,
     ):
         """
         Load all context: standings, form, Glicko-2 ratings, constructor stats.
 
-        mode: "pre-quali" | "post-quali" | "race-day"
-          pre-quali  → historical + practice pace
-          post-quali → + qualifying sector times + grid penalties
-          race-day   → same as post-quali with refreshed weather
+        mode: "auto" | "pre-practice" | "post-practice" | "pre-quali" | "post-quali" | "race-day"
+          pre-practice  → historical only; no practice pace, no qualifying
+          post-practice / pre-quali → historical + practice pace
+          post-quali    → + qualifying sector times + grid penalties + actual grid
+          race-day      → same as post-quali with refreshed weather
+          auto          → auto-detects based on session timing / qualifying completion
         """
+        if weather is None:
+            weather = {}
         if roster:
             self._roster = roster
         else:
@@ -464,33 +470,74 @@ class F1Predictor:
             self._circuit_history = pd.DataFrame()
             print("  [5/5] No circuit key — skipping circuit-specific history.")
 
-        # ── Practice pace (best available: FP2 -> FP1 -> FP3) ──
-        if race_info:
-            gp_name = race_info.get("name", "")
-            year    = int(race_info.get("season", CURRENT_SEASON))
-            print("  [+] Loading practice pace (trying FP2 -> FP1 -> FP3)...")
-            self._practice_pace, self._practice_session_name = get_best_practice_pace(year, gp_name)
-            if self._practice_pace:
-                print(f"      Found {self._practice_session_name} pace data for {len(self._practice_pace)} drivers")
+        # ── Stage-aware context loading ──
+        effective_mode = mode
+        if mode == "auto":
+            from engine.core.data_fetcher import qualifying_has_happened
+            if race_info and qualifying_has_happened(race_info):
+                effective_mode = "post-quali"
             else:
-                self._practice_session_name = "N/A"
-                print("      No practice session data available yet — using neutral pace")
+                effective_mode = "pre-quali"
 
-        # ── Post-quali extras ──
-        if mode in ("post-quali", "race-day") and race_info:
-            gp_name     = race_info.get("name", "")
-            round_num   = race_info.get("round", 0)
-            year        = CURRENT_SEASON
-            print("  [+] Loading qualifying sector times (post-quali mode)...")
-            self._quali_sectors  = get_qualifying_sector_times(year, gp_name)
-            print("  [+] Loading grid penalties...")
-            self._grid_penalties = get_grid_penalties(year, round_num)
-            if self._grid_penalties:
-                penalty_str = ", ".join(f"{d}:{p:+d}" for d, p in self._grid_penalties.items())
-                print(f"      Grid penalties detected: {penalty_str}")
-            
-            print("  [+] Loading actual qualifying results (post-quali mode)...")
-            self._actual_grid = get_actual_qualifying_results(year, round_num)
+        if effective_mode == "pre-practice":
+            self._practice_pace = {}
+            self._practice_session_name = "N/A"
+            self._actual_grid = []
+            self._quali_sectors = {}
+            self._grid_penalties = {}
+            print("  [+] Stage: pre-practice (ignoring practice pace and qualifying data)")
+        elif effective_mode in ("post-practice", "pre-quali"):
+            self._actual_grid = []
+            self._quali_sectors = {}
+            self._grid_penalties = {}
+            if race_info:
+                gp_name = race_info.get("name", "")
+                year    = int(race_info.get("season", CURRENT_SEASON))
+                print("  [+] Loading practice pace (trying FP2 -> FP1 -> FP3)...")
+                self._practice_pace, self._practice_session_name = get_best_practice_pace(year, gp_name)
+                if self._practice_pace:
+                    print(f"      Found {self._practice_session_name} pace data for {len(self._practice_pace)} drivers")
+                else:
+                    self._practice_session_name = "N/A"
+                    print("      No practice session data available yet — using neutral pace")
+            else:
+                self._practice_pace = {}
+                self._practice_session_name = "N/A"
+        elif effective_mode in ("post-quali", "race-day"):
+            if race_info:
+                gp_name     = race_info.get("name", "")
+                round_num   = race_info.get("round", 0)
+                year        = int(race_info.get("season", CURRENT_SEASON))
+                print("  [+] Loading practice pace (trying FP2 -> FP1 -> FP3)...")
+                self._practice_pace, self._practice_session_name = get_best_practice_pace(year, gp_name)
+                if self._practice_pace:
+                    print(f"      Found {self._practice_session_name} pace data for {len(self._practice_pace)} drivers")
+                else:
+                    self._practice_session_name = "N/A"
+                    print("      No practice session data available yet — using neutral pace")
+
+                print("  [+] Loading qualifying sector times (post-quali mode)...")
+                self._quali_sectors  = get_qualifying_sector_times(year, gp_name)
+                print("  [+] Loading grid penalties...")
+                self._grid_penalties = get_grid_penalties(year, round_num)
+                if self._grid_penalties:
+                    penalty_str = ", ".join(f"{d}:{p:+d}" for d, p in self._grid_penalties.items())
+                    print(f"      Grid penalties detected: {penalty_str}")
+                
+                print("  [+] Loading actual qualifying results (post-quali mode)...")
+                self._actual_grid = get_actual_qualifying_results(year, round_num)
+            else:
+                self._practice_pace = {}
+                self._practice_session_name = "N/A"
+                self._actual_grid = []
+                self._quali_sectors = {}
+                self._grid_penalties = {}
+        else:
+            self._practice_pace = {}
+            self._practice_session_name = "N/A"
+            self._actual_grid = []
+            self._quali_sectors = {}
+            self._grid_penalties = {}
 
         # ── Phase 3/4: Populate rolling result caches for LSTM/Tire models ──
         if race_info:

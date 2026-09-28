@@ -17,7 +17,40 @@ from engine.strategy.chip_advisor import advise_chips, load_chip_state
 
 logger = logging.getLogger(__name__)
 
-def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budget: float, points: float, transfers: int, options: dict, progress_callback):
+def run_pipeline(options: dict = None, **kwargs):
+    """Convenience entrypoint for pipeline execution supporting options dict."""
+    opts = options or {}
+    return run_full_pipeline(
+        run_id=kwargs.get("run_id", "pipeline_run"),
+        my_drivers=kwargs.get("my_drivers", []),
+        my_constructors=kwargs.get("my_constructors", []),
+        budget=float(kwargs.get("budget", 100.0)),
+        points=float(kwargs.get("points", 0.0)),
+        transfers=int(kwargs.get("transfers", 1)),
+        options=opts,
+        progress_callback=kwargs.get("progress_callback"),
+    )
+
+
+def run_full_pipeline(
+    run_id: str = "default",
+    my_drivers: list = None,
+    my_constructors: list = None,
+    budget: float = 100.0,
+    points: float = 0.0,
+    transfers: int = 1,
+    options: dict = None,
+    progress_callback = None,
+):
+    if my_drivers is None:
+        my_drivers = []
+    if my_constructors is None:
+        my_constructors = []
+    if options is None:
+        options = {}
+    if progress_callback is None:
+        progress_callback = lambda *args, **kwargs: None
+
     try:
         # 1. Next Race
         progress_callback(run_id, "NEXT_RACE", "loading", "Detecting target race...")
@@ -38,7 +71,7 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             circuit_cfg = race.get("circuit_config", {})
         is_sprint = is_sprint_weekend(race)
         
-        user_mode = options.get("mode", "auto")
+        user_mode = options.get("mode") or options.get("stage") or "auto"
         if user_mode == "auto":
             detected_mode = "post-quali" if qualifying_has_happened(race) else "pre-quali"
         else:
@@ -335,6 +368,7 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             import datetime as dt
             report = {
                 "generated_at":     dt.datetime.now().isoformat(),
+                "stage":            detected_mode,
                 "season":           CURRENT_SEASON,   # plan 9-C2: explicit season for validators
                 "race":             {**race, "season": CURRENT_SEASON},
                 "weather_summary":  {
@@ -352,10 +386,19 @@ def run_full_pipeline(run_id: str, my_drivers: list, my_constructors: list, budg
             from engine.core.paths import OUTPUT_DIR
             output_dir = OUTPUT_DIR
             output_dir.mkdir(exist_ok=True)
-            fname = output_dir / f"race_{race.get('round', 'X')}_{race.get('name', 'unknown').replace(' ', '_')}.json"
+            round_val = race.get("round", "X")
+            name_val = race.get("name", "unknown").replace(" ", "_")
+            fname = output_dir / f"race_{round_val}_{name_val}.json"
             with open(fname, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2, default=str)
             logger.info(f"UI run saved prediction file to {fname}")
+
+            stages_dir = output_dir / "stages"
+            stages_dir.mkdir(parents=True, exist_ok=True)
+            stage_fname = stages_dir / f"race_{round_val}_{name_val}_{detected_mode}.json"
+            with open(stage_fname, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, default=str)
+            logger.info(f"UI run saved stage prediction file to {stage_fname}")
         except Exception as e:
             logger.error(f"Failed to save prediction file in UI run: {e}")
 
