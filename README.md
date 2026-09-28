@@ -187,7 +187,7 @@ python -m playwright install chromium
 python -m engine.serving.server
 ```
 
-Open your browser at **`http://localhost:8000`** to access the strategy dashboard.
+Open your browser at **`http://localhost:5762`** to access the strategy dashboard.
 
 ---
 

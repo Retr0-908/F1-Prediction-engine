@@ -588,9 +588,22 @@ async function openF1SyncModal() {
 
         loadingEl.style.display = 'none';
 
-        if (data.status !== 'ok' || !data.teams || data.teams.length === 0) {
+        if (!res.ok) {
             errorEl.style.display = 'block';
-            document.getElementById('f1-sync-error-msg').innerText = data.message || 'No teams could be retrieved. Please check your F1_FANTASY_COOKIE in .env.';
+            const detailMsg = data.detail || data.message || `HTTP ${res.status}`;
+            document.getElementById('f1-sync-error-msg').innerText = `API endpoint error (${res.status}): ${detailMsg}. If you just updated the codebase, please restart your Python server.`;
+            return;
+        }
+
+        if (data.status !== 'ok') {
+            errorEl.style.display = 'block';
+            document.getElementById('f1-sync-error-msg').innerText = data.message || 'Unable to retrieve teams from F1 Fantasy. Please check your F1_FANTASY_COOKIE in .env.';
+            return;
+        }
+
+        if (!data.teams || data.teams.length === 0) {
+            errorEl.style.display = 'block';
+            document.getElementById('f1-sync-error-msg').innerText = 'No teams found under this F1 Fantasy account. Please check your team setup in the official game.';
             return;
         }
 
@@ -666,6 +679,15 @@ async function importF1Team(teamNo) {
             body: JSON.stringify({ team_no: teamNo })
         });
         const data = await res.json();
+        if (!res.ok) {
+            const detailMsg = data.detail || data.message || `HTTP ${res.status}`;
+            showToast(`Server error (${res.status}): ${detailMsg}. Please restart your backend server.`, 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = `⚡ Load Team ${teamNo}`;
+            }
+            return;
+        }
 
         if (data.status === 'ok' && data.imported) {
             currentTeam = data.imported;
