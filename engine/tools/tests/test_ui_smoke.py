@@ -27,6 +27,18 @@ class UISmokeTests(unittest.TestCase):
         res_springs = self.client.get("/static/apple-springs.js")
         self.assertEqual(res_springs.status_code, 200)
 
+    def test_sepang_track_map_asset(self):
+        res = self.client.get("/static/images/tracks/sepang.svg")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("<svg", res.text.lower())
+        self.assertIn("</svg>", res.text.lower())
+
+        res_js = self.client.get("/static/app.js")
+        self.assertEqual(res_js.status_code, 200)
+        self.assertIn("renderCircuitMap", res_js.text)
+        self.assertIn("/static/images/tracks/sepang.svg", res_js.text)
+        self.assertNotIn("[ Map Unavailable ]", res_js.text)
+
     def test_api_status(self):
         res = self.client.get("/api/status")
         self.assertEqual(res.status_code, 200)

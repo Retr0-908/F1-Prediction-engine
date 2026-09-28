@@ -198,7 +198,9 @@ const trackMaps = {
     'spa': 'Belgium', 'zandvoort': 'Netherlands', 'monza': 'Italy', 'baku': 'Azerbaijan',
     'marina_bay': 'Singapore', 'americas': 'USA', 'rodriguez': 'Mexico',
     'interlagos': 'Brazil', 'vegas': 'Las%20Vegas', 'losail': 'Qatar', 'yas_marina': 'Abu%20Dhabi',
-    'madring': 'Spain'
+    'madring': 'Spain',
+    'sepang': '/static/images/tracks/sepang.svg',
+    'malaysia': '/static/images/tracks/sepang.svg'
 };
 
 // Team accent colours (2026 Season)
@@ -314,6 +316,40 @@ function markBootStepDone(stepId) {
     el.classList.add('done');
 }
 
+function renderCircuitMap(container, mapUrl, race) {
+    if (!container) return;
+    const circuitLabel = (race && (race.circuit || race.circuit_name || race.name)) ? (race.circuit || race.circuit_name || race.name) : 'Circuit Layout';
+    const fallbackHtml = `
+        <div class="circuit-fallback-card" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px;text-align:center;background:radial-gradient(ellipse at center, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0) 70%);">
+            <svg width="56" height="56" viewBox="0 0 64 64" fill="none" style="opacity:0.4;stroke:var(--telemetry-cyan, #00f3ff);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px rgba(0,243,255,0.25));">
+                <path d="M12 46 C 8 46 6 40 10 36 L 18 20 C 22 12 30 10 38 12 L 48 15 C 56 17 58 24 54 30 L 46 44 C 42 50 34 52 26 50 Z" />
+                <circle cx="13" cy="42" r="2.5" fill="#E10600" />
+            </svg>
+            <div style="font-size:0.8rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted, rgba(255,255,255,0.6));">
+                ${circuitLabel}
+            </div>
+            <div style="font-size:0.7rem;color:var(--text-dim, rgba(255,255,255,0.35));letter-spacing:0.04em;">
+                Telemetry Map Standby
+            </div>
+        </div>
+    `;
+
+    if (!mapUrl) {
+        container.innerHTML = fallbackHtml;
+        return;
+    }
+
+    const img = document.createElement('img');
+    img.src = mapUrl;
+    img.alt = `${circuitLabel} Track Map`;
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 5px rgba(255,255,255,0.2));';
+    img.onerror = () => {
+        container.innerHTML = fallbackHtml;
+    };
+    container.innerHTML = '';
+    container.appendChild(img);
+}
+
 async function loadDashboardData() {
     let raceName = "", raceDate = "";
 
@@ -333,13 +369,19 @@ async function loadDashboardData() {
         }
         document.getElementById('dash-race-date').innerText = dateSubtitle;
         updateStatusRow('status-race', 'green', `${race.name} \u00b7 R${race.round}`);
-        const cId = race.circuit_id || '';
-        if (cId && trackMaps[cId]) {
-            const mapUrl = `https://media.formula1.com/image/upload/f_auto/q_auto/v1677244985/content/dam/fom-website/2018-redesign-assets/Track%20icons%204x3/${trackMaps[cId]}.png`;
-            document.getElementById('dash-track-map').innerHTML = `<img src="${mapUrl}" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 5px rgba(255,255,255,0.2));" alt="Track Map">`;
-        } else {
-            document.getElementById('dash-track-map').innerHTML = `<div style="height:200px;display:flex;align-items:center;justify-content:center;opacity:0.2;">[ Map Unavailable ]</div>`;
+        const cId = (race.circuit_id || '').toLowerCase().trim();
+        const countryKey = (race.country || '').toLowerCase().trim();
+        const mapKey = trackMaps[cId] ? cId : (trackMaps[countryKey] ? countryKey : null);
+        let mapUrl = '';
+        if (mapKey) {
+            const entry = trackMaps[mapKey];
+            if (entry.startsWith('/') || entry.startsWith('http://') || entry.startsWith('https://')) {
+                mapUrl = entry;
+            } else {
+                mapUrl = `https://media.formula1.com/image/upload/f_auto/q_auto/v1677244985/content/dam/fom-website/2018-redesign-assets/Track%20icons%204x3/${entry}.png`;
+            }
         }
+        renderCircuitMap(document.getElementById('dash-track-map'), mapUrl, race);
         setupTimezoneSelector(race);
         renderSessionTimes(race);
         markBootStepDone('boot-step-race');
