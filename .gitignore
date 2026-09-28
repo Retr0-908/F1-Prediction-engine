@@ -11,6 +11,7 @@ output/*.csv
 output/*.json
 output/*.txt
 output/*.html
+output/stages/
 !output/.gitkeep
 .superpowers/
 .agents/
