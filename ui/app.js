@@ -204,6 +204,9 @@ function switchArchiveAnalyticsSubtab(subtabId) {
     }
 }
 
+// Alias for compatibility
+const switchArchiveAnalyticsTab = switchArchiveAnalyticsSubtab;
+
 function showScreen(screenId) {
     if (screenId === 'past-archive-screen') {
         showScreen('archive-analytics-screen');
@@ -3559,3 +3562,354 @@ async function rebuildCache() {
         progressDiv.classList.add('hidden');
     }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   STAGE COMPARISON CONTROLLER & INTERACTIVE VIEW
+   ══════════════════════════════════════════════════════════════════ */
+
+let _stageComparisonLoadedRound = null;
+let _stageComparisonData = null;
+let _stageCurrentFilter = 'all';
+let _stageComparisonInitialized = false;
+
+async function initStageComparison() {
+    const roundSelect = document.getElementById('stage-round-selector');
+    const compareBtn = document.getElementById('btn-load-stage-comparison');
+    if (!roundSelect) return;
+
+    if (!_stageComparisonInitialized) {
+        _stageComparisonInitialized = true;
+
+        // Change round dropdown
+        roundSelect.addEventListener('change', () => {
+            const selectedRound = parseInt(roundSelect.value, 10);
+            if (!isNaN(selectedRound)) {
+                loadStageComparison(selectedRound);
+            }
+        });
+
+        // Click compare button
+        if (compareBtn) {
+            compareBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const selectedRound = parseInt(roundSelect.value, 10);
+                if (!isNaN(selectedRound)) {
+                    loadStageComparison(selectedRound);
+                }
+            });
+        }
+
+        // Filter chips
+        document.querySelectorAll('.stage-filter-chips .chip-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                document.querySelectorAll('.stage-filter-chips .chip-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                _stageCurrentFilter = btn.getAttribute('data-filter') || 'all';
+                if (_stageComparisonData) {
+                    renderStageComparisonTable(_stageComparisonData, _stageCurrentFilter);
+                }
+            });
+        });
+    }
+
+    // Populate available rounds dropdown if empty or still on loading
+    if (roundSelect.options.length <= 1) {
+        try {
+            const res = await fetch('/api/analysis/available-rounds');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const rounds = data.rounds || [];
+
+            if (rounds.length > 0) {
+                roundSelect.innerHTML = '';
+                rounds.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.round;
+                    opt.textContent = `Round ${r.round}: ${r.name || r.circuit || 'Grand Prix'}`;
+                    roundSelect.appendChild(opt);
+                });
+
+                // Auto-select latest completed round or highest available round
+                const latestRound = rounds[rounds.length - 1].round;
+                roundSelect.value = latestRound;
+                await loadStageComparison(latestRound);
+            } else {
+                roundSelect.innerHTML = '<option value="">No completed rounds available</option>';
+            }
+        } catch (err) {
+            console.error('Error initializing stage comparison available rounds:', err);
+            roundSelect.innerHTML = '<option value="">Error loading rounds</option>';
+        }
+    } else if (!_stageComparisonData && roundSelect.value) {
+        await loadStageComparison(parseInt(roundSelect.value, 10));
+    }
+}
+
+async function loadStageComparison(roundNum) {
+    const tbody = document.getElementById('stage-comparison-tbody');
+    if (!tbody) return;
+
+    // Loading state with skeleton styling
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="8" class="stage-table-loading">
+                <span class="loading-spinner"></span> Loading Round ${roundNum} multi-stage comparison data...
+            </td>
+        </tr>
+    `;
+
+    try {
+        const res = await fetch(`/api/analysis/stage-comparison/${roundNum}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data.status !== 'ok') {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="stage-table-loading" style="color:var(--color-red);">
+                        Error: ${data.message || 'Failed to load stage comparison'}
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        _stageComparisonData = data;
+        _stageComparisonLoadedRound = roundNum;
+
+        // Animate / Render KPI cards
+        renderStageComparisonKPIs(data.metrics);
+
+        // Render drivers matrix table
+        renderStageComparisonTable(data, _stageCurrentFilter);
+
+    } catch (err) {
+        console.error('Failed to load stage comparison for round', roundNum, err);
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="stage-table-loading" style="color:var(--color-red);">
+                    Failed to fetch stage comparison matrix.
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function renderStageComparisonKPIs(metrics) {
+    if (!metrics) return;
+
+    const preMaeEl = document.getElementById('kpi-pre-mae');
+    const fpMaeEl = document.getElementById('kpi-fp-mae');
+    const fpGainEl = document.getElementById('kpi-fp-gain');
+    const qualiMaeEl = document.getElementById('kpi-quali-mae');
+    const overallGainEl = document.getElementById('kpi-overall-gain');
+    const spearmanEl = document.getElementById('kpi-spearman');
+    const topImproverEl = document.getElementById('kpi-top-improver');
+
+    const preMae = metrics.pre_practice_mae != null ? metrics.pre_practice_mae : 0;
+    const fpMae = metrics.post_practice_mae != null ? metrics.post_practice_mae : 0;
+    const qualiMae = metrics.post_quali_mae != null ? metrics.post_quali_mae : 0;
+
+    // Card 1: Pre-practice Baseline MAE
+    if (preMaeEl) preMaeEl.textContent = preMae.toFixed(2);
+
+    // Card 2: Post-practice Telemetry MAE & Gain
+    if (fpMaeEl) fpMaeEl.textContent = fpMae.toFixed(2);
+    if (fpGainEl && preMae > 0) {
+        const fpGainPct = ((preMae - fpMae) / preMae) * 100;
+        const sign = fpGainPct > 0 ? '+' : '';
+        fpGainEl.textContent = `${sign}${fpGainPct.toFixed(1)}%`;
+        fpGainEl.className = 'kpi-gain-badge ' + (fpGainPct > 0 ? 'positive' : (fpGainPct < 0 ? 'negative' : 'neutral'));
+    }
+
+    // Card 3: Post-Qualifying Grid MAE & Overall Gain
+    if (qualiMaeEl) qualiMaeEl.textContent = qualiMae.toFixed(2);
+    if (overallGainEl) {
+        const overallGainPct = metrics.accuracy_gain_pct != null
+            ? metrics.accuracy_gain_pct
+            : (preMae > 0 ? ((preMae - qualiMae) / preMae) * 100 : 0);
+        const sign = overallGainPct > 0 ? '+' : '';
+        overallGainEl.textContent = `${sign}${overallGainPct.toFixed(1)}%`;
+        overallGainEl.className = 'kpi-gain-badge ' + (overallGainPct > 0 ? 'positive' : (overallGainPct < 0 ? 'negative' : 'neutral'));
+    }
+
+    // Card 4: Spearman rho and Top Improver
+    if (spearmanEl) {
+        const rho = metrics.post_quali_spearman ?? metrics.post_practice_spearman ?? metrics.pre_practice_spearman ?? 0;
+        spearmanEl.textContent = Number(rho).toFixed(2);
+    }
+    if (topImproverEl) {
+        topImproverEl.textContent = metrics.top_improver || '—';
+    }
+
+    // Smooth subtle spring animation if GSAP available
+    if (typeof gsap !== 'undefined' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        gsap.fromTo('.stage-kpi-card', { opacity: 0.7, y: 4 }, { opacity: 1, y: 0, duration: 0.35, stagger: 0.05, ease: 'power2.out' });
+    }
+}
+
+function formatStageErrTag(err) {
+    if (err == null || isNaN(err)) return '';
+    const num = Math.abs(err);
+    let cls = 'err-green';
+    if (num > 3.0) cls = 'err-red';
+    else if (num > 1.0) cls = 'err-yellow';
+    return `<span class="err-tag ${cls}" title="Error vs actual finish: ±${num.toFixed(1)}">±${num.toFixed(1)}</span>`;
+}
+
+function renderStageComparisonTable(data, filter) {
+    const tbody = document.getElementById('stage-comparison-tbody');
+    if (!tbody) return;
+
+    let rows = (data.matrix || []).slice();
+
+    // Apply filter chips
+    if (filter === 'points') {
+        rows = rows.filter(r => r.actual && r.actual.pos != null && r.actual.pos <= 10 && r.actual.status === 'Finished');
+    } else if (filter === 'podium') {
+        rows = rows.filter(r => r.actual && r.actual.pos != null && r.actual.pos <= 3 && r.actual.status === 'Finished');
+    } else if (filter === 'upsets') {
+        rows = rows.filter(r => {
+            return r.convergence === 'Upset' ||
+                   r.driver === data.metrics?.biggest_upset ||
+                   (r.actual && r.actual.status && r.actual.status !== 'Finished') ||
+                   (r.post_quali && r.post_quali.error >= 4.0);
+        });
+    }
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" class="stage-table-loading">
+                    No drivers match the current filter (${filter}).
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        const dName = r.driver || 'Unknown';
+        const dCode = driverCodes[dName] || dName.slice(0, 3).toUpperCase();
+        const photoUrl = driverHeadshots[dName];
+        const team = r.team || driverTeamMap[dName] || 'Unknown';
+        const teamColor = teamColors[team] || '#00E5FF';
+
+        // 1. Position Pill
+        let posPillHtml = '';
+        const actualPos = r.actual?.pos;
+        const actualStatus = r.actual?.status || 'Finished';
+
+        if (actualStatus !== 'Finished') {
+            posPillHtml = `<span class="pos-pill dnf">${actualStatus === 'Retired' ? 'DNF' : actualStatus}</span>`;
+        } else if (actualPos === 1) {
+            posPillHtml = `<span class="pos-pill p1">1</span>`;
+        } else if (actualPos === 2) {
+            posPillHtml = `<span class="pos-pill p2">2</span>`;
+        } else if (actualPos === 3) {
+            posPillHtml = `<span class="pos-pill p3">3</span>`;
+        } else if (actualPos <= 10) {
+            posPillHtml = `<span class="pos-pill points">${actualPos}</span>`;
+        } else {
+            posPillHtml = `<span class="pos-pill outside-points">${actualPos}</span>`;
+        }
+
+        // 2. Driver cell
+        const avatarHtml = photoUrl
+            ? `<img class="driver-avatar" src="${photoUrl}" alt="${dName}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="driver-avatar-fallback" style="display:none;background:${teamColor}22;color:${teamColor};border:1px solid ${teamColor};">${dCode}</div>`
+            : `<div class="driver-avatar-fallback" style="background:${teamColor}22;color:${teamColor};border:1px solid ${teamColor};">${dCode}</div>`;
+
+        // 3. Pre-Practice Baseline
+        const prePos = r.pre_practice?.pos != null ? `P${r.pre_practice.pos.toFixed(1)}` : '—';
+        const preErr = r.pre_practice ? formatStageErrTag(r.pre_practice.error) : '';
+
+        // 4. Post-Practice FP Telemetry
+        const fpPos = r.post_practice?.pos != null ? `P${r.post_practice.pos.toFixed(1)}` : '—';
+        const fpErr = r.post_practice ? formatStageErrTag(r.post_practice.error) : '';
+        const fpPaceDelta = r.post_practice?.fp_pace_delta ?? r.post_practice?.fp_delta;
+        let fpPaceHtml = '';
+        if (fpPaceDelta != null && !isNaN(fpPaceDelta)) {
+            const sign = fpPaceDelta > 0 ? '+' : '';
+            const paceColor = fpPaceDelta < 0 ? 'var(--color-green)' : (fpPaceDelta > 0 ? 'var(--color-red)' : 'var(--text-dim)');
+            fpPaceHtml = `<span class="stage-sub-delta" style="color:${paceColor}">${sign}${fpPaceDelta.toFixed(3)}s FP2</span>`;
+        }
+
+        // 5. Post-Qualifying Grid Locked
+        const qualiPos = r.post_quali?.pos != null ? `P${r.post_quali.pos.toFixed(1)}` : '—';
+        const qualiErr = r.post_quali ? formatStageErrTag(r.post_quali.error) : '';
+        let gridHtml = '';
+        if (r.post_quali?.grid != null) {
+            gridHtml = `<span class="stage-sub-delta">Grid: P${r.post_quali.grid}</span>`;
+        }
+
+        // 6. Actual Finish
+        const actualPosText = actualPos != null ? `P${actualPos}` : '—';
+        const actualPts = r.actual?.pts != null ? `${r.actual.pts.toFixed(0)} pts` : '0 pts';
+
+        // 7. Trajectory & Status
+        const trajectory = r.trajectory || '—';
+        let statusBadgeClass = 'status-converged';
+        let statusIcon = '🎯';
+        const conv = (r.convergence || '').toLowerCase();
+        if (conv === 'bullseye') {
+            statusBadgeClass = 'status-bullseye';
+            statusIcon = '✨';
+        } else if (conv === 'diverged') {
+            statusBadgeClass = 'status-diverged';
+            statusIcon = '⚠️';
+        } else if (conv === 'upset') {
+            statusBadgeClass = 'status-upset';
+            statusIcon = '⚡';
+        } else {
+            statusBadgeClass = 'status-converged';
+            statusIcon = '📈';
+        }
+
+        return `
+            <tr>
+                <td class="col-pos">${posPillHtml}</td>
+                <td class="col-driver">
+                    <div class="driver-info-cell">
+                        ${avatarHtml}
+                        <span class="driver-name-text">${dName}</span>
+                    </div>
+                </td>
+                <td class="col-team">
+                    <span class="driver-team-tag" style="border-left: 3px solid ${teamColor}; color: ${teamColor};">
+                        ${team}
+                    </span>
+                </td>
+                <td class="col-pre">
+                    <div class="stage-pred-cell">
+                        <span class="pred-pos-text">${prePos}</span>
+                        ${preErr}
+                    </div>
+                </td>
+                <td class="col-fp">
+                    <div class="stage-pred-cell">
+                        <span class="pred-pos-text">${fpPos}</span>
+                        ${fpErr}
+                    </div>
+                    ${fpPaceHtml}
+                </td>
+                <td class="col-quali">
+                    <div class="stage-pred-cell">
+                        <span class="pred-pos-text">${qualiPos}</span>
+                        ${qualiErr}
+                    </div>
+                    ${gridHtml}
+                </td>
+                <td class="col-actual">
+                    <span class="pred-pos-text">${actualPosText}</span>
+                    <span class="stage-sub-delta" style="color:var(--telemetry-cyan); font-weight:600;">${actualPts}</span>
+                </td>
+                <td class="col-evolution">
+                    <span class="trajectory-spark">${trajectory}</span>
+                    <span class="${statusBadgeClass}">${statusIcon} ${r.convergence || 'Converged'}</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+

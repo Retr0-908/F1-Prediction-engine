@@ -635,7 +635,121 @@
 
         <!-- Subtab 1: Stage Comparison -->
         <div id="tab-stage-comparison" class="subtab-pane active">
-            <div id="stage-comparison-root"></div>
+            <!-- Toolbar -->
+            <div class="stage-comparison-toolbar">
+                <div class="stage-toolbar-left">
+                    <div class="stage-select-wrap">
+                        <label for="stage-round-selector" class="stage-select-label">RACE ROUND</label>
+                        <select id="stage-round-selector" class="mode-select">
+                            <option value="">Loading rounds...</option>
+                        </select>
+                    </div>
+                    <button id="btn-load-stage-comparison" class="btn btn-primary">📊 Compare Stages</button>
+                </div>
+                <div class="stage-toolbar-right">
+                    <div class="stage-legend">
+                        <span class="legend-badge legend-pre"><span class="legend-dot"></span> Pre-Practice Baseline</span>
+                        <span class="legend-badge legend-fp"><span class="legend-dot"></span> FP Telemetry</span>
+                        <span class="legend-badge legend-quali"><span class="legend-dot"></span> Post-Quali Grid</span>
+                        <span class="legend-badge legend-actual"><span class="legend-dot"></span> Actual Finish</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter Chips Row -->
+            <div class="stage-filter-row">
+                <span class="filter-label">VIEW FILTER:</span>
+                <div class="stage-filter-chips">
+                    <button class="chip-btn active" data-filter="all">All Drivers</button>
+                    <button class="chip-btn" data-filter="points">Points (Top 10)</button>
+                    <button class="chip-btn" data-filter="podium">Podium (Top 3)</button>
+                    <button class="chip-btn" data-filter="upsets">Biggest Upsets</button>
+                </div>
+            </div>
+
+            <!-- KPI Summary Cards Row -->
+            <div id="stage-summary-cards" class="stage-kpi-grid">
+                <div class="stage-kpi-card">
+                    <div class="kpi-card-header">
+                        <span class="kpi-title">PRE-PRACTICE BASELINE</span>
+                        <span class="kpi-icon">📋</span>
+                    </div>
+                    <div class="kpi-body">
+                        <div class="kpi-metric-wrap">
+                            <span id="kpi-pre-mae" class="kpi-metric-val tabular-nums">—</span>
+                            <span class="kpi-metric-unit">MAE</span>
+                        </div>
+                        <div class="kpi-desc">Prior race form &amp; Elo ratings</div>
+                    </div>
+                </div>
+
+                <div class="stage-kpi-card">
+                    <div class="kpi-card-header">
+                        <span class="kpi-title">POST-PRACTICE TELEMETRY</span>
+                        <span class="kpi-icon">⚡</span>
+                    </div>
+                    <div class="kpi-body">
+                        <div class="kpi-metric-wrap">
+                            <span id="kpi-fp-mae" class="kpi-metric-val tabular-nums">—</span>
+                            <span class="kpi-metric-unit">MAE</span>
+                            <span id="kpi-fp-gain" class="kpi-gain-badge neutral">—</span>
+                        </div>
+                        <div class="kpi-desc">FP2 telemetry pace fusion</div>
+                    </div>
+                </div>
+
+                <div class="stage-kpi-card">
+                    <div class="kpi-card-header">
+                        <span class="kpi-title">POST-QUALIFYING GRID</span>
+                        <span class="kpi-icon">🏁</span>
+                    </div>
+                    <div class="kpi-body">
+                        <div class="kpi-metric-wrap">
+                            <span id="kpi-quali-mae" class="kpi-metric-val tabular-nums">—</span>
+                            <span class="kpi-metric-unit">MAE</span>
+                            <span id="kpi-overall-gain" class="kpi-gain-badge neutral">—</span>
+                        </div>
+                        <div class="kpi-desc">Locked grid &amp; ML ensemble</div>
+                    </div>
+                </div>
+
+                <div class="stage-kpi-card">
+                    <div class="kpi-card-header">
+                        <span class="kpi-title">RANKING SPEARMAN &rho;</span>
+                        <span class="kpi-icon">🎯</span>
+                    </div>
+                    <div class="kpi-body">
+                        <div class="kpi-metric-wrap">
+                            <span id="kpi-spearman" class="kpi-metric-val tabular-nums">—</span>
+                            <span class="kpi-metric-unit">&rho;</span>
+                        </div>
+                        <div class="kpi-desc">Top Improver: <strong id="kpi-top-improver">—</strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div class="table-responsive-container stage-table-container">
+                <table id="stage-comparison-table" class="stage-comparison-table">
+                    <thead>
+                        <tr>
+                            <th class="col-pos">FINISH</th>
+                            <th class="col-driver">DRIVER</th>
+                            <th class="col-team">TEAM</th>
+                            <th class="col-pre">BASELINE</th>
+                            <th class="col-fp">FP TELEMETRY</th>
+                            <th class="col-quali">GRID LOCKED</th>
+                            <th class="col-actual">OFFICIAL FINISH</th>
+                            <th class="col-evolution">TRAJECTORY &amp; STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stage-comparison-tbody">
+                        <tr>
+                            <td colspan="8" class="stage-table-loading">Loading stage comparison matrix...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Subtab 2: Model Health & Biases -->

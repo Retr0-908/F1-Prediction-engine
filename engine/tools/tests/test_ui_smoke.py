@@ -209,6 +209,19 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("archive-analytics-screen", res_springs.text)
         self.assertNotIn("past-archive-screen", res_springs.text)
 
+    def test_stage_comparison_ui_elements(self):
+        """Verify presence of stage comparison controls and table container."""
+        res_html = self.client.get("/")
+        self.assertEqual(res_html.status_code, 200)
+        self.assertIn("tab-stage-comparison", res_html.text)
+        self.assertIn("stage-round-selector", res_html.text)
+        self.assertIn("stage-comparison-table", res_html.text)
+
+        res_js = self.client.get("/static/app.js")
+        self.assertEqual(res_js.status_code, 200)
+        self.assertIn("initStageComparison", res_js.text)
+        self.assertIn("loadStageComparison", res_js.text)
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 
