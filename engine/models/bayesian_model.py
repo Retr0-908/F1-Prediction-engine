@@ -8,6 +8,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import logging
 import threading
+from engine.core.config import DNF_PENALTY
 
 logger = logging.getLogger("f1_predictor.bayesian")
 
@@ -53,7 +54,8 @@ class BayesianPointsModel:
         dnf_flags: Optional per-race DNF flags aligned with historical_points.
                    When None, zeros are NOT counted as DNFs (only the prior informs ψ).
         """
-        points_data = np.array([max(0.0, float(p)) for p in historical_points])
+        # Raw historical fantasy points without artificial non-negative clamping
+        points_data = np.array([float(p) for p in historical_points])
 
         sc_prob, fli_risk, track_width, alt_m, weather_var, tire_deg = 0.40, 0.05, 14.0, 0.0, 1.0, 3.0
         if circuit_key:
@@ -78,11 +80,13 @@ class BayesianPointsModel:
         alpha0 = N0 * mu_dnf_prior
         beta0 = N0 * (1.0 - mu_dnf_prior)
 
+        dnf_net_expected_points = self.DNF_QUALI_POINTS_RETAINED + DNF_PENALTY
+
         # If very little data, use prior expected value
         if len(points_data) < 3:
             robust_ev = (
                 (1.0 - mu_dnf_prior) * ensemble_pred_pts
-                + mu_dnf_prior * self.DNF_QUALI_POINTS_RETAINED
+                + mu_dnf_prior * dnf_net_expected_points
             )
             self.evs[driver_name] = robust_ev
             return robust_ev
@@ -120,9 +124,8 @@ class BayesianPointsModel:
         else:
             mu_post = ensemble_pred_pts
 
-        # 3. Zero-inflated EV: scoring races at μ_post, DNF weekends retain a
-        # small expected value (qualifying bonus survives a Sunday retirement).
-        robust_ev = float((1.0 - psi_dnf_post) * mu_post + psi_dnf_post * self.DNF_QUALI_POINTS_RETAINED)
+        # 3. Net EV: non-DNF races score μ_post, DNF weekends retain quali bonus plus DNF penalty
+        robust_ev = float((1.0 - psi_dnf_post) * mu_post + psi_dnf_post * dnf_net_expected_points)
         self.evs[driver_name] = robust_ev
         return robust_ev
 

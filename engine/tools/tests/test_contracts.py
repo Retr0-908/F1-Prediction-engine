@@ -253,6 +253,18 @@ class BayesianTests(unittest.TestCase):
                            dnf_flags=[False, True])
         self.assertGreater(ev, 0)
 
+    def test_bayesian_model_dnf_penalty_consistency(self):
+        from engine.models.bayesian_model import BayesianPointsModel
+        from engine.core.config import DNF_PENALTY
+        bm = BayesianPointsModel()
+        # High DNF driver (3 DNFs out of 5 races, scoring -13 on DNF weekends)
+        pts = [10.0, -13.0, 8.0, -15.0, -14.0]
+        dnf_flags = [False, True, False, True, True]
+        ev = bm.fit_driver("Test Driver", pts, ensemble_pred_pts=10.0, dnf_flags=dnf_flags)
+        # Expected value must be substantially lower than deterministic ensemble points (10.0)
+        # because 60% DNF with -15 penalty drags EV down below 5.0
+        self.assertLess(ev, 5.0, "High DNF driver EV must reflect negative DNF penalty hauls")
+
 
 # ─────────────────────────────────────────────────────────────
 # 7. ELO FEATURE CONTRACTS

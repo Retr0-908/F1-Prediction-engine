@@ -76,7 +76,7 @@ flowchart TD
 - Illinois root finding: $f(x) = \frac{e^x(\Delta^2 - \phi^2 - v - e^x)}{2(\phi^2 + v + e^x)^2} - \frac{x - \ln(\sigma^2)}{\tau^2} = 0$ with tolerance $\epsilon = 10^{-6}$.
 - Constructor aggregation: $\mu_{ctor} = \frac{\sum_i \mu_i / \max(\phi_i, 1.0)}{\sum_i 1.0 / \max(\phi_i, 1.0)}$
 
-- [ ] **Step 1: Write failing unit tests for Glicko-2 mathematical boundary conditions**
+- [x] **Step 1: Write failing unit tests for Glicko-2 mathematical boundary conditions**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -104,7 +104,7 @@ flowchart TD
         self.assertGreater(ctor_rating, 1000.0)
 ```
 
-- [ ] **Step 2: Run test to verify failure/baseline**
+- [x] **Step 2: Run test to verify failure/baseline**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_glicko2_mathematical_invariants`
   Expected: PASS or identifies potential edge-case failures.
 
@@ -163,11 +163,11 @@ flowchart TD
       return sum(mus) / sum(weights)
   ```
 
-- [ ] **Step 4: Run contract tests**
+- [x] **Step 4: Run contract tests**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_glicko2`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 1 checkpoint**
+- [x] **Step 5: Commit Phase 1 checkpoint**
   ```bash
   git add engine/models/elo_ratings.py engine/tools/tests/test_contracts.py
   git commit -m "fix(elo): harden Glicko-2 root-finding and constructor RD weighting against numerical singularity (Phase 1)"
@@ -194,7 +194,7 @@ flowchart TD
   $$\mathbb{E}[Pts] = (1 - \psi_{dnf}) \cdot \mu_{post} + \psi_{dnf} \cdot (\mathbb{E}[Pts_{quali}] + \text{DNF\_PENALTY})$$
   where $\text{DNF\_PENALTY} = -15.0$ and $\mathbb{E}[Pts_{quali}] \approx 2.0$.
 
-- [ ] **Step 1: Write failing contract test for Bayesian DNF penalty and negative points handling**
+- [x] **Step 1: Write failing contract test for Bayesian DNF penalty and negative points handling**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -211,11 +211,11 @@ flowchart TD
         self.assertLess(ev, 5.0, "High DNF driver EV must reflect negative DNF penalty hauls")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_bayesian_model_dnf_penalty_consistency`
   Expected: FAIL
 
-- [ ] **Step 3: Implement true DNF expectation and unbounded points handling in `bayesian_model.py`**
+- [x] **Step 3: Implement true DNF expectation and unbounded points handling in `bayesian_model.py`**
   Modify `fit_driver` in `engine/models/bayesian_model.py`:
   ```python
   from engine.core.config import DNF_PENALTY
@@ -243,11 +243,11 @@ flowchart TD
   return robust_ev
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_bayesian_model_dnf_penalty_consistency`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 2 checkpoint**
+- [x] **Step 5: Commit Phase 2 checkpoint**
   ```bash
   git add engine/models/bayesian_model.py engine/tools/tests/test_contracts.py
   git commit -m "fix(bayesian): reconcile DNF negative penalty with Monte Carlo and F1 fantasy scoring rules (Phase 2)"
@@ -298,7 +298,7 @@ flowchart TD
   - Audit Safety Car midfield compression: verify `sc_gain` clamping so mid-pack cars ($P6-P15$) do not leapfrog $P1$ during simulated pit stops.
   - Reconcile deterministic fantasy points estimation in `predictor.py` line 1713 (`dnf_risk = 0.0`) with Monte Carlo DNF penalties to eliminate scoring drift between modules.
 
-- [ ] **Step 4: Run contract tests**
+- [x] **Step 4: Run contract tests**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_monte_carlo`
   Expected: PASS
 
@@ -341,7 +341,7 @@ flowchart TD
   - If deep models are unavailable (TensorFlow absent), cleanly substitute mathematically sound statistical proxies (e.g. EWMA pace degradation proxy and EWMA 5-race finish slope) identically in both `_train_dataset` and inference.
   - Verify that `RobustScaler` correctly centers and scales without injecting `NaN` or `inf` into the Ridge meta-learner.
 
-- [ ] **Step 4: Run contract tests**
+- [x] **Step 4: Run contract tests**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_feature_vector`
   Expected: PASS
 
@@ -396,7 +396,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
         self.assertGreater(score, 0.0)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `python -m unittest engine/tools/tests/test_tire_physics.py`
   Expected: FAIL
 
@@ -427,7 +427,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
     - Gracefully load Keras model IF TensorFlow is present, but seamlessly fall back to `SklearnTireDegradationModel` when absent.
   - Connect into `predictor.py` and `monte_carlo.py`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `python -m unittest engine/tools/tests/test_tire_physics.py`
   Expected: PASS
 
@@ -478,7 +478,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
         self.assertLessEqual(len(ferrari_drivers) + len(ferrari_ctors), 2, "Cannot have more than 2 assets from Ferrari in 2026!")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_optimizer_2026_team_asset_constraints`
   Expected: FAIL
 
@@ -488,7 +488,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   - Verify that team names match constructor names identically (e.g. `Racing Bulls`, `Audi`, `Cadillac`).
   - Verify Turbo Driver (2x boost) logic: ensure `best_overall_team` correctly tags `turbo_driver` and accounts for risk adjustment.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_optimizer_2026_team_asset_constraints`
   Expected: PASS
 
@@ -525,7 +525,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
         self.assertGreater(ev.get("Ferrari", 0), 10.0)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_lookahead_ev_grid_isolation_and_2026_roster`
   Expected: FAIL
 
@@ -535,7 +535,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   - Implement temporal discounting: weight Round $r$ with $w_0 = 1.0$, Round $r+1$ with $w_1 = 0.75$, Round $r+2$ with $w_2 = 0.5625$, and normalize:
     $$\text{total\_ev}[k] = \frac{\sum_{i=0}^{N-1} \gamma^i \cdot \text{ev}_i[k]}{\sum_{i=0}^{N-1} \gamma^i}$$
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_lookahead_ev_grid_isolation_and_2026_roster`
   Expected: PASS
 
@@ -591,7 +591,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
     $$\sigma_i = \sigma_{base} \cdot \left(1.0 - 0.50 \cdot \frac{C_i}{100}\right)$$
   - Add `evaluate_undercut_potential(circuit_key, driver_stints)` in `fantasy_optimizer.py`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_consistency_scaled_variance`
   Expected: PASS
 
