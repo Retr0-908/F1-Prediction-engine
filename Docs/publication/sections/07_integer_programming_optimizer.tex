@@ -1,0 +1,45 @@
+\section{Constrained Mixed-Integer Linear Programming Team Optimizer}
+\label{sec:integer_programming_optimizer}
+
+Selecting an optimal fantasy lineup requires solving a constrained combinatorial knapsack problem. Because fantasy points are strictly additive across selected assets, the global portfolio optimization can be formulated as a Mixed-Integer Linear Program (MILP) solved via branch-and-cut algorithms.
+
+\subsection{Mathematical Program Formulation}
+Let $\mathcal{D}$ denote the set of $N = 22$ drivers and $\mathcal{C}$ denote the set of $K = 11$ constructors. Define binary decision variables:
+\begin{align}
+x_i &\in \{0, 1\}, \quad \forall i \in \mathcal{D} \quad (\text{driver } i \text{ selected}) \\
+y_j &\in \{0, 1\}, \quad \forall j \in \mathcal{C} \quad (\text{constructor } j \text{ selected}) \\
+t_i &\in \{0, 1\}, \quad \forall i \in \mathcal{D} \quad (\text{driver } i \text{ designated as Turbo Driver})
+\end{align}
+
+Let $c_i$ and $c_j$ denote asset market prices, and let $\mathbb{E}[\text{Pts}_i]$ and $\mathbb{E}[\text{Pts}_j]$ denote the corresponding expected point yields. The objective is to maximize total expected portfolio yield minus transfer penalties:
+\begin{equation}
+\max_{\mathbf{x}, \mathbf{y}, \mathbf{t}} \sum_{i \in \mathcal{D}} \mathbb{E}[\text{Pts}_i] x_i + \sum_{j \in \mathcal{C}} \mathbb{E}[\text{Pts}_j] y_j + \sum_{i \in \mathcal{D}} \mathbb{E}[\text{Pts}_i] t_i - 10 \cdot \Delta_{\text{transfers}}
+\label{eq:milp_objective}
+\end{equation}
+subject to the canonical roster constraints:
+\begin{align}
+\sum_{i \in \mathcal{D}} x_i &= 5 \quad (\text{roster size: exactly 5 drivers}) \label{eq:driver_count} \\
+\sum_{j \in \mathcal{C}} y_j &= 2 \quad (\text{roster size: exactly 2 constructors}) \label{eq:ctor_count} \\
+\sum_{i \in \mathcal{D}} c_i x_i + \sum_{j \in \mathcal{C}} c_j y_j &\le B \quad (\text{budget constraint}) \label{eq:budget_limit}
+\end{align}
+
+\subsection{Turbo Driver Coupling and Price Thresholds}
+The Turbo Driver chip doubles the points scored by a single designated driver ($2\times$ multiplier). In the linear objective of Eq.~\eqref{eq:milp_objective}, this is represented by adding $\mathbb{E}[\text{Pts}_i] t_i$. The Turbo selection is governed by coupling and eligibility constraints:
+\begin{align}
+\sum_{i \in \mathcal{D}} t_i &= 1 \quad (\text{exactly one Turbo driver}) \label{eq:turbo_one} \\
+t_i &\le x_i, \quad \forall i \in \mathcal{D} \quad (\text{must be selected in roster}) \label{eq:turbo_coupling} \\
+c_i t_i &\le 20.0, \quad \forall i \in \mathcal{D} \quad (\text{maximum Turbo price ceiling}) \label{eq:turbo_price}
+\end{align}
+Under Eq.~\eqref{eq:turbo_price}, premium drivers priced above $\$20.0\text{M}$ (such as Max Verstappen or Lando Norris) are mathematically precluded from Turbo designation.
+
+\subsection{The 2026 Team Cap Constraint and Roster Invariants}
+A critical finding during Phase 6 of our audit involved the enforcement of the 2-asset-per-constructor constraint. Under 2026 Formula 1 Fantasy sporting regulations, a participant cannot hold more than 2 assets from the same constructor (e.g., selecting both Ferrari drivers precludes selecting Ferrari as a constructor).
+
+Historically, the constraint was hardcoded to 10 static 2025 constructors, omitting the 11th entry (Cadillac F1) and permitting illegal triples in dynamic roster tests. We implemented a dynamic constraint mapping:
+\begin{equation}
+\sum_{i \in \text{Lineup}(k)} x_i + y_k \le 2, \quad \forall k \in \mathcal{C}
+\label{eq:team_cap}
+\end{equation}
+where $\text{Lineup}(k) = \{i \in \mathcal{D} \mid \text{team}(i) = k\}$ and $|\mathcal{C}| = 11$.
+
+The resulting integer program contains $22 + 11 + 22 = 55$ binary decision variables and $1 + 1 + 1 + 1 + 22 + 22 + 11 = 59$ linear inequalities. The problem is solved in under 25~milliseconds using the COIN-OR Branch and Cut (CBC) solver via the PuLP interface.

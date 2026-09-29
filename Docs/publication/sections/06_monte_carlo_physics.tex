@@ -1,0 +1,44 @@
+\section{Correlated Lap-by-Lap Monte Carlo Simulation Physics}
+\label{sec:monte_carlo_physics}
+
+While point expectation estimators provide first-order guidance, optimal portfolio management under asymmetric risk requires modeling higher-order distribution moments, skewness, and tail risk. The engine incorporates a stochastic, lap-by-lap Monte Carlo simulation engine executing $M = 10,000$ virtual Grands Prix per circuit \cite{bekker2009stochastic}.
+
+\subsection{Consistency-Modulated Stochastic Pace Dynamics}
+On lap $l \in \{1, 2, \dots, L\}$, the simulated lap time $t_{i, l}$ of driver $i$ is governed by:
+\begin{equation}
+t_{i, l} = t_{\text{base}, i} + \beta_{\text{deg}, i} \cdot l_{\text{stint}} - \lambda_{\text{fuel}} \cdot (L - l) + \epsilon_{i, l}
+\label{eq:sim_lap_time}
+\end{equation}
+where $t_{\text{base}, i}$ is derived from the ML ensemble predicted position $\hat{y}_i$, and $\epsilon_{i, l} \sim \mathcal{N}(0, \sigma_i^2)$ represents stochastic driving noise.
+
+In Phase 8, we integrated a consistency-scaled variance model inspired by real telemetry variability:
+\begin{equation}
+\sigma_i = \sigma_{\text{base}} \cdot \left( 1.0 - 0.50 \cdot \frac{C_i}{100} \right)
+\label{eq:consistency_sigma}
+\end{equation}
+where $\sigma_{\text{base}} = 0.150$~seconds, and $C_i \in [50, 100]$ denotes the empirical consistency index computed from clean lap-time coefficients of variation across prior races. For world champions ($C \approx 95$), $\sigma_i \approx 0.078$~s, whereas erratic rookies ($C \approx 60$) exhibit $\sigma_i \approx 0.105$~s.
+
+\subsection{Safety Car Incidents and Midfield Jump Clamping}
+Safety Cars compress the field and induce opportunistic pit stops, creating substantial variance. On each lap $l$, a Bernoulli trial determines whether an SC or VSC occurs:
+\begin{equation}
+P(\text{SC}_l) = \frac{P_{\text{SC}}(\text{circuit})}{L_{\text{race}}} \cdot \psi(l)
+\label{eq:sc_hazard}
+\end{equation}
+where $\psi(l)$ is the first-lap incident hazard modifier ($\psi(1) = 2.50$, $\psi(l) = 1.0$ for $l > 1$).
+
+During Phase 3 of our audit, an analysis of Monte Carlo distributions revealed an unphysical simulation artifact: under neutral SC pit windows, mid-pack cars (running $P_8$ to $P_{15}$) occasionally jumped directly to $P_1$ or $P_2$ due to unconstrained random shuffle deltas. In physical Formula 1 racing, unlapping regulations, pit exit timing, and aerodynamic wake restrict positions gained under SC to tactical pit delta advantages.
+
+To enforce physical realism, we instituted a midfield position jump clamp. For a car in running position $p_{i, l}$ during an SC event:
+\begin{equation}
+p_{i, l+1} = p_{i, l} + \text{clamp}\left( \delta_{\text{pit}, i}, -\min(3, p_{i, l} - 1), +4 \right)
+\label{eq:sc_clamping}
+\end{equation}
+Eq.~\eqref{eq:sc_clamping} restricts maximum forward gain under a single SC intervention to $\le 3$ positions, preventing unphysical podium finishes for midfield vehicles while fully preserving realistic strategic gains.
+
+\subsection{Constructor Expected Fantasy Points Alignment}
+Constructors score points as the sum of their two drivers' fantasy race points plus pit stop efficiency bonuses ($\text{Bonus}_{\text{pit}}$):
+\begin{equation}
+\mathbb{E}[\text{Pts}_c] = \sum_{i \in \mathcal{D}_c} \left( \mathbb{E}[\text{Pts}_i] - \mathbb{E}[\text{Bonus}_{\text{DOTD}, i}] \right) + \mathbb{E}[\text{Bonus}_{\text{pit}, c}]
+\label{eq:constructor_ev}
+\end{equation}
+Note that Driver of the Day ($\text{DOTD} = +10$ pts) accrues exclusively to the driver and is strictly excluded from constructor totals, an invariant verified in our Phase 3 unit tests.

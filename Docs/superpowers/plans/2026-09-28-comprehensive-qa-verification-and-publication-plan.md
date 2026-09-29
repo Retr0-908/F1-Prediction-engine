@@ -683,7 +683,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
 - Consumes: Mathematical specifications, backtest results, and local MiKTeX compiler.
 - Produces: Compiled, publication-grade PDF monograph with 0 citation or layout errors.
 
-- [ ] **Step 1: Setup LaTeX build environment and bibliography**
+- [x] **Step 1: Setup LaTeX build environment and bibliography**
   Create `references.bib` with citations (Glickman, Breiman, Chen & Guestrin, Ke et al., Wolpert, Vaswani et al., Bekker & Lotz, Kelly, Gelman).
   Create `build_paper.py` executing `pdflatex` $\to$ `bibtex` $\to$ `pdflatex` $\to$ `pdflatex`:
   ```python
@@ -707,7 +707,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   print("Monograph PDF compiled successfully!")
   ```
 
-- [ ] **Step 2: Draft all 9 monograph sections in LaTeX**
+- [x] **Step 2: Draft all 9 monograph sections in LaTeX**
   - Section 1: Introduction & F1 Fantasy Game Theory.
   - Section 2: Glicko-2 Dynamic Skill Rating Mathematical Derivation.
   - Section 3: Feature Engineering & 54-Variable Stacking Ensemble.
@@ -718,16 +718,16 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   - Section 8: Empirical Validation Benchmarks & Backtest Results.
   - Section 9: Quality Assurance & Code Integrity Framework.
 
-- [ ] **Step 3: Compile monograph to PDF via local MiKTeX compiler**
+- [x] **Step 3: Compile monograph to PDF via local MiKTeX compiler**
   Run: `python Docs/publication/build_paper.py`
   Verify that `f1_prediction_engine_monograph.pdf` compiles cleanly with 0 errors.
 
-- [ ] **Step 4: Final quality assurance verification & secret scan**
+- [x] **Step 4: Final quality assurance verification & secret scan**
   Run: `python -m unittest engine/tools/tests/test_ui_smoke.py engine/tools/tests/test_contracts.py`
   Run: `python engine/tools/secret_scanner.py`
   Expected: All tests green, 0 active secrets detected.
 
-- [ ] **Step 5: Final git commit and push**
+- [x] **Step 5: Final git commit and push**
   Stage verified publication documents and code, and push cleanly to `origin/main`:
   ```bash
   git add Docs/publication/

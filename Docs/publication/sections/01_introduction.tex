@@ -1,0 +1,38 @@
+\section{Introduction}
+\label{sec:introduction}
+
+The management of competitive portfolios in fantasy sports presents a challenging combinatorial optimization problem characterized by non-stationary competitor capabilities, extreme environmental stochasticity, and asymmetric rule-based payoff functions. In Formula 1 (F1) Fantasy, participants manage a portfolio comprising five drivers and two constructors subject to a dynamic salary cap, constrained weekly transfers, and asset price fluctuations dictated by market sentiment and performance streaks.
+
+The 2026 Formula 1 championship represents one of the most radical technical and sporting regulatory resets in modern motorsport history \cite{fia2026regulations}. The introduction of equal power distribution between the internal combustion engine (ICE) and the 350~kW electrical Motor Generator Unit--Kinetic (MGU-K), the complete elimination of the Motor Generator Unit--Heat (MGU-H), the mandate of 100\% sustainable advanced drop-in fuels, and the implementation of active aerodynamics via Straight Mode (SM) and Cornering Mode (CM) fundamentally alter vehicle dynamics and overtake probabilities. Furthermore, the sporting expansion of the grid to 22 cars with the arrival of the Cadillac Formula 1 Team necessitates dynamic algorithmic structures capable of handling structural grid alterations without hard-coded schema assumptions.
+
+Predicting driver finishing positions and the corresponding fantasy point yields requires addressing multiple coupled mathematical phenomena:
+\begin{enumerate}
+    \item \textbf{Latent Competitor Skill Dynamics:} Drivers and chassis evolve at different rates across developmental cycles, demanding a dynamic Bayesian rating system that quantifies both instantaneous relative skill and epistemic rating uncertainty.
+    \item \textbf{High-Dimensional Multivariate Pre-Race Signals:} Signals from qualifying sector deltas, long-run practice telemetry, circuit-specific characteristics, and historical form must be ensembled across diverse learning paradigms without ranking polarity inversion or data leakage.
+    \item \textbf{Empirical Fuel-Corrected Tire Degradation:} Observed lap times during practice stints conflate vehicle fuel burnoff with physical tire degradation, necessitating mass-adjusted econometric models to recover true underlying thermal and mechanical wear gradients.
+    \item \textbf{Stochastic Lap-by-Lap Race Physics:} Rare events such as Safety Cars (SC), Virtual Safety Cars (VSC), red flags, and first-lap terminal damage induce non-Gaussian, multi-modal finishing distributions that defy simple deterministic point expectations.
+    \item \textbf{Constrained Combinatorial Optimization:} The translation of probabilistic point forecasts into optimal team rosters requires solving a Mixed-Integer Linear Program (MILP) with team asset caps, price boundaries, and temporal multi-race lookahead discounting.
+\end{enumerate}
+
+\begin{figure*}[t]
+\centering
+\fbox{\parbox{0.95\textwidth}{
+\centering
+\textbf{End-to-End Prediction and Optimization Architecture}\\[6pt]
+\small
+\begin{tabular}{ccccccc}
+\fbox{\parbox{1.8cm}{\centering \textbf{Data Layer}\\Jolpica API\\FastF1 Telemetry\\Circuit Schemas}} & $\longrightarrow$ &
+\fbox{\parbox{2.0cm}{\centering \textbf{Skill Dynamics}\\Glicko-2 Elo\\Constructor RD\\EWMA Form}} & $\longrightarrow$ &
+\fbox{\parbox{2.2cm}{\centering \textbf{ML Ensemble}\\RF + XGB + LGBM\\Rank Normalization\\Ridge Stacking}} & $\longrightarrow$ &
+\fbox{\parbox{2.0cm}{\centering \textbf{Physical Sim}\\Fuel-Corr. Deg\\Monte Carlo MC\\Midfield Clamping}} \\
+& & & & $\downarrow$ & & $\downarrow$ \\
+& & \fbox{\parbox{2.2cm}{\centering \textbf{3-Race Lookahead}\\$\gamma = 0.75$ Discount\\Grid Isolation\\Cadillac EV}} & $\longleftarrow$ &
+\fbox{\parbox{2.2cm}{\centering \textbf{Bayesian EV}\\DNF Penalty\\Point Distributions\\Streak Bonuses}} & $\longrightarrow$ &
+\fbox{\parbox{2.0cm}{\centering \textbf{MILP Solver}\\PuLP Branch\&Bound\\2026 Team Cap\\Turbo Multiplier}}
+\end{tabular}
+}}
+\caption{System architecture of the F1 Prediction and Strategy Optimization Engine, detailing the unidirectional flow from raw telemetry to optimal combinatorial team selection.}
+\label{fig:pipeline_architecture}
+\end{figure*}
+
+This monograph provides a rigorous, mathematically comprehensive documentation of the open-source F1 Prediction Engine. We formally derive each underlying mathematical model, detail the bug eradication and rank calibration verified across Phases 1 through 9 of the system audit, and present multi-season backtesting benchmarks demonstrating state-of-the-art predictive accuracy and portfolio alpha.

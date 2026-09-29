@@ -16,3 +16,9 @@ output/stages/
 .superpowers/
 .agents/
 Screenshots/
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+

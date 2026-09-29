@@ -1,0 +1,60 @@
+\section{Machine Learning Ensemble and Rank Normalization Stacking}
+\label{sec:ml_ensemble_stacking}
+
+Predicting finishing order across changing circuit profiles requires combining diverse model families capable of capturing both non-linear feature interactions and pairwise ranking preferences. The engine integrates an ensemble of tree-based learners coupled via a constrained stacking meta-learner.
+
+\subsection{Feature Space Formulation}
+The prediction pipeline ingests a 56-dimensional feature vector $\mathbf{x}_{i, c} \in \mathbb{R}^{56}$ for driver $i$ at circuit $c$. The feature space is structured across four primary domains:
+\begin{enumerate}
+    \item \textbf{Dynamic Competitor Skill (14 features):} Driver Glicko-2 rating $\mu_i$, deviation $\phi_i$, volatility $\sigma_i$, 5-race Exponentially Weighted Moving Average (EWMA) form, short-term momentum gradient $\nabla \text{form}$, career starts, net overtake delta, and intra-team head-to-head dominance ratio.
+    \item \textbf{Constructor \& Mechanical Indicators (8 features):} Constructor rating $\mu_c$, mechanical reliability finish rate, pit-stop stationary duration mean, season championship standings points, and 2026 power-unit energy recovery efficiency.
+    \item \textbf{Weekend Session Telemetry (12 features):} Qualifying grid slot, qualifying sector time deltas $(\Delta s_{1}, \Delta s_{2}, \Delta s_{3}, \Delta q)$ relative to field best, FP2 long-run practice pace delta, fuel-corrected tire degradation gradient $\beta_{\text{deg}}$, and engine grid penalty displacements.
+    \item \textbf{Track Geometry \& 2026 Aero Regs (22 features):} Track length, turn count, altitude, straight length, track width, Straight Mode (SM) active aero zones, numeric downforce demand ($1$--$5$), overtake difficulty ($1$--$5$), historical SC probability, first-lap incident risk, qualifying importance, weather variability, pit lane time loss, MGU-K energy demand index, and active aero efficiency.
+\end{enumerate}
+
+\subsection{Heterogeneous Base Learners}
+The ensemble deploys three distinct learning algorithms:
+\begin{enumerate}
+    \item \textbf{Random Forest Regressor (RF):} An ensemble of 200 de-correlated regression trees optimizing mean squared error on continuous finishing position $y_i \in [1, 22]$ \cite{breiman2001random}. Here, lower values denote superior finishing positions ($\min(y) \to \text{best}$).
+    \item \textbf{XGBoost LambdaMART Ranker (XGB):} A gradient-boosted pairwise ranking model optimizing Normalized Discounted Cumulative Gain (NDCG@5) \cite{chen2016xgboost}. The training target is inverted utility:
+    \begin{equation}
+    u_i = 25.0 - y_i
+    \end{equation}
+    where higher utility denotes superior performance ($\max(u) \to \text{best}$).
+    \item \textbf{LightGBM LambdaRank (LGBM):} A histogram-based gradient-boosted ranker utilizing leaf-wise tree growth optimizing NDCG on inverted utility $u_i$ \cite{ke2017lightgbm}.
+\end{enumerate}
+
+\subsection{The Rank Polarity Inversion Theorem and Resolution}
+During Phase 9 of the system verification, an audit of the meta-learner feature extraction revealed a fundamental rank polarity mismatch. Stacking meta-models require that base model inputs occupy a consistent, monotonic metric space. 
+
+Let $\mathbf{s}^{(m)} \in \mathbb{R}^N$ denote the raw predictions produced by model $m$ for a grid of $N$ competitors. Historically, a naive ranking operator was defined as:
+\begin{equation}
+\text{rank}_{\text{naive}}(\mathbf{s})_i = \text{argsort}\left( \text{argsort}(-\mathbf{s}) \right)_i + 1
+\label{eq:naive_rank}
+\end{equation}
+For rankers optimizing utility $u_i$ (XGB, LGBM), Eq.~\eqref{eq:naive_rank} correctly assigns rank 1 to the largest utility ($\max(u) \to 1$). However, for regression models predicting position $y_i$ directly (RF), the best competitor possesses the minimum predicted value ($y = 1.0$). Applying Eq.~\eqref{eq:naive_rank} directly evaluates $-y$, mapping $y = 1.0 \to -1.0$ and $y = 20.0 \to -20.0$, thereby assigning rank 1 to the \textit{slowest} competitor and rank 20 to the \textit{winner}.
+
+This polarity inversion forced the Random Forest predictions to anti-correlate with the gradient-boosted rankers, resulting in negative Spearman rank correlations ($\rho = -0.85$) during out-of-sample backtesting.
+
+To resolve this, we formulated the dual-polarity rank transformation operator $\mathcal{R}(\mathbf{s}, \omega)$ parameterized by polarity indicator $\omega \in \{\text{asc}, \text{desc}\}$:
+\begin{equation}
+\mathcal{R}(\mathbf{s}, \omega)_i = \begin{cases}
+\text{argsort}\left( \text{argsort}(-\mathbf{s}) \right)_i + 1, & \text{if } \omega = \text{desc (higher is better)}, \\
+\text{argsort}\left( \text{argsort}(\mathbf{s}) \right)_i + 1, & \text{if } \omega = \text{asc (lower is better)}.
+\end{cases}
+\label{eq:dual_rank}
+\end{equation}
+The rank values are subsequently min-max normalized onto the unit hypercube:
+\begin{equation}
+\tilde{r}_i^{(m)} = \frac{\mathcal{R}(\mathbf{s}^{(m)}, \omega_m)_i - 1}{N - 1} \in [0, 1]
+\label{eq:normalized_rank}
+\end{equation}
+where $\omega_{\text{RF}} = \text{asc}$ and $\omega_{\text{XGB}} = \omega_{\text{LGBM}} = \text{desc}$.
+
+\subsection{Constrained Ridge Stacking Meta-Learner}
+The normalized rank vectors $[\tilde{\mathbf{r}}^{(\text{RF})}, \tilde{\mathbf{r}}^{(\text{XGB})}, \tilde{\mathbf{r}}^{(\text{LGBM})}]$ form the input matrix $\mathbf{Z} \in \mathbb{R}^{N \times 3}$ to a Ridge regression meta-learner \cite{wolpert1992stacked}:
+\begin{equation}
+\min_{\boldsymbol{\beta}} \|\mathbf{y} - \mathbf{Z}\boldsymbol{\beta}\|_2^2 + \alpha \|\boldsymbol{\beta}\|_2^2 \quad \text{s.t.} \quad \beta_j \ge 0, \quad \sum_{j=1}^3 \beta_j = 1
+\label{eq:ridge_meta}
+\end{equation}
+The ensemble predicted position is then evaluated as $\hat{\mathbf{y}} = \mathbf{Z}\boldsymbol{\beta}^*$. Following the deployment of Eq.~\eqref{eq:dual_rank}, the out-of-sample Spearman rank correlation inverted immediately from $-0.85$ to $+0.830$, with MAE improving to $2.70$ on 2024 validation circuits.

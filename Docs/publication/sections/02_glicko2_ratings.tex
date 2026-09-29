@@ -1,0 +1,82 @@
+\section{Dynamic Competitor Skill Rating: The Hardened Glicko-2 System}
+\label{sec:glicko2_ratings}
+
+Competitor skill in Formula 1 is inherently continuous, dynamic, and non-stationary. Unlike pairwise board games, an F1 Grand Prix constitutes a simultaneous multi-entrant contest among $N = 22$ competitors. To maintain dynamic estimates of individual driver performance and constructor chassis capabilities across multiple seasons, we implement a hardened adaptation of the Glicko-2 rating system \cite{glickman1999parameter, glickman2001glicko2}.
+
+\subsection{Parameter Scaling and Multi-Entrant Decomposition}
+Each driver $i$ is characterized by a rating triplet $(r_i, RD_i, \sigma_i)$ representing the estimated skill rating, rating deviation (uncertainty), and rating volatility. These values are mapped onto the Glicko-2 internal scale $(\mu_i, \phi_i, \sigma_i)$ via:
+\begin{equation}
+\mu_i = \frac{r_i - 1500}{173.7178}, \quad \phi_i = \frac{RD_i}{173.7178}, \quad \phi_i \ge \phi_{\min}
+\label{eq:glicko_scaling}
+\end{equation}
+where $\phi_{\min} = 1.0 / 173.7178 \approx 0.00576$ represents a structural safety floor preventing zero-variance collapse.
+
+A completed race with $N$ classified or retired drivers is decomposed into $\binom{N}{2}$ pairwise comparisons. For driver $i$ and opponent $j$ with finishing positions $p_i$ and $p_j$:
+\begin{equation}
+s_{ij} = \begin{cases}
+1.0, & \text{if } p_i < p_j \text{ (driver $i$ defeated driver $j$)}, \\
+0.5, & \text{if } p_i = p_j \text{ (dead heat or mutual DNF)}, \\
+0.0, & \text{if } p_i > p_j \text{ (driver $i$ lost to driver $j$)}.
+\end{cases}
+\label{eq:pairwise_outcome}
+\end{equation}
+
+\subsection{Expected Outcome and Variance Formulation}
+The expected outcome $E(\mu_i, \mu_j, \phi_j)$ and the impact function $g(\phi_j)$ are defined by:
+\begin{equation}
+g(\phi_j) = \frac{1}{\sqrt{1 + \frac{3\phi_j^2}{\pi^2}}}
+\label{eq:g_function}
+\end{equation}
+\begin{equation}
+E(\mu_i, \mu_j, \phi_j) = \frac{1}{1 + \exp\left( -g(\phi_j)(\mu_i - \mu_j) \right)}
+\label{eq:expected_outcome}
+\end{equation}
+The estimated variance $v_i$ based on the field of opponents $\mathcal{J}_i$ is computed as:
+\begin{equation}
+v_i = \left[ \sum_{j \in \mathcal{J}_i} g(\phi_j)^2 E(\mu_i, \mu_j, \phi_j) \left( 1 - E(\mu_i, \mu_j, \phi_j) \right) \right]^{-1}
+\label{eq:variance_v}
+\end{equation}
+The corresponding estimated performance difference $\Delta_i$ is given by:
+\begin{equation}
+\Delta_i = v_i \sum_{j \in \mathcal{J}_i} g(\phi_j) \left( s_{ij} - E(\mu_i, \mu_j, \phi_j) \right)
+\label{eq:delta_difference}
+\end{equation}
+
+\subsection{Numerical Root-Finding and Volatility Hardening}
+Updating the rating volatility $\sigma_i$ to $\sigma_i'$ requires determining the root of the non-linear objective function $f(x)$ where $x = \ln(\sigma_i'^2)$ and $\tau$ denotes the system constraint parameter ($\tau = 0.5$):
+\begin{equation}
+f(x) = \frac{e^x (\Delta_i^2 - \phi_i^2 - v_i - e^x)}{2(\phi_i^2 + v_i + e^x)^2} - \frac{x - \ln(\sigma_i^2)}{\tau^2}
+\label{eq:volatility_objective}
+\end{equation}
+In standard implementations, the Illinois modification of the regula falsi method can fail to terminate if the root bracket contains anomalous signs or if numerical underflow occurs during consecutive iterations. In Phase 1 of our quality assurance audit, we instituted three mathematical safeguards:
+\begin{enumerate}
+    \item \textbf{Bracket Sign Invariant:} Before entering the bracket search, the system asserts that $f(A) \cdot f(B) \le 0$. If the signs are identical, the interval is expanded adaptively ($B \leftarrow B + \tau$) up to a maximum bracket radius.
+    \item \textbf{Strict Convergence Bound:} Iteration count is strictly bounded by $k < 100$. If numerical precision limits ($\epsilon = 10^{-6}$) are reached or if $k$ hits the ceiling, the algorithm gracefully yields the bracket midpoint.
+    \item \textbf{Volatility Clamping:} The updated volatility is bounded within physical limits:
+    \begin{equation}
+    \sigma_i' = \text{clamp}\left( \exp(x^* / 2), 0.01, 1.20 \right)
+    \end{equation}
+\end{enumerate}
+
+\subsection{Temporal Updating and Constructor Aggregation}
+Following the determination of $\sigma_i'$, the rating deviation is inflated to account for temporal decay between events:
+\begin{equation}
+\phi_i^* = \sqrt{\phi_i^2 + (\sigma_i')^2}
+\label{eq:phi_star}
+\end{equation}
+The final updated parameters $(\mu_i', \phi_i')$ are obtained through conjugate updating:
+\begin{equation}
+\phi_i' = \frac{1}{\sqrt{\frac{1}{(\phi_i^*)^2} + \frac{1}{v_i}}}
+\label{eq:phi_new}
+\end{equation}
+\begin{equation}
+\mu_i' = \mu_i + (\phi_i')^2 \sum_{j \in \mathcal{J}_i} g(\phi_j) \left( s_{ij} - E(\mu_i, \mu_j, \phi_j) \right)
+\label{eq:mu_new}
+\end{equation}
+
+To evaluate constructors, the team skill rating is computed as the uncertainty-weighted convex combination of its active driver lineup $\mathcal{D}_c$:
+\begin{equation}
+\mu_c = \frac{\sum_{i \in \mathcal{D}_c} \frac{\mu_i}{\phi_i^2}}{\sum_{i \in \mathcal{D}_c} \frac{1}{\phi_i^2}}, \quad \phi_c = \max\left( \sqrt{\frac{1}{\sum_{i \in \mathcal{D}_c} \frac{1}{\phi_i^2}}}, \phi_{\text{ctor\_floor}} \right)
+\label{eq:constructor_rating}
+\end{equation}
+The explicit constructor floor $\phi_{\text{ctor\_floor}} = 1.0$ guarantees that constructor rating updates remain numerically stable even when fielding two highly experienced, low-deviation drivers.
