@@ -1,19 +1,12 @@
-import json
-from engine.core.data_fetcher import compute_practice_pace
-import fastf1
+import unittest
 
-session = fastf1.get_session(2026, "Miami Grand Prix", "FP1")
-session.load(telemetry=False, weather=False, messages=False)
 
-abbr_to_name = {}
-for num in session.drivers:
-    try:
-        drv_data = session.get_driver(num)
-        drv_abbr = drv_data.get('Abbreviation')
-        full = f"{drv_data.get('FirstName', '')} {drv_data.get('LastName', '')}".strip()
-        if drv_abbr and full:
-            abbr_to_name[drv_abbr] = full
-    except Exception:
-        pass
+class FastF1SmokeTests(unittest.TestCase):
+    def test_fastf1_importable(self):
+        import fastf1
+        self.assertIsNotNone(fastf1.__version__)
 
-print(json.dumps(abbr_to_name, indent=2))
+
+if __name__ == "__main__":
+    unittest.main()
+

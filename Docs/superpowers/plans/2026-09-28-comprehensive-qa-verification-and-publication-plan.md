@@ -619,7 +619,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
 - Consumes: Historical seasons 2021–2026 and multi-stage prediction outputs.
 - Produces: Statistical benchmark report verifying Race MAE $< 2.50$, Spearman Rank Correlation $> 0.85$, Top-3 Hit Rate $> 90\%$, and monotonic weekend stage gains.
 
-- [ ] **Step 1: Clean pandas deprecations and convert test scripts into formal TestCase classes**
+- [x] **Step 1: Clean pandas deprecations and convert test scripts into formal TestCase classes**
   - In `data_fetcher.py:1788`: Replace groupby `.apply()` with `include_groups=False` or explicit indexing.
   - Wrap `test_pipeline.py`, `test_rookie.py`, and `test_serialize.py` inside standard `class ... (unittest.TestCase):` structures with `if __name__ == '__main__':` guards:
   ```python
@@ -633,7 +633,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
           self.assertIn("predictions", res)
   ```
 
-- [ ] **Step 2: Create `test_backtest_benchmarks.py` and run benchmark suite**
+- [x] **Step 2: Create `test_backtest_benchmarks.py` and run benchmark suite**
   ```python
   import unittest
   from engine.analysis.backtest import compute_round_metrics
@@ -644,15 +644,15 @@ class TirePhysicsDegradationTests(unittest.TestCase):
           self.assertGreater(metrics["spearman"], 0.90)
   ```
 
-- [ ] **Step 3: Run full multi-season walk-forward backtest**
+- [x] **Step 3: Run full multi-season walk-forward backtest**
   Run: `python engine/analysis/backtest.py --years 2024 2025`
   Save benchmark metrics to `output/benchmarks/backtest_results.json`.
 
-- [ ] **Step 4: Run full project test suite**
+- [x] **Step 4: Run full project test suite**
   Run: `python -m unittest discover -s engine/tools/tests -p "test_*.py"`
   Expected: PASS (All tests green).
 
-- [ ] **Step 5: Commit Phase 9 checkpoint**
+- [x] **Step 5: Commit Phase 9 checkpoint**
   ```bash
   git add engine/core/data_fetcher.py engine/tools/tests/ engine/analysis/backtest.py engine/analysis/stage_comparator.py
   git commit -m "verify(analysis): complete multi-season backtesting and test runner hardening (Phase 9)"

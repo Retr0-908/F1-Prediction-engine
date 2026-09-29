@@ -272,15 +272,24 @@ def _cpu_threads() -> int:
     return _os.cpu_count() or 2
 
 
-def to_rank(scores: np.ndarray, normalize: bool = True) -> np.ndarray:
+def to_rank(scores: np.ndarray, normalize: bool = True, higher_is_better: bool = True) -> np.ndarray:
     """Raw scores → per-field rank (1 = best), shared by inference, backtest,
     AND meta-learner training so all three use an identical representation.
+
+    If higher_is_better is True (XGB/LGB rankers with inverted utility targets):
+        higher score maps to rank 1.
+    If higher_is_better is False (RF regressors predicting finishing positions):
+        lower score maps to rank 1.
 
     Normalized mode emits rank/(N+1) ∈ (0,1) — field-size invariant, so a
     meta-learner trained on ~20-driver historical fields transfers cleanly
     to 22–23-driver live fields (plan 8d).
     """
-    ranks = np.argsort(np.argsort(-np.asarray(scores, dtype=float))).astype(float) + 1.0
+    arr = np.asarray(scores, dtype=float)
+    if higher_is_better:
+        ranks = np.argsort(np.argsort(-arr)).astype(float) + 1.0
+    else:
+        ranks = np.argsort(np.argsort(arr)).astype(float) + 1.0
     if normalize:
         ranks = ranks / (len(ranks) + 1.0)
     return ranks
@@ -1320,7 +1329,9 @@ class F1Predictor:
             s_lgb = np.asarray(mdl_lgb.predict(fs), dtype=float)
 
         # Shared helper — SAME representation the meta-learner trains on (7a/8d)
-        r_rf, r_xgb, r_lgb = to_rank(s_rf), to_rank(s_xgb), to_rank(s_lgb)
+        r_rf = to_rank(s_rf, higher_is_better=False)
+        r_xgb = to_rank(s_xgb, higher_is_better=True)
+        r_lgb = to_rank(s_lgb, higher_is_better=True)
 
         results: dict[str, tuple[float, float]] = {}
         for i, drv in enumerate(drivers):
@@ -1862,9 +1873,9 @@ def _train_meta_learner(
         s_rf  = np.asarray(rf_clone.predict(X_test), dtype=float)
         s_xgb = np.asarray(xgb_clone.predict(X_test), dtype=float)
         s_lgb = np.asarray(lgb_clone.predict(X_test), dtype=float)
-        oof_preds[test_start_idx:test_end_idx, 0] = to_rank(s_rf)
-        oof_preds[test_start_idx:test_end_idx, 1] = to_rank(s_xgb)
-        oof_preds[test_start_idx:test_end_idx, 2] = to_rank(s_lgb)
+        oof_preds[test_start_idx:test_end_idx, 0] = to_rank(s_rf, higher_is_better=False)
+        oof_preds[test_start_idx:test_end_idx, 1] = to_rank(s_xgb, higher_is_better=True)
+        oof_preds[test_start_idx:test_end_idx, 2] = to_rank(s_lgb, higher_is_better=True)
 
     first_test_start = group_boundaries[total_groups - n_splits * test_size]
     if first_test_start < len(y):

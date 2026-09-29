@@ -9,6 +9,8 @@ Usage:
 """
 
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import argparse
 import datetime
 import warnings
@@ -43,6 +45,41 @@ import logging
 
 
 logger = logging.getLogger("f1_predictor.backtest")
+
+
+def compute_round_metrics(y_true, y_pred) -> dict:
+    """
+    Computes statistical accuracy and rank correlation metrics for a prediction round.
+
+    Returns:
+        dict: {
+            "mae": float,
+            "rmse": float,
+            "spearman": float,
+            "top3_acc": float,
+        }
+    """
+    y_t = np.asarray(y_true, dtype=float)
+    y_p = np.asarray(y_pred, dtype=float)
+    mae = float(mean_absolute_error(y_t, y_p))
+    rmse = float(np.sqrt(mean_squared_error(y_t, y_p)))
+    rho, _ = spearmanr(y_t, y_p)
+    if np.isnan(rho):
+        rho = 0.0
+
+    top3_true = set(np.where(y_t <= 3)[0]) if len(np.where(y_t <= 3)[0]) > 0 else set(np.argsort(y_t)[:3])
+    top3_pred = set(np.where(y_p <= 3)[0]) if len(np.where(y_p <= 3)[0]) > 0 else set(np.argsort(y_p)[:3])
+    denom = max(1, len(top3_true))
+    top3_acc = len(top3_true & top3_pred) / denom
+
+    return {
+        "mae": round(mae, 4),
+        "rmse": round(rmse, 4),
+        "spearman": round(float(rho), 4),
+        "top3_acc": round(top3_acc, 4),
+    }
+
+
 # ─────────────────────────────────────────────
 # ROSTER RESOLUTION — dynamic first, static fallback
 # Lineups are auto-derived from championship standings each season; the tables
@@ -217,13 +254,13 @@ def backtest_race(
         warnings.simplefilter("ignore", UserWarning)
         if predictor._trained and getattr(predictor, "race_rf", None) is not None and feats:
             fs = predictor.scaler_race.transform(np.array(feats))
-            s_rf  = np.asarray(predictor.race_rf.predict(fs), dtype=float)
-            s_xgb = _field_ranks(predictor.race_xgb.predict(fs))
-            s_lgb = _field_ranks(predictor.race_lgb.predict(fs))
+            s_rf  = to_rank(predictor.race_rf.predict(fs), higher_is_better=False)
+            s_xgb = to_rank(predictor.race_xgb.predict(fs), higher_is_better=True)
+            s_lgb = to_rank(predictor.race_lgb.predict(fs), higher_is_better=True)
             fq = predictor.scaler_quali.transform(np.array(feats))
-            q_rf  = np.asarray(predictor.quali_rf.predict(fq), dtype=float)
-            q_xgb = _field_ranks(predictor.quali_xgb.predict(fq))
-            q_lgb = _field_ranks(predictor.quali_lgb.predict(fq))
+            q_rf  = to_rank(predictor.quali_rf.predict(fq), higher_is_better=False)
+            q_xgb = to_rank(predictor.quali_xgb.predict(fq), higher_is_better=True)
+            q_lgb = to_rank(predictor.quali_lgb.predict(fq), higher_is_better=True)
 
         for i, drv in enumerate(valid_drivers):
             # Race prediction
@@ -517,13 +554,35 @@ def main():
     if len(test_years) > 1 and all_results:
         summarise(all_results, "All Years Combined")
 
-    # Save CSV
+    # Save CSV and JSON
     if all_results:
         df = pd.DataFrame(all_results)
         years_str = "_".join(map(str, test_years))
         out = f"output/backtest_{years_str}.csv"
         df.to_csv(out, index=False)
         console.print(f"\n[bold green]✓ Results saved → {out}[/bold green]")
+
+        import json
+        from engine.core.paths import OUTPUT_DIR
+        bench_dir = OUTPUT_DIR / "benchmarks"
+        bench_dir.mkdir(parents=True, exist_ok=True)
+        bench_json = bench_dir / "backtest_results.json"
+        
+        bench_summary = {
+            "seasons": test_years,
+            "total_races": len(df),
+            "race_mae": round(float(df["race_mae"].mean()), 3),
+            "race_rmse": round(float(df["race_rmse"].mean()), 3),
+            "race_spearman": round(float(df["race_rho"].mean()), 3),
+            "quali_mae": round(float(df["quali_mae"].mean()), 3),
+            "quali_spearman": round(float(df["quali_rho"].mean()), 3),
+            "winner_acc": round(float(df["winner_correct"].mean()), 3),
+            "avg_top3_hits": round(float(df["top3_hits"].mean()), 3),
+            "avg_top5_hits": round(float(df["top5_hits"].mean()), 3),
+        }
+        with open(bench_json, "w", encoding="utf-8") as f:
+            json.dump(bench_summary, f, indent=2)
+        console.print(f"[bold green]✓ Benchmark metrics saved → {bench_json}[/bold green]")
     
     console.print()
 
