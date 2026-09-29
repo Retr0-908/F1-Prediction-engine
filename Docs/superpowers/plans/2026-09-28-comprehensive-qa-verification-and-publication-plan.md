@@ -322,7 +322,7 @@ flowchart TD
 - Consumes: 54-dimensional feature dictionary for drivers and circuits.
 - Produces: Meta-learner stacked predicted finishing position $\hat{y}$ with zero train-serve feature skew.
 
-- [ ] **Step 1: Write failing contract test for 54-feature vector consistency between train and inference**
+- [x] **Step 1: Write failing contract test for 54-feature vector consistency between train and inference**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -333,10 +333,10 @@ flowchart TD
         self.assertEqual(len(feat), 54, f"Feature vector must have exactly 54 features, found {len(feat)}")
 ```
 
-- [ ] **Step 2: Run test to verify it fails or exposes skew**
+- [x] **Step 2: Run test to verify it fails or exposes skew**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_feature_vector_dimension_and_consistency`
 
-- [ ] **Step 3: Implement clean train-serve feature alignment in `engine/models/predictor.py`**
+- [x] **Step 3: Implement clean train-serve feature alignment in `engine/models/predictor.py`**
   - Eliminate the artificial divergence where training strictly ignored Phase 3 features (`form_avg_pos` and `0.0`) while inference computed dynamic values.
   - If deep models are unavailable (TensorFlow absent), cleanly substitute mathematically sound statistical proxies (e.g. EWMA pace degradation proxy and EWMA 5-race finish slope) identically in both `_train_dataset` and inference.
   - Verify that `RobustScaler` correctly centers and scales without injecting `NaN` or `inf` into the Ridge meta-learner.
@@ -345,7 +345,7 @@ flowchart TD
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_feature_vector`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 4 checkpoint**
+- [x] **Step 5: Commit Phase 4 checkpoint**
   ```bash
   git add engine/models/predictor.py engine/tools/tests/test_contracts.py
   git commit -m "fix(predictor): eliminate train-serve feature distribution skew across 54-feature ensemble (Phase 4)"

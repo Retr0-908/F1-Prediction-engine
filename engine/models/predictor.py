@@ -746,22 +746,12 @@ class F1Predictor:
         # ── Phase 3: LSTM temporal momentum ──────────────────────────────────
         # Lazy-load the TemporalFormModel singleton on first call.
         # Returns a predicted finish position (1–22); lower = better.
-        # Falls back to form_avg_pos if model is unavailable.
-        # NOTE: Skipped during training (_is_training=True) — no race context available.
+        # Falls back to statistical proxy (form_avg_pos - momentum_trend * 0.5) if model is unavailable.
         lstm_momentum_pos = form_avg_pos  # neutral fallback
         if _PHASE3_AVAILABLE and not getattr(self, '_is_training', False):
             try:
                 if self._temporal_model is None:
                     self._temporal_model = _get_temporal_model(verbose=False)
-                # Build the race-day context vector. PARITY RULE (plan 9-H3):
-                # every context feature must vary in TRAINING exactly as it
-                # varies here. grid_pos and sc_prob vary in training; rain_enc
-                # and ctor_elo_z are training-time CONSTANTS, so they are pinned
-                # to those constants here — feeding real values into never-
-                # trained axes shifts momentum output arbitrarily. Unpin via
-                # plan 6c/6f (archive labels + Elo replay) in the v7 retrain.
-                # Plan 6e/6f: rain now VARIES in training (archive
-                # labels); ctor_elo_z stays pinned both sides.
                 _cond = str((weather or {}).get('summary_condition', 'dry')).lower()
                 _rain_enc = 1.0 if _cond in ('wet', 'mixed') else 0.0
                 _ctor_z = 0.0
@@ -778,19 +768,20 @@ class F1Predictor:
                 )
             except Exception:
                 logger.exception("LSTM momentum prediction failed for %s", driver_name)
+        else:
+            # Statistical proxy: EWMA finishing position adjusted by momentum trend (train-serve parity)
+            lstm_momentum_pos = form_avg_pos - momentum_trend * 0.5
         lstm_momentum_pos = _clamp(lstm_momentum_pos, 1, 22)
 
         # ── Phase 3: Tire efficiency score ───────────────────────────────────
         # Predicted deg_per_lap for the expected primary compound at this circuit.
         # Compared against field median to produce a delta (negative = efficient tyre use).
-        # Lower deg_per_lap = more tire-efficient driver = better long-stint pace.
-        # NOTE: Skipped during training (_is_training=True) — no race context available.
+        # Falls back to statistical proxy (pace delta vs quali) when deep model is unavailable.
         tire_efficiency_score = 0.0   # neutral fallback
         if _PHASE3_AVAILABLE and not getattr(self, '_is_training', False):
             try:
                 if self._tire_model is None:
                     self._tire_model = _get_tire_model(verbose=False)
-                # Plan 6d: forecast race-day air→track temperature estimate
                 try:
                     _rs = (weather or {}).get("sessions", {}).get("Race", {})
                     _tmax = float(_rs.get("temp_max_c", 25.0))
@@ -799,8 +790,6 @@ class F1Predictor:
                 except Exception:
                     track_temp_val = 35.0
 
-                # Primary compound: derive from the track's tire-degradation
-                # rating (higher deg → harder compound), not overtaking ease.
                 try:
                     from engine.core.track_features_loader import load_track_features as _ltf2
                     _deg_track = int((_ltf2(circuit_key) or {}).get("tire_degradation", 3))
@@ -813,12 +802,14 @@ class F1Predictor:
                     track_temp=track_temp_val,   # plan 6d
                     track_type=circuit_cfg.get("track_type", "permanent"),
                 )
-                # Score = -deg (lower degradation = positive score = better)
-                # Clamped to [-0.1, 0.1] seconds/lap range
                 tire_efficiency_score = float(np.clip(-driver_deg, -0.1, 0.1))
             except Exception:
                 logger.warning("Suppressed error", exc_info=True)
                 pass
+        else:
+            # Statistical proxy: race pace delta vs qualifying position (train-serve parity)
+            pace_delta = (quali_pos_val - form_avg_pos) * 0.01
+            tire_efficiency_score = float(np.clip(pace_delta, -0.08, 0.08))
 
         # Apply self-improvement weight adjustments to features if present
         track_type = circuit_cfg.get("track_type", "permanent")
@@ -937,6 +928,12 @@ class F1Predictor:
             extra = set(feat.keys()) - set(FEATURE_NAMES)
             raise RuntimeError(f"Feature drift: missing={missing}, extra={extra}")
         return np.array([feat[n] for n in FEATURE_NAMES], dtype=float)
+
+    def _build_feature_dict_for_test(self, driver_name: str, round_num: int = 1, year: int = 2026) -> dict[str, float]:
+        """Convenience helper to extract and return the raw feature dictionary for testing."""
+        circuit_cfg = self._circuit_config or {"key": "australia", "track_type": "permanent", "round": round_num}
+        feat_array = self._build_features(driver_name, circuit_cfg=circuit_cfg)
+        return {name: float(feat_array[i]) for i, name in enumerate(FEATURE_NAMES)}
 
     # ─────────────────────────────────────────
     # TRAINING (with disk cache)

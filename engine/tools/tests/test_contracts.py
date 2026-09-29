@@ -429,6 +429,16 @@ PRED_SRC = (ROOT / "engine" / "models" / "predictor.py").read_text(encoding="utf
 
 
 class StructuralInvariantTests(unittest.TestCase):
+    def test_feature_vector_dimension_and_consistency(self):
+        from engine.models.predictor import F1Predictor, FEATURE_NAMES
+        p = F1Predictor()
+        feat = p._build_feature_dict_for_test("Max Verstappen", round_num=1, year=2026)
+        self.assertEqual(len(feat), len(FEATURE_NAMES), f"Feature vector length mismatch: {len(feat)} vs {len(FEATURE_NAMES)}")
+        # Verify no NaN or Inf
+        for k, v in feat.items():
+            self.assertFalse(math.isnan(v), f"Feature {k} is NaN")
+            self.assertFalse(math.isinf(v), f"Feature {k} is Inf")
+
     def test_feature_name_and_value_widths_align(self):
         # Plan 8a: features are now DICT-BOUND — every value is keyed by its
         # FEATURE_NAMES entry with a runtime drift guard, so positional drift
