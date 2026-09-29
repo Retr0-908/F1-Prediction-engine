@@ -15,7 +15,7 @@ from typing import Optional, Dict, List
 
 from engine.core.config import (
     FANTASY_BUDGET, FANTASY_NUM_DRIVERS, FANTASY_NUM_CONSTRUCTORS,
-    CONSTRUCTORS_2025, DRIVER_TEAMS_2025,
+    CONSTRUCTORS_2025, DRIVER_TEAMS_2025, CURRENT_SEASON,
 )
 
 # A top-5 driver / top-3 constructor may only be swapped out for a replacement
@@ -264,6 +264,7 @@ def find_optimal_team(
     constructor_prices: dict,
     budget: float = FANTASY_BUDGET,
     mc_pts: dict[str, float] = None,
+    season: int = CURRENT_SEASON,
 ) -> dict:
     """
     Find the globally optimal team using Linear Programming (PuLP).
@@ -276,16 +277,35 @@ def find_optimal_team(
         return det_pts
 
     # 1. Prepare Data
+    # Dynamically resolve season roster
+    season_roster = None
+    try:
+        from engine.core.data_fetcher import get_season_roster
+        season_roster = get_season_roster(season)
+    except Exception:
+        pass
+
     drivers = []
     for d in driver_pts:
         name = d["driver"]
         price = _get_driver_price(name, driver_prices)
         if price > 0:
+            team = d.get("team")
+            if not team or team == "Unknown":
+                if season_roster and name in season_roster:
+                    team = season_roster[name]
+                elif season_roster:
+                    matched = _fuzzy_match(name, season_roster)
+                    if matched:
+                        team = season_roster[matched]
+                if not team or team == "Unknown":
+                    matched_2025 = _fuzzy_match(name, DRIVER_TEAMS_2025)
+                    team = DRIVER_TEAMS_2025.get(name) or (DRIVER_TEAMS_2025.get(matched_2025) if matched_2025 else "Unknown")
             drivers.append({
                 "name": name,
                 "pts": get_pts(name, d["total_pts"]),
                 "price": price,
-                "team": DRIVER_TEAMS_2025.get(name, "Unknown")
+                "team": team or "Unknown"
             })
 
     constructors = []
@@ -573,3 +593,5 @@ def _count_team_assets(drivers: list[str], constructors: list[str]) -> dict[str,
     for ctor in constructors:
         counts[ctor] = counts.get(ctor, 0) + 1
     return counts
+
+find_global_optimal_team = find_optimal_team

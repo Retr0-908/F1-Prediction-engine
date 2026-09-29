@@ -1818,7 +1818,8 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
 
         # Get best lap per driver
         best_laps = laps.pick_quicklaps(threshold=1.05).groupby("Driver").apply(
-            lambda g: g.nsmallest(1, "LapTime").iloc[0] if len(g) > 0 else None
+            lambda g: g.nsmallest(1, "LapTime").iloc[0] if len(g) > 0 else None,
+            include_groups=False
         ).dropna()
 
         if best_laps.empty:

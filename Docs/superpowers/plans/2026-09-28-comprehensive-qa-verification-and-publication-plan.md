@@ -451,7 +451,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
 - Consumes: `driver_pts`, `constructor_pts`, `driver_prices`, `constructor_prices`, `budget`.
 - Produces: Optimal 5-driver, 2-constructor team complying with dynamic season team limits and Turbo rules.
 
-- [ ] **Step 1: Write failing contract test for 2026 driver-team asset constraints**
+- [x] **Step 1: Write failing contract test for 2026 driver-team asset constraints**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -482,7 +482,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_optimizer_2026_team_asset_constraints`
   Expected: FAIL
 
-- [ ] **Step 3: Fix season roster mapping and turbo driver eligibility in `engine/strategy/fantasy_optimizer.py`**
+- [x] **Step 3: Fix season roster mapping and turbo driver eligibility in `engine/strategy/fantasy_optimizer.py`**
   - Add `season: int = CURRENT_SEASON` parameter to `find_global_optimal_team` and `suggest_team_changes`.
   - Dynamically load the driver-to-team map: use `DRIVER_TEAMS_2026` if `season >= 2026`, else historical mapping or `get_season_roster(season)`.
   - Verify that team names match constructor names identically (e.g. `Racing Bulls`, `Audi`, `Cadillac`).
@@ -492,7 +492,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_optimizer_2026_team_asset_constraints`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 6 checkpoint**
+- [x] **Step 5: Commit Phase 6 checkpoint**
   ```bash
   git add engine/strategy/fantasy_optimizer.py engine/tools/tests/test_contracts.py
   git commit -m "fix(optimizer): use dynamic 2026 team mapping for roster constraints in PuLP solver (Phase 6)"

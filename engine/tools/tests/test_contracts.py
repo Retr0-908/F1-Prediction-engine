@@ -502,6 +502,28 @@ class PlannedFixProbes(unittest.TestCase):
         self.assertEqual(_get_driver_price("Definitely Not A Driver", {}), 0.0)
         self.assertEqual(_get_ctor_price("Not A Team", {}), 0.0)
 
+    def test_optimizer_2026_team_asset_constraints(self):
+        from engine.strategy.fantasy_optimizer import find_global_optimal_team
+        driver_pts = [
+            {"driver": "Lewis Hamilton", "total_pts": 50.0, "team": "Ferrari"},
+            {"driver": "Charles Leclerc", "total_pts": 52.0, "team": "Ferrari"},
+            {"driver": "Lando Norris", "total_pts": 45.0, "team": "McLaren"},
+            {"driver": "Oscar Piastri", "total_pts": 42.0, "team": "McLaren"},
+            {"driver": "George Russell", "total_pts": 40.0, "team": "Mercedes"},
+            {"driver": "Alex Albon", "total_pts": 20.0, "team": "Williams"},
+        ]
+        ctor_pts = [
+            {"constructor": "Ferrari", "total_pts": 80.0},
+            {"constructor": "McLaren", "total_pts": 75.0},
+            {"constructor": "Mercedes", "total_pts": 70.0},
+        ]
+        prices_d = {d["driver"]: {"price": 15.0} for d in driver_pts}
+        prices_c = {c["constructor"]: {"price": 15.0} for c in ctor_pts}
+        best = find_global_optimal_team(driver_pts, ctor_pts, prices_d, prices_c, budget=110.0, season=2026)
+        ferrari_drivers = [d["name"] for d in best["drivers"] if d["name"] in ("Lewis Hamilton", "Charles Leclerc")]
+        ferrari_ctors = [c["name"] for c in best["constructors"] if c["name"] == "Ferrari"]
+        self.assertLessEqual(len(ferrari_drivers) + len(ferrari_ctors), 2, "Cannot have more than 2 assets from Ferrari in 2026!")
+
     def test_partial_roster_rejected(self):
         from engine.core import data_fetcher as df
         orig = df._latest_completed_round_num
