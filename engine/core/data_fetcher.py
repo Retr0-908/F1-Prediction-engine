@@ -1305,12 +1305,13 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
                 _ff1_throttle()
                 session = fastf1.get_session(year, gp_name, s_name)
                 session.load(telemetry=False, weather=False, messages=False)
-                if session.laps is None or session.laps.empty:
+                laps_obj = getattr(session, "_laps", None)
+                if laps_obj is None or laps_obj.empty:
                     continue
                 
                 # Build abbreviation mapping
                 abbr_to_name = {}
-                for num in session.drivers:
+                for num in getattr(session, "drivers", []):
                     try:
                         drv_data = session.get_driver(num)
                         abbr = drv_data.get("Abbreviation", "")
@@ -1318,10 +1319,9 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
                         if abbr and full:
                             abbr_to_name[abbr] = full
                     except Exception:
-                        logger.warning("Suppressed error", exc_info=True)
                         pass
                 
-                for driver_abbr, drv_laps in session.laps.groupby("Driver"):
+                for driver_abbr, drv_laps in laps_obj.groupby("Driver"):
                     full_name = abbr_to_name.get(driver_abbr, driver_abbr)
                     # Use canonical config name if possible
                     canonical_name = DRIVER_SHORT_2026.get(driver_abbr, full_name)
@@ -1338,8 +1338,8 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
                         
                         unique_stints = comp_laps["Stint"].nunique()
                         driver_used_sets[canonical_name][compound_str] += unique_stints
-            except Exception:
-                logger.warning("Suppressed error", exc_info=True)
+            except Exception as e:
+                logger.debug("FastF1 session %s not available for %s %s: %s", s_name, gp_name, year, e)
                 pass
                 
         result = {}
@@ -1427,8 +1427,12 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
         _ff1_throttle()
         session = fastf1.get_session(year, gp_name, session_type)
         # telemetry=False: we don't need raw car channel data; laps + weather is enough
-        session.load(telemetry=False, weather=True, messages=False)
-        laps = session.laps
+        try:
+            session.load(telemetry=False, weather=True, messages=False)
+        except Exception as e:
+            logger.debug("FastF1 load failed for %s %s %s: %s", year, gp_name, session_type, e)
+            return {}
+        laps = getattr(session, "_laps", None)
 
         if laps is None or laps.empty:
             return {}

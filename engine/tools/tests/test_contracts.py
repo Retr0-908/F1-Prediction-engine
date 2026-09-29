@@ -18,6 +18,7 @@ import math
 import random
 import re
 import unittest
+from unittest.mock import patch
 import warnings
 from pathlib import Path
 
@@ -619,8 +620,12 @@ class PlannedFixProbes(unittest.TestCase):
         }
         self.assertFalse(df.qualifying_has_happened(future_race, 2026))
 
-    def test_predictor_stage_isolation(self):
+    @patch("engine.models.predictor.get_actual_qualifying_results")
+    @patch("engine.models.predictor.get_best_practice_pace")
+    def test_predictor_stage_isolation(self, mock_practice, mock_actual_grid):
         """Verify pre-practice mode strictly ignores practice pace and quali data."""
+        mock_practice.return_value = ({"Max Verstappen": 80.5, "Lando Norris": 81.0}, "FP2")
+        mock_actual_grid.return_value = [{"name": "Max Verstappen", "position": 1}]
         from engine.models.predictor import F1Predictor
         from engine.core.data_fetcher import get_race_by_round
         race = get_race_by_round(15, 2026)
@@ -643,7 +648,18 @@ class PlannedFixProbes(unittest.TestCase):
         self.assertGreater(len(p._actual_grid), 0, "Post-quali must have actual grid")
         self.assertEqual(p._mode, "post-quali")
 
-    def test_lookahead_ev_grid_isolation_and_2026_roster(self):
+    @patch("engine.serving.pipeline.get_race_weekend_weather")
+    def test_lookahead_ev_grid_isolation_and_2026_roster(self, mock_weather):
+        mock_weather.return_value = {
+            "summary_condition": "dry",
+            "sessions": {
+                "Race": {"condition": "dry", "temp_day_c": 22.0, "pop_pct": 0.0, "rain_mm": 0.0},
+                "Qualifying": {"condition": "dry", "temp_day_c": 22.0, "pop_pct": 0.0, "rain_mm": 0.0},
+            },
+            "condition_enc": 0,
+            "rain_prob": 0.0,
+            "rain_risk": "low",
+        }
         from engine.serving.pipeline import calculate_lookahead_ev
         from engine.models.predictor import F1Predictor
         p = F1Predictor()

@@ -382,8 +382,8 @@ class TireDegradationModel:
     def save(self):
         # Plan 9-M2: atomic saves (tmp + os.replace)
         MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_model = Path(str(DEG_MODEL_PATH) + ".tmp")
-        tmp_scaler = Path(str(DEG_SCALER_PATH) + ".tmp")
+        tmp_model = MODEL_CACHE_DIR / f"{DEG_MODEL_PATH.stem}_tmp.keras"
+        tmp_scaler = MODEL_CACHE_DIR / f"{DEG_SCALER_PATH.stem}_tmp.pkl"
         self.model.save(str(tmp_model))
         with open(tmp_scaler, "wb") as f:
             pickle.dump(self.scaler, f, protocol=5)
@@ -467,6 +467,8 @@ class TireDegradationModel:
         self.save()
 
     def load_or_train(self, verbose: bool = True, force: bool = False):
+        if not force and self.load():
+            return
         self.train(verbose=verbose, force=force)
 
     # ── Inference ────────────────────────────────────────────────────────────

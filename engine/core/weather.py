@@ -79,11 +79,11 @@ def _open_meteo_forecast(lat: float, lon: float) -> Optional[dict]:
     }
 
     last_error = None
-    for attempt in range(4):
+    for attempt in range(2):
         try:
             if attempt > 0:
-                time.sleep(2 ** attempt)   # 2s, 4s, 8s back-off
-            resp = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=10)
+                time.sleep(0.5)
+            resp = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=3.0)
             resp.raise_for_status()
             data = resp.json()
             _save_weather_cache(cache_key, data)
@@ -92,7 +92,7 @@ def _open_meteo_forecast(lat: float, lon: float) -> Optional[dict]:
             last_error = e
             continue
 
-    print(f"    [Open-Meteo] failed after 4 attempts: {last_error}")
+    logger.debug("[Open-Meteo] forecast unavailable: %s", last_error)
     return None
 
 
@@ -113,7 +113,6 @@ def _open_meteo_historical_fallback(lat: float, lon: float, race_date: datetime.
             else:
                 target_date = datetime.date(y, race_date.month, race_date.day)
         except Exception:
-            logger.warning("Suppressed error", exc_info=True)
             continue
             
         start_d = target_date - datetime.timedelta(days=2)
@@ -135,15 +134,15 @@ def _open_meteo_historical_fallback(lat: float, lon: float, race_date: datetime.
                 daily_history.append(cached)
                 continue
                 
-            resp = requests.get("https://archive-api.open-meteo.com/v1/archive", params=params, timeout=10)
+            resp = requests.get("https://archive-api.open-meteo.com/v1/archive", params=params, timeout=3.0)
             if resp.status_code == 200:
                 res_data = resp.json()
                 if "daily" in res_data:
                     _save_weather_cache(cache_key, res_data["daily"])
                     daily_history.append(res_data["daily"])
             time.sleep(0.1)  # Respect API limits
-        except Exception:
-            logger.warning("Suppressed error", exc_info=True)
+        except Exception as e:
+            logger.debug("Open-Meteo archive fallback for %s failed: %s", target_date, e)
             pass
             
     if not daily_history:

@@ -389,8 +389,8 @@ class TemporalFormModel:
         # Plan 9-M2: atomic saves — a reader mid-write previously got a
         # half-written .keras/.pkl and triggered spurious retrains.
         MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_model = Path(str(MODEL_PATH) + ".tmp")
-        tmp_scaler = Path(str(SCALER_PATH) + ".tmp")
+        tmp_model = MODEL_CACHE_DIR / f"{MODEL_PATH.stem}_tmp.keras"
+        tmp_scaler = MODEL_CACHE_DIR / f"{SCALER_PATH.stem}_tmp.pkl"
         self.model.save(str(tmp_model))
         with open(tmp_scaler, "wb") as f:
             pickle.dump(self.scaler, f, protocol=5)
@@ -464,6 +464,8 @@ class TemporalFormModel:
 
     def load_or_train(self, verbose: bool = True, force: bool = False):
         # Convenience method: load from cache or train if not available.
+        if not force and self.load():
+            return
         self.train(verbose=verbose, force=force)
 
     #   Inference  
