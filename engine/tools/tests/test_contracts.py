@@ -280,6 +280,32 @@ class EloTests(unittest.TestCase):
         self.assertEqual(g.get_rating("A"), before,
                          "DNF-vs-DNF pairs must be skipped (arbitrary ordering noise)")
 
+    def test_glicko2_mathematical_invariants(self):
+        from engine.models.elo_ratings import Glicko2Driver, _to_internal, _to_display, Glicko2RatingSystem, _g, _E
+        d = Glicko2Driver("Test Driver", mu=1500.0, phi=350.0, sigma=0.06)
+        self.assertAlmostEqual(_to_display(_to_internal(1750.0)), 1750.0, places=5)
+        # Test impact factor monotonic decrease with uncertainty
+        self.assertGreater(_g(1.0), _g(2.0))
+        # Test extreme pairwise updates
+        opponents = [Glicko2Driver(f"Opp {i}", mu=1500.0, phi=200.0) for i in range(20)]
+        sys = Glicko2RatingSystem()
+        sys.drivers["Test Driver"] = d
+        for opp in opponents:
+            sys.drivers[opp.name] = opp
+        # Simulate all wins
+        sys.update_ratings([(d.name, 1)] + [(opp.name, i + 2) for i, opp in enumerate(opponents)])
+        updated = sys.get_driver("Test Driver")
+        self.assertGreater(updated.mu, 1500.0)
+        self.assertLess(updated.phi, 350.0)
+        self.assertGreater(updated.sigma, 0.0)
+        self.assertLessEqual(updated.sigma, 0.15)
+        # Verify constructor rating does not divide by zero even with zero phi
+        opp0 = sys.get_driver("Opp 0")
+        opp0.phi = 0.0
+        ctor_rating = sys.compute_constructor_rating(["Test Driver", "Opp 0"])
+        self.assertIsInstance(ctor_rating, float)
+        self.assertGreater(ctor_rating, 1000.0)
+
 
 # ─────────────────────────────────────────────────────────────
 # 8. MONTE CARLO CONTRACTS

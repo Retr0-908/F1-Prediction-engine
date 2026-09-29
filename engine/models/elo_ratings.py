@@ -129,6 +129,31 @@ class Glicko2RatingSystem:
             self.drivers[name] = Glicko2Driver(name)
         return self.drivers[name]
 
+    def get_driver(self, name: str) -> Glicko2Driver:
+        """Return current driver object (or initialize new)."""
+        return self._get_driver(name)
+
+    def update_ratings(self, placements: list[tuple[str, int]]):
+        """Update ratings from a simple list of (driver_name, position) tuples."""
+        results = [
+            {"name": name, "position": int(pos), "dnf": False}
+            for name, pos in placements
+        ]
+        self.process_race(results, season=0, round_num=0)
+
+    def compute_constructor_rating(self, driver_names: list[str]) -> float:
+        """Precision-weighted average rating for a constructor's drivers."""
+        weights = []
+        mus = []
+        for name in driver_names:
+            d = self.get_driver(name)
+            w = 1.0 / max(d.phi, 1.0)
+            weights.append(w)
+            mus.append(d.mu * w)
+        if sum(weights) <= 0:
+            return GLICKO2_MU
+        return sum(mus) / sum(weights)
+
     def get_rating(self, name: str) -> float:
         """Return current displayed rating."""
         return self.drivers[name].mu if name in self.drivers else GLICKO2_MU
@@ -257,6 +282,8 @@ class Glicko2RatingSystem:
 
             # Clamp RD to reasonable range
             new_phi_disp = max(VETERAN_PHI_FLOOR, min(ROOKIE_INITIAL_PHI, new_phi_disp))
+            new_mu_disp  = max(500.0, min(3000.0, new_mu_disp))
+            sigma_new    = max(0.01, min(0.15, sigma_new))
 
             updated = Glicko2Driver(name_a, mu=new_mu_disp,
                                     phi=new_phi_disp, sigma=sigma_new)
@@ -293,17 +320,15 @@ class Glicko2RatingSystem:
             B = math.log(delta_sq - phi ** 2 - v)
         else:
             k = 1
-            while f(a - k * tau) < 0:
+            while f(a - k * tau) < 0 and k < 100:
                 k += 1
-                if k > 200:   # safety: never spin forever
-                    break
             B = a - k * tau
 
         fa = f(A)
         fb = f(B)
 
         # Guard: if initial bracket is degenerate, return current sigma unchanged
-        if not math.isfinite(fa) or not math.isfinite(fb):
+        if not math.isfinite(fa) or not math.isfinite(fb) or (fa * fb > 0):
             return sigma
 
         for _ in range(100):  # max iterations
@@ -322,7 +347,8 @@ class Glicko2RatingSystem:
             if abs(B - A) < GLICKO2_EPSILON:
                 break
 
-        return math.exp(B / 2)
+        res = math.exp(B / 2)
+        return max(0.01, min(0.15, res))
 
     # ─────────────────────────────────────────
     # BUILD FROM HISTORY
@@ -432,9 +458,12 @@ class ConstructorEloSystem:
             # Precision-weighted average (1/φ²): an uncertain rookie's rating
             # contributes proportionally less than a settled veteran's.
             total_weight = sum(1.0 / max(phi, 1.0) ** 2 for _, phi in entries)
-            self.ratings[team] = (
-                sum(mu / max(phi, 1.0) ** 2 for mu, phi in entries) / total_weight
-            )
+            if total_weight <= 0:
+                self.ratings[team] = GLICKO2_MU
+            else:
+                self.ratings[team] = (
+                    sum(mu / max(phi, 1.0) ** 2 for mu, phi in entries) / total_weight
+                )
 
         return dict(self.ratings)
 
