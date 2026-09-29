@@ -373,7 +373,7 @@ flowchart TD
 - Fuel-adjusted lap time: $t_{\text{wear\_adjusted}}(\text{lap}) = t_{\text{lap}} + \lambda_{\text{fuel}} \cdot (\text{lap} - 1)$ where $\lambda_{\text{fuel}} = 0.035\text{ s/lap}$.
 - Fuel-corrected degradation slope: $\delta_{\text{deg}} = \frac{\sum (x - \bar{x})(t_{\text{wear\_adjusted}} - \bar{t})}{\sum (x - \bar{x})^2}$
 
-- [ ] **Step 1: Write failing unit test for fuel-corrected tire degradation and Scikit-Learn fallback**
+- [x] **Step 1: Write failing unit test for fuel-corrected tire degradation and Scikit-Learn fallback**
   Create `engine/tools/tests/test_tire_physics.py`:
 
 ```python
@@ -431,7 +431,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   Run: `python -m unittest engine/tools/tests/test_tire_physics.py`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 5 checkpoint**
+- [x] **Step 5: Commit Phase 5 checkpoint**
   ```bash
   git add engine/core/data_fetcher.py engine/models/tire_model.py engine/models/predictor.py engine/models/monte_carlo.py engine/tools/tests/test_tire_physics.py
   git commit -m "feat(tires): implement fuel-corrected FastF1 tire degradation and zero-dependency sklearn model (Phase 5)"

@@ -1361,6 +1361,33 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
         return {}
 
 
+
+
+def _calculate_fuel_corrected_degradation(
+    laps: np.ndarray,
+    lap_times_sec: np.ndarray,
+    fuel_lambda: float = 0.035,
+) -> float:
+    """Calculate fuel-corrected tire degradation slope (s/lap) via OLS linear regression.
+
+    laps: array of lap numbers or tyre life values
+    lap_times_sec: array of lap times in seconds
+    fuel_lambda: fuel burnoff compensation factor (~0.035 s/lap)
+    """
+    laps = np.asarray(laps, dtype=float)
+    times = np.asarray(lap_times_sec, dtype=float)
+    if len(laps) < 3 or len(times) != len(laps):
+        return 0.0
+    # Correct for fuel burnoff: earlier laps carried more fuel mass
+    corrected_times = times + fuel_lambda * (laps - laps[0])
+    x_mean = float(np.mean(laps))
+    y_mean = float(np.mean(corrected_times))
+    denom = float(np.sum((laps - x_mean) ** 2))
+    if denom == 0.0:
+        return 0.0
+    numer = float(np.sum((laps - x_mean) * (corrected_times - y_mean)))
+    return round(numer / denom, 4)
+
 def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[str, list[dict]]:
     """
     Fetches lap-by-lap tire compound choices, stint lengths, and track temperature
@@ -1469,28 +1496,33 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
                 stint_length = end_lap - start_lap + 1
 
                 # Collect valid lap times in seconds for this stint
+                # Filter for clean green-flag laps: TrackStatus == '1', no in/out laps, IsAccurate != False
                 lap_times_sec: list[float] = []
+                stint_laps: list[float] = []
                 for row in stint_rows:
                     lt = row.get("LapTime")
+                    status = str(row.get("TrackStatus", "1"))
+                    if status != "1":
+                        continue
+                    if pd.notna(row.get("PitInTime")) or pd.notna(row.get("PitOutTime")):
+                        continue
+                    if "IsAccurate" in row and row["IsAccurate"] is False:
+                        continue
                     if pd.notna(lt):
                         try:
                             lap_times_sec.append(lt.total_seconds())
+                            stint_laps.append(float(row.get("TyreLife", row.get("LapNumber", len(stint_laps) + 1))))
                         except Exception:
-                            logger.warning("Suppressed error", exc_info=True)
                             pass
 
                 avg_lap_sec = float(np.mean(lap_times_sec)) if lap_times_sec else None
 
-                # Estimate pace degradation: slope of lap time over stint laps (s/lap)
-                # Positive = getting slower per lap (degrading tire)
+                # Estimate fuel-corrected pace degradation: slope of lap time over stint laps (s/lap)
+                # Positive = getting slower per lap (degrading tire after fuel burnoff correction)
                 if len(lap_times_sec) >= 3:
-                    x = np.arange(len(lap_times_sec), dtype=float)
-                    # Simple OLS slope — no external dependency needed
-                    x_mean = x.mean()
-                    y_mean = float(np.mean(lap_times_sec))
-                    numer = float(np.sum((x - x_mean) * (np.array(lap_times_sec) - y_mean)))
-                    denom = float(np.sum((x - x_mean) ** 2))
-                    deg_per_lap = round(numer / denom, 4) if denom != 0 else 0.0
+                    deg_per_lap = _calculate_fuel_corrected_degradation(
+                        np.array(stint_laps), np.array(lap_times_sec), fuel_lambda=0.035
+                    )
                 else:
                     deg_per_lap = None
 

@@ -40,11 +40,18 @@ import numpy as np
 import pandas as pd
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")   # suppress TF startup noise
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    import tensorflow as tf
-    from tensorflow import keras
-    from tensorflow.keras import layers
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import tensorflow as tf
+        from tensorflow import keras
+        from tensorflow.keras import layers
+    _TF_AVAILABLE = True
+except ImportError:
+    tf = None
+    keras = None
+    layers = None
+    _TF_AVAILABLE = False
 
 from engine.core.config import CURRENT_SEASON, HISTORICAL_SEASONS, DRIVER_TEAMS_2025
 from engine.core.data_fetcher import get_season_results, get_season_schedule, get_tire_stints
@@ -147,7 +154,7 @@ def build_temporal_model(
     seq_length: int = SEQ_LENGTH,
     n_seq_features: int = N_SEQ_FEATURES,
     context_dim: int = CONTEXT_DIM,
-) -> keras.Model:
+):
     """
     Build dual-branch LSTM + Multi-Head Attention architecture for driver form.
 
@@ -372,7 +379,7 @@ class TemporalFormModel:
     # Wraps Keras dual-branch LSTM model with train / predict / persist methods.
 
     def __init__(self):
-        self.model: Optional[keras.Model] = None
+        self.model = None
         self.scaler: Optional[TemporalScaler] = None
         self._trained: bool = False
 
@@ -393,7 +400,7 @@ class TemporalFormModel:
 
     def load(self) -> bool:
         # Return True if a saved model was successfully loaded.
-        if not MODEL_PATH.exists() or not SCALER_PATH.exists():
+        if not _TF_AVAILABLE or not MODEL_PATH.exists() or not SCALER_PATH.exists():
             return False
         try:
             self.model = keras.models.load_model(str(MODEL_PATH))
@@ -411,6 +418,11 @@ class TemporalFormModel:
     def train(self, verbose: bool = True, force: bool = False):
         # Train dual-branch LSTM on historical race data.
         # Results are cached to disk.
+        if not _TF_AVAILABLE:
+            if verbose:
+                print("  [temporal_model] TensorFlow not installed; skipping LSTM training.")
+            self._trained = False
+            return
         if not force and self.load():
             return
 

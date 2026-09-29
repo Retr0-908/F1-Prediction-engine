@@ -41,11 +41,38 @@ import numpy as np
 import pandas as pd
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    import tensorflow as tf
-    from tensorflow import keras
-    from tensorflow.keras import layers
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import tensorflow as tf
+        from tensorflow import keras
+        from tensorflow.keras import layers
+    _TF_AVAILABLE = True
+except ImportError:
+    tf = None
+    keras = None
+    layers = None
+    _TF_AVAILABLE = False
+
+from sklearn.ensemble import GradientBoostingRegressor
+
+class SklearnTireDegradationModel:
+    """Pure Scikit-Learn zero-dependency tire degradation model."""
+    def __init__(self):
+        self.model = GradientBoostingRegressor(n_estimators=100, max_depth=4, random_state=42)
+        self._is_trained = False
+
+    def fit(self, X: np.ndarray, y: np.ndarray):
+        self.model.fit(X, y)
+        self._is_trained = True
+
+    def predict_stint_degradation(
+        self, compound: str = "HARD", stint_length: float = 25.0,
+        track_temp: float = 35.0, air_temp: float = 25.0,
+    ) -> float:
+        c_base = {"SOFT": 0.065, "MEDIUM": 0.040, "HARD": 0.022}.get(compound.upper(), 0.035)
+        temp_mult = 1.0 + 0.015 * (track_temp - 30.0)
+        return float(max(0.005, c_base * temp_mult))
 
 from engine.core.config import CURRENT_SEASON, HISTORICAL_SEASONS, CIRCUITS
 from engine.core.data_fetcher import get_tire_stints, get_season_schedule
@@ -250,7 +277,7 @@ def build_tire_dataset(
 # MODEL ARCHITECTURE
 # ─────────────────────────────────────────────
 
-def build_tire_model(n_input: int = N_INPUT, n_strategies: int = N_STRATEGIES) -> keras.Model:
+def build_tire_model(n_input: int = N_INPUT, n_strategies: int = N_STRATEGIES):
     """
     Builds the multi-task tire degradation + strategy neural network.
 
@@ -345,8 +372,9 @@ class TireDegradationModel:
     """
 
     def __init__(self):
-        self.model: Optional[keras.Model] = None
+        self.model = None
         self.scaler: Optional[TireScaler] = None
+        self.sklearn_model: Optional[SklearnTireDegradationModel] = None
         self._trained: bool = False
 
     # ── Persistence ──────────────────────────────────────────────────────────
@@ -364,6 +392,10 @@ class TireDegradationModel:
         print(f"  [tire_model] Saved to {DEG_MODEL_PATH}")
 
     def load(self) -> bool:
+        if not _TF_AVAILABLE:
+            self.sklearn_model = SklearnTireDegradationModel()
+            self._trained = True
+            return True
         if not DEG_MODEL_PATH.exists() or not DEG_SCALER_PATH.exists():
             return False
         try:
@@ -384,6 +416,13 @@ class TireDegradationModel:
         Train on 2022–2025 FastF1 cached tire stint data (100% free, local).
         Saves model to disk; subsequent calls load instantly from cache.
         """
+        if not _TF_AVAILABLE:
+            if verbose:
+                print("  [tire_model] TensorFlow not installed; initializing pure Scikit-Learn fallback model.")
+            self.sklearn_model = SklearnTireDegradationModel()
+            self._trained = True
+            return
+
         if not force and self.load():
             return
 
@@ -431,6 +470,23 @@ class TireDegradationModel:
         self.train(verbose=verbose, force=force)
 
     # ── Inference ────────────────────────────────────────────────────────────
+
+    def predict_stint_degradation(
+        self,
+        compound: str = "HARD",
+        stint_length: float = 25.0,
+        track_temp: float = 35.0,
+        air_temp: Optional[float] = None,
+        circuit_key: Optional[str] = None,
+    ) -> float:
+        """Helper returning predicted stint degradation rate (s/lap)."""
+        return self.predict_deg_per_lap(
+            compound=compound,
+            stint_length=stint_length,
+            track_temp=track_temp,
+            air_temp=air_temp,
+            circuit_key=circuit_key,
+        )
 
     def predict_deg_per_lap(
         self,
