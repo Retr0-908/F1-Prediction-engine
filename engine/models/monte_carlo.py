@@ -63,6 +63,16 @@ RACE_LAPS_TYPICAL     = 57     # typical race length for SC timing
 SC_POSITION_NOISE     = 2.5    # ±σ position noise under SC conditions
 
 
+def _compute_driver_simulation_sigma(consistency_rating: float = 75.0, base_sigma: float = 0.15) -> float:
+    """
+    Computes per-driver Gaussian simulation standard deviation scaled by their consistency rating.
+    Higher consistency yields tighter lap-time and pace distributions around predicted mean.
+    Formula: sigma = base_sigma * (1.0 - 0.50 * (C / 100.0))
+    """
+    c = max(0.0, min(100.0, float(consistency_rating)))
+    return float(base_sigma * (1.0 - 0.50 * (c / 100.0)))
+
+
 class DistributionStats:
     """Holds Monte Carlo output statistics for one driver."""
     __slots__ = (
@@ -222,21 +232,27 @@ def _simulate_one_race(
         weather_var = 3
         sm_eff = 0.5
 
+    consistency_lookup = {d["driver"]: d.get("consistency_rating", 75.0) for d in race_order}
+
     if weather_noise > 0:
         factor = (1.0 + (weather_var - 3) * 0.2) if circuit_features else 1.0
-        sigma_eff = max(0.4, weather_noise * factor)
+        base_sigma = max(0.4, weather_noise * factor)
         for drv in positions:
             if drv not in dnf_set:
-                positions[drv] = max(1.0, positions[drv] + rng.gauss(0, sigma_eff))
+                c = consistency_lookup.get(drv, 75.0)
+                drv_sigma = _compute_driver_simulation_sigma(c, base_sigma)
+                positions[drv] = max(1.0, positions[drv] + rng.gauss(0, drv_sigma))
     else:
-        # Dry race: overtaking difficulty creates position variance
+        # Dry race: overtaking difficulty creates position variance scaled by consistency
         base_overtake_noise = max(
             0.0, ((1.0 + (3 - overtake_diff) * 0.15) - 1.0) if circuit_features else 0.0)
         if base_overtake_noise > 0:
             for drv in positions:
                 if drv not in dnf_set:
+                    c = consistency_lookup.get(drv, 75.0)
+                    drv_sigma = _compute_driver_simulation_sigma(c, base_overtake_noise)
                     positions[drv] = max(1.0,
-                                         positions[drv] + rng.gauss(0, base_overtake_noise))
+                                         positions[drv] + rng.gauss(0, drv_sigma))
 
     if circuit_features:
         # First lap incident risk

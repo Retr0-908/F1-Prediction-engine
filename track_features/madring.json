@@ -25,5 +25,7 @@
   "deg_compound_delta": 0.3,
   "avg_speed_kmh": 215,
   "elevation_change_m": 10,
-  "overtake_mode_efficiency": 0.6
+  "overtake_mode_efficiency": 0.6,
+  "energy_demand_index": 3,
+  "active_aero_efficiency": 0.6
 }

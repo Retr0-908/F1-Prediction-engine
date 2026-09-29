@@ -653,6 +653,28 @@ class PlannedFixProbes(unittest.TestCase):
         # Verify grid overrides were cleared after the first round
         self.assertEqual(p._grid_overrides, {}, "Future lookahead rounds must not retain previous grid overrides")
 
+    def test_track_features_24_circuits_schema_complete(self):
+        from engine.core.track_features_loader import load_track_features, ALL_CIRCUIT_KEYS
+        self.assertEqual(len(ALL_CIRCUIT_KEYS), 24, "Must have exactly 24 official 2026 calendar circuits")
+        for key in ALL_CIRCUIT_KEYS:
+            tf = load_track_features(key)
+            self.assertIsNotNone(tf, f"Track features missing for {key}")
+            self.assertIn("pit_time_loss_s", tf)
+            self.assertGreater(tf["pit_time_loss_s"], 15.0)
+
+    def test_consistency_scaled_variance_in_monte_carlo(self):
+        from engine.models.monte_carlo import _compute_driver_simulation_sigma
+        sigma_consistent = _compute_driver_simulation_sigma(consistency_rating=95.0, base_sigma=0.15)
+        sigma_erratic = _compute_driver_simulation_sigma(consistency_rating=60.0, base_sigma=0.15)
+        self.assertLess(sigma_consistent, sigma_erratic)
+
+    def test_undercut_potential_evaluation(self):
+        from engine.strategy.fantasy_optimizer import evaluate_undercut_potential
+        res = evaluate_undercut_potential("monaco")
+        self.assertIn("undercut_viability_score", res)
+        self.assertIn("tire_deg_advantage_s", res)
+        self.assertIsInstance(res["is_undercut_favored"], bool)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

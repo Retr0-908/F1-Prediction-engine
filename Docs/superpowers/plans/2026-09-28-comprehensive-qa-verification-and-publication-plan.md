@@ -562,7 +562,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
 - Consumes: 24 circuit JSON definitions and driver consistency metrics.
 - Produces: Complete 2026-calibrated track feature dictionary and consistency-scaled simulation variance.
 
-- [ ] **Step 1: Write contract tests for track schema completeness and consistency-scaled variance**
+- [x] **Step 1: Write contract tests for track schema completeness and consistency-scaled variance**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -585,7 +585,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
 - [x] **Step 2: Run test to verify baseline**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_track_features`
 
-- [ ] **Step 3: Enrich track features and implement consistency-scaled MC variance**
+- [x] **Step 3: Enrich track features and implement consistency-scaled MC variance**
   - Add `energy_demand_index` (1 to 5) and `active_aero_efficiency` (0.1 to 1.0) to circuit records.
   - Implement `_compute_driver_simulation_sigma(consistency_rating, base_sigma)` in `monte_carlo.py`:
     $$\sigma_i = \sigma_{base} \cdot \left(1.0 - 0.50 \cdot \frac{C_i}{100}\right)$$
@@ -595,7 +595,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_consistency_scaled_variance`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 8 checkpoint**
+- [x] **Step 5: Commit Phase 8 checkpoint**
   ```bash
   git add engine/core/track_features_loader.py track_features/ engine/models/monte_carlo.py engine/strategy/fantasy_optimizer.py engine/tools/tests/test_contracts.py
   git commit -m "feat(tracks): calibrate 2026 track features and add consistency-scaled MC variance (Phase 8)"

@@ -595,3 +595,51 @@ def _count_team_assets(drivers: list[str], constructors: list[str]) -> dict[str,
     return counts
 
 find_global_optimal_team = find_optimal_team
+
+
+def evaluate_undercut_potential(circuit_key: str, driver_stints: Optional[dict] = None) -> dict:
+    """
+    Evaluates tactical undercut viability for a circuit based on pit loss time,
+    tire degradation profile, and overtaking difficulty (inspired by mehmetkahya0).
+
+    Returns:
+        dict: {
+            "circuit_key": str,
+            "undercut_viability_score": float (0.0 to 1.0),
+            "tire_deg_advantage_s": float,
+            "recommended_lap_delta": int,
+            "is_undercut_favored": bool,
+        }
+    """
+    from engine.core.track_features_loader import load_track_features
+    tf = load_track_features(circuit_key) or {}
+
+    pit_loss = float(tf.get("pit_time_loss_s", 22.0))
+    tire_deg = float(tf.get("tire_degradation", 3.0))       # 1 to 5
+    overtake_diff = float(tf.get("overtaking_difficulty", 3.0)) # 1 to 5
+    deg_delta = float(tf.get("deg_compound_delta", 0.3))
+
+    # Fresh-tire pace advantage per lap
+    deg_factor = (tire_deg / 3.0) * max(0.2, deg_delta * 3.5)
+    tire_deg_advantage_s = round(float(deg_factor), 3)
+
+    # Pit loss penalty factor
+    pit_factor = max(0.5, (25.0 - pit_loss) / 10.0 + 0.5)
+
+    # Track position factor
+    track_pos_factor = 1.0 + (overtake_diff - 3.0) * 0.15
+
+    # Viability score bounded [0.0, 1.0]
+    raw_score = (deg_factor * 0.4 + pit_factor * 0.3 + track_pos_factor * 0.3) / 1.5
+    viability_score = round(float(max(0.0, min(1.0, raw_score))), 3)
+
+    recommended_lap_delta = 2 if tire_deg_advantage_s >= 1.0 else 1
+
+    return {
+        "circuit_key": circuit_key,
+        "undercut_viability_score": viability_score,
+        "tire_deg_advantage_s": tire_deg_advantage_s,
+        "recommended_lap_delta": recommended_lap_delta,
+        "is_undercut_favored": viability_score >= 0.55,
+    }
+

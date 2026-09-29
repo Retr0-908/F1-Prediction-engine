@@ -9,6 +9,14 @@ from engine.core.paths import TRACK_FEATURES_DIR as _TRACK_DIR
 from typing import Optional, Dict, Any
 
 
+# All 24 official circuits for the 2026 calendar
+ALL_CIRCUIT_KEYS = [
+    "abu_dhabi", "australia", "austria", "azerbaijan", "bahrain", "belgium",
+    "brazil", "britain", "canada", "china", "hungary", "italy", "japan",
+    "las_vegas", "madring", "mexico", "miami", "monaco", "netherlands",
+    "qatar", "saudi_arabia", "singapore", "spain", "usa"
+]
+
 # Required keys with expected types for validation
 _REQUIRED_KEYS = {
     "circuit_key": str,
@@ -38,6 +46,8 @@ _REQUIRED_KEYS = {
     "avg_speed_kmh": (int, float),
     "elevation_change_m": (int, float),
     "overtake_mode_efficiency": (int, float),
+    "energy_demand_index": (int, float),
+    "active_aero_efficiency": (int, float),
 }
 
 # In-memory cache: circuit_key -> dict | None.
@@ -68,6 +78,10 @@ def _validate(data: dict, filepath: str) -> bool:
         errors.append("overtaking_difficulty must be 1-5")
     if "tire_degradation" in data and not (1 <= data["tire_degradation"] <= 5):
         errors.append("tire_degradation must be 1-5")
+    if "energy_demand_index" in data and not (1 <= data["energy_demand_index"] <= 5):
+        errors.append("energy_demand_index must be 1-5")
+    if "active_aero_efficiency" in data and not (0 <= data["active_aero_efficiency"] <= 1):
+        errors.append("active_aero_efficiency must be 0.0-1.0")
     if "sc_probability" in data and not (0 <= data["sc_probability"] <= 1):
         errors.append("sc_probability must be 0.0-1.0")
     if "vsc_probability" in data and not (0 <= data.get("vsc_probability", 0) <= 1):
