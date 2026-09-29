@@ -1708,9 +1708,8 @@ class F1Predictor:
             pos_pts = abs(delta) * POSITIONS_LOST_PER
         breakdown["positions_delta"] = round(pos_pts * (1.0 - dnf_prob), 1)
 
-        # DNF penalty (removed from base calculation to prevent double penalty;
-        # survival probability is applied to the race terms above instead)
-        breakdown["dnf_risk"] = 0.0
+        # DNF penalty (reconciled with Monte Carlo and F1 fantasy rules)
+        breakdown["dnf_risk"] = round(float(DNF_PENALTY) * dnf_prob, 1)
 
         # Fastest lap — only top-10 finishers are eligible under F1 rules
         fl_prob = max(0.0, (0.09 - (race_pos - 1) * 0.005)) * (1.0 - dnf_prob)

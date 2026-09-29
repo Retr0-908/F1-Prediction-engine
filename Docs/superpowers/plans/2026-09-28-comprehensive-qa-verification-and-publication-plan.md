@@ -273,7 +273,7 @@ flowchart TD
 - Field compression under Safety Car:
   $$P_{new} = \max\left(1.0, P_{old} - \Delta_{gain} \cdot (1 - 0.3 \cdot \text{eff}_{sm})\right) \quad \text{for } P \in [6, 15]$$
 
-- [ ] **Step 1: Write contract test for Monte Carlo distribution invariants**
+- [x] **Step 1: Write contract test for Monte Carlo distribution invariants**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -290,10 +290,10 @@ flowchart TD
         self.assertGreater(sA.p_top3, 80.0)
 ```
 
-- [ ] **Step 2: Run test to verify baseline**
+- [x] **Step 2: Run test to verify baseline**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_monte_carlo_distribution_invariants`
 
-- [ ] **Step 3: Audit simulation physics and scoring alignment**
+- [x] **Step 3: Audit simulation physics and scoring alignment**
   - Verify effective grid sorting: verify stable tie-breaking and ensure no duplicate grid slots.
   - Audit Safety Car midfield compression: verify `sc_gain` clamping so mid-pack cars ($P6-P15$) do not leapfrog $P1$ during simulated pit stops.
   - Reconcile deterministic fantasy points estimation in `predictor.py` line 1713 (`dnf_risk = 0.0`) with Monte Carlo DNF penalties to eliminate scoring drift between modules.
@@ -302,7 +302,7 @@ flowchart TD
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_monte_carlo`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 3 checkpoint**
+- [x] **Step 5: Commit Phase 3 checkpoint**
   ```bash
   git add engine/models/monte_carlo.py engine/models/predictor.py engine/tools/tests/test_contracts.py
   git commit -m "fix(monte_carlo): verify physics noise bounds and align DNF scoring with deterministic predictor (Phase 3)"
@@ -582,7 +582,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
         self.assertLess(sigma_consistent, sigma_erratic)
 ```
 
-- [ ] **Step 2: Run test to verify baseline**
+- [x] **Step 2: Run test to verify baseline**
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_track_features`
 
 - [ ] **Step 3: Enrich track features and implement consistency-scaled MC variance**

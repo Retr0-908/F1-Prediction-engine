@@ -358,6 +358,18 @@ class MonteCarloTests(unittest.TestCase):
         res = _simulate_one_race(race, quali, 0.9, 0.0, "low", False, None, rng)
         self.assertEqual(len(res), 4)
 
+    def test_monte_carlo_distribution_invariants(self):
+        from engine.models.monte_carlo import run_monte_carlo_simulation
+        race_order = [{"driver": "Driver A", "team": "Team A", "predicted_rank": 1, "dnf_prob_pct": 5.0},
+                      {"driver": "Driver B", "team": "Team B", "predicted_rank": 2, "dnf_prob_pct": 5.0}]
+        quali_order = [{"driver": "Driver A", "predicted_grid": 1, "is_actual": True},
+                       {"driver": "Driver B", "predicted_grid": 2, "is_actual": True}]
+        stats = run_monte_carlo_simulation(race_order, quali_order, sc_prob=0.3, vsc_prob=0.2, rain_risk="low", n_sims=200, seed=42)
+        sA = stats["Driver A"]
+        self.assertLessEqual(sA.p10_pts, sA.p50_pts)
+        self.assertLessEqual(sA.p50_pts, sA.p90_pts)
+        self.assertGreater(sA.p_top3, 80.0)
+
 
 # ─────────────────────────────────────────────────────────────
 # 9. SCORING RULES CONTRACTS

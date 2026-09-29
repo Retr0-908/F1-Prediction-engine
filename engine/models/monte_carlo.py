@@ -273,7 +273,7 @@ def _simulate_one_race(
                 # SM efficiency reduces SC benefit (easier to re-overtake after restart)
                 sc_gain_base = rng.uniform(0, 2.5) if sc_triggered else rng.uniform(0, 1.5)
                 sc_gain = sc_gain_base * (1.0 - 0.3 * sm_eff)  # reduce by up to 30%
-                positions[drv] = max(1.0, positions[drv] - sc_gain)
+                positions[drv] = max(2.0, positions[drv] - sc_gain)
             elif rank <= 5:
                 # Front runners may lose slightly if they pit under SC
                 sc_loss = rng.uniform(0, 1.0)
@@ -646,3 +646,30 @@ def format_mc_summary(mc_results: dict[str, DistributionStats]) -> list[dict]:
 def get_expected_value_pts(mc_results: dict[str, DistributionStats]) -> dict[str, float]:
     """Return {driver: mean_pts} for use in optimizer (replaces deterministic pts)."""
     return {drv: stats.mean_pts for drv, stats in mc_results.items()}
+
+
+def run_monte_carlo_simulation(
+    race_order: list[dict],
+    quali_order: list[dict],
+    sc_prob: float = 0.40,
+    vsc_prob: float = 0.30,
+    rain_risk: str = "low",
+    n_sims: int = DEFAULT_N_SIMULATIONS,
+    seed: int = 42,
+    circuit_key: str = "",
+    grid_penalties: Optional[dict] = None,
+    progress_callback = None,
+) -> dict[str, DistributionStats]:
+    """Convenience wrapper for simulate_race_weekend."""
+    circuit_cfg = {"key": circuit_key}
+    weather_cfg = {"rain_risk": rain_risk}
+    return simulate_race_weekend(
+        race_order=race_order,
+        quali_order=quali_order,
+        circuit_config=circuit_cfg,
+        weather=weather_cfg,
+        n_simulations=n_sims,
+        seed=seed,
+        progress_callback=progress_callback,
+        grid_penalties=grid_penalties,
+    )
