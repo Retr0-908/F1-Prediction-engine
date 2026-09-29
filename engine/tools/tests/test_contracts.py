@@ -643,6 +643,16 @@ class PlannedFixProbes(unittest.TestCase):
         self.assertGreater(len(p._actual_grid), 0, "Post-quali must have actual grid")
         self.assertEqual(p._mode, "post-quali")
 
+    def test_lookahead_ev_grid_isolation_and_2026_roster(self):
+        from engine.serving.pipeline import calculate_lookahead_ev
+        from engine.models.predictor import F1Predictor
+        p = F1Predictor()
+        ev = calculate_lookahead_ev(p, current_race_round=1, options={}, sims=20, grid_overrides={"Max Verstappen": 20})
+        self.assertIn("Cadillac", ev, "2026 lookahead must evaluate Cadillac constructor EV")
+        self.assertGreater(ev.get("Ferrari", 0), 10.0)
+        # Verify grid overrides were cleared after the first round
+        self.assertEqual(p._grid_overrides, {}, "Future lookahead rounds must not retain previous grid overrides")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -512,7 +512,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
 - Consumes: Current race round, predictor instance, simulation settings.
 - Produces: Normalized, temporally-discounted Expected Value points for 3-race lookahead with strict round isolation.
 
-- [ ] **Step 1: Write failing contract tests for lookahead grid isolation and 2026 constructor mapping**
+- [x] **Step 1: Write failing contract tests for lookahead grid isolation and 2026 constructor mapping**
   In `engine/tools/tests/test_contracts.py`:
 
 ```python
@@ -529,7 +529,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_lookahead_ev_grid_isolation_and_2026_roster`
   Expected: FAIL
 
-- [ ] **Step 3: Implement clean lookahead logic, grid isolation and temporal discounting in `pipeline.py`**
+- [x] **Step 3: Implement clean lookahead logic, grid isolation and temporal discounting in `pipeline.py`**
   - Switch `CONSTRUCTORS_2025` and `DRIVER_TEAMS_2025` to dynamic season rosters (`CONSTRUCTORS_2026` / `DRIVER_TEAMS_2026`).
   - Pass `grid_overrides=grid_overrides` ONLY to the first iteration ($r == \text{current\_race\_round}$); future iterations pass `grid_overrides=None`.
   - Implement temporal discounting: weight Round $r$ with $w_0 = 1.0$, Round $r+1$ with $w_1 = 0.75$, Round $r+2$ with $w_2 = 0.5625$, and normalize:
@@ -539,7 +539,7 @@ class TirePhysicsDegradationTests(unittest.TestCase):
   Run: `python -m unittest engine/tools/tests/test_contracts.py -k test_lookahead_ev_grid_isolation_and_2026_roster`
   Expected: PASS
 
-- [ ] **Step 5: Commit Phase 7 checkpoint**
+- [x] **Step 5: Commit Phase 7 checkpoint**
   ```bash
   git add engine/serving/pipeline.py engine/tools/tests/test_contracts.py
   git commit -m "fix(pipeline): isolate lookahead grid overrides, add temporal discounting, and update 2026 roster (Phase 7)"

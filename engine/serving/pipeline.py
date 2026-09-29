@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 import json
 
-from engine.core.config import CONSTRUCTORS_2025, CURRENT_SEASON, SC_PROBABILITY
+from engine.core.config import CONSTRUCTORS_2026, CONSTRUCTORS_2025, CURRENT_SEASON, SC_PROBABILITY
 from engine.core.data_fetcher import get_next_race, get_race_by_round, is_sprint_weekend, qualifying_has_happened
 from engine.core.weather import get_race_weekend_weather
 from engine.core.fantasy_scraper import scrape_driver_prices, scrape_constructor_prices
@@ -259,8 +259,9 @@ def run_full_pipeline(
         predicted_winner = race_order[0]["driver"] if race_order else "N/A"
         progress_callback(run_id, "PREDICTIONS", "loading", f"Pole predicted: {pole_sitter} | Winner predicted: {predicted_winner}")
 
+        active_ctors = list(CONSTRUCTORS_2026 if CURRENT_SEASON >= 2026 else CONSTRUCTORS_2025)
         driver_pts = [predictor.estimate_fantasy_points(d["driver"], race_order, quali_order, is_sprint, sprint_order) for d in race_order]
-        ctor_pts = [predictor.estimate_constructor_points(ctor, driver_pts, is_sprint) for ctor in CONSTRUCTORS_2025]
+        ctor_pts = [predictor.estimate_constructor_points(ctor, driver_pts, is_sprint) for ctor in active_ctors]
 
         # 6. Monte Carlo
         sims = options.get("sims", 1000)
@@ -278,10 +279,13 @@ def run_full_pipeline(
             grid_penalties=getattr(predictor, "_grid_penalties", {})
         )
         mc_ev_pts = get_expected_value_pts(mc_results)
-        from engine.core.config import DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS
+        from engine.core.config import DRIVER_TEAMS_2026, DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS
         driver_dotd_lookup = {d["driver"]: d["breakdown"].get("driver_of_day", 0.0) for d in driver_pts}
-        for ctor in CONSTRUCTORS_2025:
-            drv_list = [d for d, c in DRIVER_TEAMS_2025.items() if c == ctor]
+        active_driver_teams = dict(DRIVER_TEAMS_2026 if CURRENT_SEASON >= 2026 else DRIVER_TEAMS_2025)
+        if dynamic_roster:
+            active_driver_teams.update(dynamic_roster)
+        for ctor in active_ctors:
+            drv_list = [d for d, c in active_driver_teams.items() if c == ctor]
             pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
             ctor_ev = sum(mc_ev_pts.get(d, 0.0) - driver_dotd_lookup.get(d, 0.0) for d in drv_list) + pit_pts
             mc_ev_pts[ctor] = ctor_ev
@@ -415,29 +419,57 @@ def calculate_lookahead_ev(
     predictor, current_race_round, options, sims,
     run_id=None, progress_callback=None,
     roster=None, grid_overrides=None,
+    season=None,
 ):
     """
-    Sum of MC expected values over the next 3 races.
+    Sum of MC expected values over the next 3 races with temporal discounting.
 
-    NOTE on scales: the returned totals are PER-RACE AVERAGES, not 3-race sums —
-    the transfer optimizer and dream-team LP operate on single-race point scales
-    ($-per-point tradeoffs), so feeding them a 3x-summed EV distorted value
+    NOTE on scales: the returned totals are PER-RACE WEIGHTED AVERAGES (gamma=0.75),
+    not 3-race sums — the transfer optimizer and dream-team LP operate on single-race
+    point scales ($-per-point tradeoffs), so feeding them a 3x-summed EV distorted value
     rankings by construction.
     """
     from engine.core.data_fetcher import get_race_by_round, is_sprint_weekend
     from engine.core.weather import get_race_weekend_weather
-    from engine.core.config import CURRENT_SEASON, CONSTRUCTORS_2025, DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS
+    from engine.core.config import (
+        CURRENT_SEASON, CONSTRUCTORS_2026, CONSTRUCTORS_2025,
+        DRIVER_TEAMS_2026, DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS,
+        DRIVER_OF_DAY_BONUS
+    )
     from engine.models.monte_carlo import simulate_race_weekend, get_expected_value_pts
     
+    if season is None:
+        season = CURRENT_SEASON
+
+    constructors = list(CONSTRUCTORS_2026 if season >= 2026 else CONSTRUCTORS_2025)
+    base_driver_teams = dict(DRIVER_TEAMS_2026 if season >= 2026 else DRIVER_TEAMS_2025)
+    if roster:
+        if isinstance(roster, dict):
+            for d, t in roster.items():
+                if t:
+                    base_driver_teams[d] = t
+                    if t not in constructors:
+                        constructors.append(t)
+        elif isinstance(roster, list):
+            for d in roster:
+                if isinstance(d, dict) and "driver" in d and d.get("team"):
+                    base_driver_teams[d["driver"]] = d["team"]
+                    if d["team"] not in constructors:
+                        constructors.append(d["team"])
+
     total_ev = {}
     rounds_simulated = 0
+    total_weight = 0.0
+    gamma = 0.75  # Exponential temporal discount factor per race lookahead step
 
     # We will do 3 races: round, round+1, round+2
-    for r in range(current_race_round, current_race_round + 3):
-        race = get_race_by_round(r, CURRENT_SEASON)
+    for offset, r in enumerate(range(current_race_round, current_race_round + 3)):
+        race = get_race_by_round(r, season)
         if not race:
             break
+        weight = gamma ** offset
         rounds_simulated += 1
+        total_weight += weight
             
         if progress_callback and run_id:
             progress_callback(run_id, "ANALYSIS", "loading", f"Simulating Round {r} lookahead ({race['name'].replace(' Grand Prix', '')})...")
@@ -452,11 +484,12 @@ def calculate_lookahead_ev(
             circuit_cfg = race.get("circuit_config", {})
         weather = get_race_weekend_weather(race["name"], race["date"], race_info=race)
         
-        # Load context for this future race (roster/overrides carried through so
-        # mid-season substitutions aren't ignored in future-round predictions)
+        # Load context for this future race.
+        # Future rounds do NOT inherit current-round grid penalties/overrides.
+        round_grid_overrides = grid_overrides if r == current_race_round else None
         predictor.load_context(
             circuit_cfg, weather, roster=roster,
-            mode="pre-quali", race_info=race, grid_overrides=grid_overrides,
+            mode="pre-quali", race_info=race, grid_overrides=round_grid_overrides,
         )
         
         race_order = predictor.predict_finishing_order()
@@ -472,14 +505,13 @@ def calculate_lookahead_ev(
         ev_pts = get_expected_value_pts(mc_results)
         
         for name, points in ev_pts.items():
-            total_ev[name] = total_ev.get(name, 0.0) + points
+            total_ev[name] = total_ev.get(name, 0.0) + points * weight
             
         # Calculate constructor expected values for this round.
         # ev_pts already contains MC-integrated driver points (including sprint when is_sprint=True).
         # Constructor points = sum of both drivers' EV minus DOTD (driver-only bonus) + pit stop bonus.
-        from engine.core.config import DRIVER_OF_DAY_BONUS
-        for ctor in CONSTRUCTORS_2025:
-            drv_list = [d for d, c in DRIVER_TEAMS_2025.items() if c == ctor]
+        for ctor in constructors:
+            drv_list = [d for d, c in base_driver_teams.items() if c == ctor]
             pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
             ctor_ev = 0.0
             for d in drv_list:
@@ -493,12 +525,11 @@ def calculate_lookahead_ev(
                     dotd_ev = 0.0
                 ctor_ev += ev_pts.get(d, 0.0) - dotd_ev
             ctor_ev += pit_pts
-            total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev
+            total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev * weight
 
-    # Normalize to a PER-RACE average — consumers (suggest_team_changes /
-    # find_optimal_team) compare against single-race prices and budgets.
-    if rounds_simulated > 1:
-        total_ev = {name: pts / rounds_simulated for name, pts in total_ev.items()}
+    # Normalize by total discount weight to obtain single-race expected value scale
+    if total_weight > 0.0:
+        total_ev = {name: pts / total_weight for name, pts in total_ev.items()}
 
     return total_ev
 
