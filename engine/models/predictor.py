@@ -1334,16 +1334,17 @@ class F1Predictor:
         r_lgb = to_rank(s_lgb, higher_is_better=True)
 
         results: dict[str, tuple[float, float]] = {}
+        field_size = float(len(drivers) + 1.0)
         for i, drv in enumerate(drivers):
             vals = [float(r_rf[i]), float(r_xgb[i]), float(r_lgb[i])]
             if meta is not None:
                 try:
                     pred = float(meta.predict([vals])[0])
                 except Exception:
-                    pred = float(np.mean(vals))
+                    pred = float(np.mean(vals)) * field_size
             else:
-                pred = float(np.mean(vals))
-            std = float(np.std(vals))
+                pred = float(np.mean(vals)) * field_size
+            std = float(np.std(vals)) * field_size
             results[drv] = (_clamp(pred, 1, 22), std)
         return results
 
@@ -1440,7 +1441,7 @@ class F1Predictor:
             dnf_prob = self._estimate_dnf_prob(drv, ctor)
             rd = self._elo.get_rd(drv) if self._elo else 350.0
             confidence = max(20.0, min(99.0, 100.0 - std * 8.0))
-            confidence *= max(0.7, 1.0 - (rd - 100) / 500.0)
+            confidence *= max(0.7, min(1.0, 1.0 - (rd - 100) / 500.0))
             confidence = max(15.0, min(99.0, confidence))
 
             # — Sensibility guardrails —
@@ -1524,7 +1525,10 @@ class F1Predictor:
             pred = max(1.0, min(22.0, pred))
 
             ctor = self._roster.get(drv, "")
+            rd = self._elo.get_rd(drv) if self._elo else 350.0
             confidence = max(20.0, min(99.0, 100.0 - std * 8.0))
+            confidence *= max(0.7, min(1.0, 1.0 - (rd - 100) / 500.0))
+            confidence = max(15.0, min(99.0, confidence))
 
             predictions.append({
                 "driver":         drv,
@@ -1599,8 +1603,10 @@ class F1Predictor:
 
     def predict_sprint_order(self) -> list[dict]:
         """
-        Sprint race prediction: qualifying model + race model blend.
-        Sprint is shorter so compress variance somewhat.
+        Sprint race prediction: qualifying model + race model blend with
+        dynamic weekend telemetry modifiers (FP1 pace, sector deltas),
+        domain guardrails, and self-improvement bias corrections.
+        Sprint is shorter (~100km) so compress variance and DNF risk somewhat.
         """
         drivers = list(self._roster.keys())
         predictions = []
@@ -1611,9 +1617,60 @@ class F1Predictor:
             sprint_pred = 0.6 * race_pred + 0.4 * quali_pred
             sprint_std  = (race_std + quali_std) / 2
 
+            # Apply FastF1 heuristics as deterministic modifiers
+            fp_delta = self._practice_pace.get(drv, 0.0) if getattr(self, "_practice_pace", None) else 0.0
+            sprint_pred += fp_delta * 1.5
+            if getattr(self, "_quali_sectors", None) and drv in self._quali_sectors:
+                sprint_pred += self._quali_sectors[drv].get("q_lap_delta", 0.0) * 1.0
+            sprint_pred = max(1.0, min(22.0, sprint_pred))
+
             ctor = self._roster.get(drv, "")
             dnf_prob = self._estimate_dnf_prob(drv, ctor) * 0.6
+            rd = self._elo.get_rd(drv) if self._elo else 350.0
             confidence = max(20.0, min(99.0, 100.0 - sprint_std * 8.0))
+            confidence *= max(0.7, min(1.0, 1.0 - (rd - 100) / 500.0))
+            confidence = max(15.0, min(99.0, confidence))
+
+            # — Sensibility guardrails —
+            form = self._driver_form.get(drv, {})
+            races_counted = form.get("races_counted", 0)
+            form_avg = form.get("avg_position", 11.0)
+            is_rookie = bool(races_counted < 4)
+            ctor_pos_val = next((c["position"] for c in getattr(self, "_ctor_standings", []) if c["constructor"] == ctor), 99)
+
+            # Guardrail 1: Top-3 constructor + recent top-6 form => can't predict below P10
+            if ctor_pos_val <= 3 and form_avg <= 6.5 and sprint_pred > 10.0:
+                sprint_pred = min(sprint_pred, 10.0)
+
+            # Guardrail 3: Last-place constructor — floor weak predictions for backmarker teams at P10
+            if ctor_pos_val >= 9 and sprint_pred < 10.0 and not (form_avg <= 9):
+                sprint_pred = max(sprint_pred, 10.0)
+
+            sprint_pred = max(1.0, min(22.0, sprint_pred))
+
+            # Apply self-improvement bias correction
+            clamped_bias = 0.0
+            if hasattr(self, "_bias_corrections") and self._bias_corrections:
+                circuit_cfg = getattr(self, "_circuit_config", {}) or {}
+                circuit_type = circuit_cfg.get("track_type", "permanent")
+                biases = self._bias_corrections.get("driver_biases", {}).get(drv, {})
+                bias = biases.get(circuit_type, biases.get("overall", 0.0))
+
+                circuit_key = circuit_cfg.get("key", "")
+                circuit_biases = self._bias_corrections.get("driver_circuit_biases", {}).get(drv, {})
+                if circuit_key and circuit_key in circuit_biases:
+                    bias = circuit_biases[circuit_key]
+
+                clamped_bias = max(-1.5, min(1.5, bias))
+                sprint_pred = sprint_pred - clamped_bias
+                sprint_pred = max(1.0, min(22.0, sprint_pred))
+
+            conf_label = "high" if confidence >= 70 else "medium" if confidence >= 45 else "low"
+            explanation = f"Sprint P{sprint_pred:.0f}: blended pace (confidence: {conf_label})"
+            if abs(fp_delta) > 0.05:
+                explanation += f", FP delta ({fp_delta:+.2f}s)"
+            if abs(clamped_bias) > 0.01:
+                explanation += f" [Self-Improvement Bias: {-clamped_bias:+.2f}]"
 
             predictions.append({
                 "driver":          drv,
@@ -1624,6 +1681,8 @@ class F1Predictor:
                 "std_dev":         float(round(sprint_std, 2)),
                 "dnf_prob_pct":    float(round(dnf_prob * 100, 1)),
                 "elo_rating":      float(round(self._elo.get_rating(drv) if self._elo else ELO_BASE, 0)),
+                "fp_pace_delta":   float(round(fp_delta, 3)),
+                "explanation":     explanation,
             })
 
         predictions.sort(key=lambda x: x["predicted_pos"])
