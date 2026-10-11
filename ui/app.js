@@ -891,11 +891,16 @@ async function importF1Team(teamNo) {
         btn.innerText = 'Importing...';
     }
 
+    const inputEl = document.getElementById('f1-sync-cookie-input');
+    const cookieVal = inputEl ? inputEl.value.trim() : '';
+    const payload = { team_no: teamNo };
+    if (cookieVal) payload.cookie = cookieVal;
+
     try {
         const res = await fetch('/api/f1-sync/import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ team_no: teamNo })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (!res.ok) {

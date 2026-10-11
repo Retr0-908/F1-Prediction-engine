@@ -65,11 +65,7 @@ def _get_cookie_string(explicit_cookie: Optional[str] = None) -> str:
     if explicit_cookie and explicit_cookie.strip():
         return explicit_cookie.strip()
 
-    # Check config
-    if F1_FANTASY_COOKIE and F1_FANTASY_COOKIE.strip():
-        return F1_FANTASY_COOKIE.strip()
-
-    # Re-check .env file dynamically in case user updated it without restarting
+    # 1. Dynamically check .env file first so any updates are immediately picked up
     from dotenv import dotenv_values
     from engine.core.paths import PROJECT_ROOT
     env_file = PROJECT_ROOT / ".env"
@@ -78,6 +74,23 @@ def _get_cookie_string(explicit_cookie: Optional[str] = None) -> str:
         c = vals.get("F1_FANTASY_COOKIE", "")
         if c and c.strip():
             return c.strip()
+
+    # 2. Check process environment
+    import os
+    env_c = os.getenv("F1_FANTASY_COOKIE", "")
+    if env_c and env_c.strip():
+        return env_c.strip()
+
+    # 3. Check runtime config
+    from engine.core import config
+    cfg_c = getattr(config, "F1_FANTASY_COOKIE", "")
+    if cfg_c and cfg_c.strip():
+        return cfg_c.strip()
+
+    # 4. Fallback to module variable
+    global F1_FANTASY_COOKIE
+    if F1_FANTASY_COOKIE and F1_FANTASY_COOKIE.strip():
+        return F1_FANTASY_COOKIE.strip()
 
     return ""
 
@@ -94,10 +107,18 @@ def save_cookie_to_env(cookie_str: str) -> str:
     if cleaned and "=" not in cleaned:
         cleaned = f"login-session={cleaned}"
 
+    global F1_FANTASY_COOKIE
+    F1_FANTASY_COOKIE = cleaned
+
     import os
+    import sys
     from engine.core import config
     os.environ["F1_FANTASY_COOKIE"] = cleaned
     config.F1_FANTASY_COOKIE = cleaned
+
+    for mod_name in ["engine.core.fantasy_sync", "engine.core.fantasy_scraper"]:
+        if mod_name in sys.modules:
+            setattr(sys.modules[mod_name], "F1_FANTASY_COOKIE", cleaned)
 
     from engine.core.paths import PROJECT_ROOT
     env_file = PROJECT_ROOT / ".env"
