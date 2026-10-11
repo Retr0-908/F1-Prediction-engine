@@ -912,11 +912,57 @@
                         <span>⚠️</span> Sync Failed
                     </div>
                     <div id="f1-sync-error-msg" style="font-size:0.88rem; color:var(--text-main); line-height:1.4;"></div>
+
+                    <!-- In-app Cookie Update & Interactive Guide Box -->
+                    <div id="f1-sync-cookie-box" style="margin-top:14px; padding:14px; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.15); border-radius:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <label for="f1-sync-cookie-input" style="font-weight:700; font-size:0.85rem; color:#fff; display:flex; align-items:center; gap:6px;">
+                                <span>🔑</span> Paste New F1 Fantasy Cookie
+                            </label>
+                            <button type="button" class="f1-sync-help-btn" onclick="toggleF1CookieGuide()" style="background:none; border:none; color:var(--telemetry-cyan, #00D2BE); font-size:0.8rem; cursor:pointer; font-weight:600; padding:2px 6px; border-radius:4px; display:flex; align-items:center; gap:4px;">
+                                <span>📖</span> How to find your cookie
+                            </button>
+                        </div>
+                        <p class="dim-text" style="font-size:0.78rem; margin:0 0 10px 0; line-height:1.35; color:#bbb;">
+                            Paste your fresh <code style="background:rgba(255,255,255,0.08); padding:2px 4px; border-radius:3px; color:#ffb703;">login-session</code> cookie value. It will be saved into the app and your <code style="background:rgba(255,255,255,0.08); padding:2px 4px; border-radius:3px; color:#fff;">.env</code> file automatically.
+                        </p>
+                        <textarea id="f1-sync-cookie-input" rows="3" placeholder="Paste login-session cookie here (starts with %7B%22data or login-session=)..." style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.22); border-radius:6px; color:#fff; font-family:monospace; font-size:0.78rem; padding:8px 10px; resize:vertical; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--telemetry-cyan, #00D2BE)'" onblur="this.style.borderColor='rgba(255,255,255,0.22)'"></textarea>
+                        
+                        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+                            <button type="button" id="f1-sync-save-btn" onclick="saveF1CookieAndSync()" style="background:linear-gradient(135deg, #e10600, #ff2a24); border:none; color:#fff; font-weight:700; font-size:0.85rem; padding:9px 18px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:opacity 0.2s; box-shadow:0 2px 8px rgba(225,6,0,0.3);">
+                                <span>💾</span> Save Cookie &amp; Retry Sync
+                            </button>
+                        </div>
+
+                        <!-- Expandable Step-by-Step Instructions -->
+                        <div id="f1-sync-guide" style="display:none; margin-top:14px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.15); font-size:0.82rem; color:var(--text-main); line-height:1.5;">
+                            <div style="font-weight:700; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                                <span>🔍</span> How to retrieve your login-session cookie:
+                            </div>
+                            <ol style="margin:0 0 10px 0; padding-left:20px; color:#ddd;">
+                                <li style="margin-bottom:6px;">Open <a href="https://fantasy.formula1.com" target="_blank" rel="noopener noreferrer" style="color:var(--telemetry-cyan, #00D2BE); text-decoration:underline;">fantasy.formula1.com</a> in Chrome, Edge, or Firefox and <strong>log in</strong> to your account.</li>
+                                <li style="margin-bottom:6px;">Press <kbd style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:3px; padding:1px 5px; font-family:monospace; font-size:0.75rem;">F12</kbd> (or right-click anywhere &rarr; <strong>Inspect</strong>) to open Developer Tools.</li>
+                                <li style="margin-bottom:6px;">Click the <strong>Application</strong> tab (on Chrome/Edge/Brave) or the <strong>Storage</strong> tab (on Firefox).</li>
+                                <li style="margin-bottom:6px;">In the left sidebar, expand <strong>Cookies</strong> and select <code style="color:var(--telemetry-cyan, #00D2BE);">https://fantasy.formula1.com</code>.</li>
+                                <li style="margin-bottom:6px;">Find the row named <strong style="color:#ffb703;">login-session</strong>.</li>
+                                <li style="margin-bottom:6px;">Double-click its <strong>Value</strong> column, copy the entire string (starts with <code style="color:#aaa;">%7B%22data</code>), paste it into the box above, and click <strong>Save Cookie &amp; Retry Sync</strong>.</li>
+                            </ol>
+                            <div style="font-size:0.75rem; color:#aaa; font-style:italic;">
+                                💡 Tip: F1 Fantasy session cookies expire every 1–2 weeks. When expired, simply repeat these steps.
+                            </div>
+                        </div>
+                    </div>
                 </div>
+
                 <div id="f1-sync-content" style="display:none;">
-                    <p class="dim-text" style="margin-bottom:14px; font-size:0.85rem;">
-                        Select which of your official F1 Fantasy teams you would like to load into the engine:
-                    </p>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                        <p class="dim-text" style="margin:0; font-size:0.85rem;">
+                            Select which of your official F1 Fantasy teams you would like to load into the engine:
+                        </p>
+                        <button type="button" onclick="showCookieInputManually()" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-dim); font-size:0.75rem; border-radius:4px; padding:4px 8px; cursor:pointer;">
+                            🔑 Update Cookie
+                        </button>
+                    </div>
                     <div id="f1-sync-teams-cards" class="f1-sync-teams-grid">
                         <!-- Dynamically populated team cards -->
                     </div>
@@ -925,6 +971,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=12"></script>
+    <script src="/static/app.js?v=25"></script>
 </body>
 </html>

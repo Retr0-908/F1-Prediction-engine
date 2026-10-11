@@ -592,20 +592,15 @@ class PlannedFixProbes(unittest.TestCase):
 
     def test_race_has_happened_and_next_race_advancement(self):
         from engine.core import data_fetcher as df
-        r15 = df.get_race_by_round(15, 2026)
-        r16 = df.get_race_by_round(16, 2026)
-        self.assertIsNotNone(r15)
-        self.assertIsNotNone(r16)
-        # Round 15 (Azerbaijan) completed earlier today -> must be detected as happened
-        self.assertTrue(df.race_has_happened(r15, 2026))
-        # Round 16 (Malaysia) has not happened yet -> must return False
-        self.assertFalse(df.race_has_happened(r16, 2026))
-        # Next race must advance to Round 16
+        latest_completed = df._latest_completed_round_num(2026)
+        r_completed = df.get_race_by_round(latest_completed, 2026)
+        self.assertIsNotNone(r_completed)
+        self.assertTrue(df.race_has_happened(r_completed, 2026))
+
         next_race = df.get_next_race(2026)
         self.assertIsNotNone(next_race)
-        self.assertEqual(next_race["round"], 16)
-        # Latest completed round must be 15
-        self.assertEqual(df._latest_completed_round_num(2026), 15)
+        self.assertEqual(next_race["round"], latest_completed + 1)
+        self.assertFalse(df.race_has_happened(next_race, 2026))
 
     def test_qualifying_has_happened_multi_signal(self):
         from engine.core import data_fetcher as df

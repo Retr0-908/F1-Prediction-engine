@@ -82,6 +82,46 @@ def _get_cookie_string(explicit_cookie: Optional[str] = None) -> str:
     return ""
 
 
+def save_cookie_to_env(cookie_str: str) -> str:
+    """
+    Sanitize, persist to .env, and update runtime config with the new F1 Fantasy cookie.
+    Returns the sanitized cookie string.
+    """
+    cleaned = (cookie_str or "").strip()
+    if (cleaned.startswith('"') and cleaned.endswith('"')) or (cleaned.startswith("'") and cleaned.endswith("'")):
+        cleaned = cleaned[1:-1].strip()
+
+    if cleaned and "=" not in cleaned:
+        cleaned = f"login-session={cleaned}"
+
+    import os
+    from engine.core import config
+    os.environ["F1_FANTASY_COOKIE"] = cleaned
+    config.F1_FANTASY_COOKIE = cleaned
+
+    from engine.core.paths import PROJECT_ROOT
+    env_file = PROJECT_ROOT / ".env"
+    lines = []
+    found = False
+    env_key = "F1_FANTASY_COOKIE"
+    target_entry = f"{env_key}={cleaned}\n"
+    if env_file.exists():
+        with open(env_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        for i, line in enumerate(lines):
+            if line.strip().startswith(f"{env_key}="):
+                lines[i] = target_entry
+                found = True
+                break
+    if not found:
+        lines.append(target_entry)
+
+    with open(env_file, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+    return cleaned
+
+
 def fetch_user_teams(cookie: Optional[str] = None) -> list[dict[str, Any]]:
     """
     Authenticate against F1 Fantasy and fetch all 3 user fantasy teams.
@@ -142,8 +182,16 @@ def fetch_user_teams(cookie: Optional[str] = None) -> list[dict[str, Any]]:
             "The site may be under maintenance or Cloudflare protected."
         ) from exc
 
-    if not login_json.get("Meta", {}).get("Success", True) and not login_json.get("Data", {}).get("Value"):
-        msg = login_json.get("Meta", {}).get("Message") or "Authentication failed"
+    meta = login_json.get("Meta", {})
+    if not meta.get("Success", True) and not login_json.get("Data", {}).get("Value"):
+        msg = meta.get("Message") or "Authentication failed"
+        status_code = meta.get("StatusCode")
+        if status_code == 401 or meta.get("RetVal") == -60 or "DataInitializer" in str(msg):
+            raise F1FantasySyncError(
+                "Your F1 Fantasy session cookie has expired or is invalid. "
+                "Please log in to https://fantasy.formula1.com, copy your fresh 'login-session' cookie "
+                "from browser DevTools (Application > Cookies), and update F1_FANTASY_COOKIE in .env."
+            )
         raise F1FantasySyncError(f"F1 Fantasy login error: {msg}")
 
     login_val = login_json.get("Data", {}).get("Value", {})

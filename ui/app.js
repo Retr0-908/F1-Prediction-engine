@@ -698,6 +698,125 @@ async function saveTeam() {
 }
 
 // ---- F1 FANTASY LIVE SYNC ----
+function renderF1TeamCards(teams, cardsEl) {
+    if (!cardsEl) return;
+    cardsEl.innerHTML = '';
+    (teams || []).forEach(t => {
+        const card = document.createElement('div');
+        card.className = 'f1-team-card';
+
+        const driverItemsHtml = (t.drivers || []).map(d => {
+            const isTurbo = t.turbo_driver === d;
+            return `
+                <div class="f1-team-lineup-item">
+                    <span>${d}${isTurbo ? ' <span class="f1-team-turbo-tag">2x TURBO</span>' : ''}</span>
+                </div>
+            `;
+        }).join('');
+
+        const ctorItemsHtml = (t.constructors || []).map(c => `
+            <div class="f1-team-lineup-item" style="color:var(--telemetry-cyan);">
+                <span>🏎️ ${c}</span>
+            </div>
+        `).join('');
+
+        card.innerHTML = `
+            <div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span class="f1-team-badge">Team ${t.team_no}</span>
+                    <span style="font-size:0.75rem; color:var(--text-dim);">${t.transfers} free transfer${t.transfers !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="f1-team-title" title="${t.team_name}">${t.team_name}</div>
+                <div class="f1-team-meta-row">
+                    <div>Pts: <span class="f1-team-meta-val">${t.current_points}</span></div>
+                    <div>Bank: <span class="f1-team-meta-val" style="color:#00ff41;">$${t.budget_remaining}M</span></div>
+                </div>
+                <div class="f1-team-lineup-box">
+                    <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Drivers &amp; Constructors</div>
+                    ${driverItemsHtml}
+                    ${ctorItemsHtml}
+                </div>
+            </div>
+            <button class="f1-team-import-btn" id="btn-import-team-${t.team_no}" onclick="importF1Team(${t.team_no})">
+                ⚡ Load Team ${t.team_no}
+            </button>
+        `;
+        cardsEl.appendChild(card);
+    });
+}
+
+function toggleF1CookieGuide() {
+    const guideEl = document.getElementById('f1-sync-guide');
+    if (!guideEl) return;
+    guideEl.style.display = guideEl.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveF1CookieAndSync() {
+    const inputEl = document.getElementById('f1-sync-cookie-input');
+    const btnEl = document.getElementById('f1-sync-save-btn');
+    const errorEl = document.getElementById('f1-sync-error');
+    const errorMsgEl = document.getElementById('f1-sync-error-msg');
+    const cookieBoxEl = document.getElementById('f1-sync-cookie-box');
+    const contentEl = document.getElementById('f1-sync-content');
+    const cardsEl = document.getElementById('f1-sync-teams-cards');
+
+    if (!inputEl) return;
+    const cookieVal = inputEl.value.trim();
+    if (!cookieVal) {
+        inputEl.style.borderColor = '#ff4d6a';
+        inputEl.focus();
+        return;
+    }
+
+    if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = '<span>⏳</span> Verifying &amp; Saving...';
+    }
+
+    try {
+        const res = await fetch('/api/f1-sync/cookie', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cookie: cookieVal })
+        });
+        const data = await res.json();
+
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.innerHTML = '<span>💾</span> Save Cookie &amp; Retry Sync';
+        }
+
+        if (!res.ok || data.status !== 'ok') {
+            errorEl.style.display = 'block';
+            errorMsgEl.innerText = data.message || 'Authentication failed. Please check the copied cookie.';
+            inputEl.style.borderColor = '#ff4d6a';
+            return;
+        }
+
+        // Success!
+        errorEl.style.display = 'none';
+        if (cookieBoxEl) cookieBoxEl.style.display = 'none';
+        inputEl.value = '';
+
+        if (!data.teams || data.teams.length === 0) {
+            errorEl.style.display = 'block';
+            errorMsgEl.innerText = 'Cookie saved, but no teams were found under this F1 Fantasy account.';
+            return;
+        }
+
+        contentEl.style.display = 'block';
+        renderF1TeamCards(data.teams, cardsEl);
+
+    } catch (err) {
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.innerHTML = '<span>💾</span> Save Cookie &amp; Retry Sync';
+        }
+        errorEl.style.display = 'block';
+        errorMsgEl.innerText = 'Network error saving cookie: ' + err.message;
+    }
+}
+
 async function openF1SyncModal() {
     const modal = document.getElementById('f1-sync-modal');
     if (!modal) return;
@@ -707,10 +826,12 @@ async function openF1SyncModal() {
     const errorEl = document.getElementById('f1-sync-error');
     const contentEl = document.getElementById('f1-sync-content');
     const cardsEl = document.getElementById('f1-sync-teams-cards');
+    const guideEl = document.getElementById('f1-sync-guide');
 
     loadingEl.style.display = 'block';
     errorEl.style.display = 'none';
     contentEl.style.display = 'none';
+    if (guideEl) guideEl.style.display = 'none';
 
     try {
         const res = await fetch('/api/f1-sync/teams');
@@ -721,13 +842,13 @@ async function openF1SyncModal() {
         if (!res.ok) {
             errorEl.style.display = 'block';
             const detailMsg = data.detail || data.message || `HTTP ${res.status}`;
-            document.getElementById('f1-sync-error-msg').innerText = `API endpoint error (${res.status}): ${detailMsg}. If you just updated the codebase, please restart your Python server.`;
+            document.getElementById('f1-sync-error-msg').innerText = `API error (${res.status}): ${detailMsg}`;
             return;
         }
 
         if (data.status !== 'ok') {
             errorEl.style.display = 'block';
-            document.getElementById('f1-sync-error-msg').innerText = data.message || 'Unable to retrieve teams from F1 Fantasy. Please check your F1_FANTASY_COOKIE in .env.';
+            document.getElementById('f1-sync-error-msg').innerText = data.message || 'Unable to retrieve teams from F1 Fantasy. Please check your session cookie.';
             return;
         }
 
@@ -738,55 +859,23 @@ async function openF1SyncModal() {
         }
 
         contentEl.style.display = 'block';
-        cardsEl.innerHTML = '';
-
-        data.teams.forEach(t => {
-            const card = document.createElement('div');
-            card.className = 'f1-team-card';
-
-            const driverItemsHtml = (t.drivers || []).map(d => {
-                const isTurbo = t.turbo_driver === d;
-                return `
-                    <div class="f1-team-lineup-item">
-                        <span>${d}${isTurbo ? ' <span class="f1-team-turbo-tag">2x TURBO</span>' : ''}</span>
-                    </div>
-                `;
-            }).join('');
-
-            const ctorItemsHtml = (t.constructors || []).map(c => `
-                <div class="f1-team-lineup-item" style="color:var(--telemetry-cyan);">
-                    <span>🏎️ ${c}</span>
-                </div>
-            `).join('');
-
-            card.innerHTML = `
-                <div>
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span class="f1-team-badge">Team ${t.team_no}</span>
-                        <span style="font-size:0.75rem; color:var(--text-dim);">${t.transfers} free transfer${t.transfers !== 1 ? 's' : ''}</span>
-                    </div>
-                    <div class="f1-team-title" title="${t.team_name}">${t.team_name}</div>
-                    <div class="f1-team-meta-row">
-                        <div>Pts: <span class="f1-team-meta-val">${t.current_points}</span></div>
-                        <div>Bank: <span class="f1-team-meta-val" style="color:#00ff41;">$${t.budget_remaining}M</span></div>
-                    </div>
-                    <div class="f1-team-lineup-box">
-                        <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Drivers &amp; Constructors</div>
-                        ${driverItemsHtml}
-                        ${ctorItemsHtml}
-                    </div>
-                </div>
-                <button class="f1-team-import-btn" id="btn-import-team-${t.team_no}" onclick="importF1Team(${t.team_no})">
-                    ⚡ Load Team ${t.team_no}
-                </button>
-            `;
-            cardsEl.appendChild(card);
-        });
+        renderF1TeamCards(data.teams, cardsEl);
 
     } catch (err) {
         loadingEl.style.display = 'none';
         errorEl.style.display = 'block';
         document.getElementById('f1-sync-error-msg').innerText = 'Network error contacting backend: ' + err.message;
+    }
+}
+
+function showCookieInputManually() {
+    const errorEl = document.getElementById('f1-sync-error');
+    const errorMsgEl = document.getElementById('f1-sync-error-msg');
+    if (errorEl) {
+        errorEl.style.display = 'block';
+        if (errorMsgEl) errorMsgEl.innerText = 'Paste your new F1 Fantasy session cookie below to update credentials or switch accounts:';
+        const inputEl = document.getElementById('f1-sync-cookie-input');
+        if (inputEl) inputEl.focus();
     }
 }
 
@@ -851,6 +940,9 @@ async function importF1Team(teamNo) {
 window.openF1SyncModal = openF1SyncModal;
 window.closeF1SyncModal = closeF1SyncModal;
 window.importF1Team = importF1Team;
+window.toggleF1CookieGuide = toggleF1CookieGuide;
+window.saveF1CookieAndSync = saveF1CookieAndSync;
+window.showCookieInputManually = showCookieInputManually;
 
 // ---- PRICES (SCREEN 4) ----
 function renderPriceLists() {

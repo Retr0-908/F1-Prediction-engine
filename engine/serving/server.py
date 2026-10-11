@@ -253,6 +253,29 @@ async def import_f1_team(request: Request):
         logger.error(f"Failed to import team: {e}", exc_info=True)
         return {"status": "error", "message": f"Import failed: {str(e)}"}
 
+
+@app.post("/api/f1-sync/cookie")
+async def save_f1_cookie(request: Request):
+    """Save user's F1 Fantasy cookie directly to .env and runtime config, then verify."""
+    from engine.core.fantasy_sync import save_cookie_to_env, fetch_user_teams, F1FantasySyncError
+    try:
+        data = await request.json()
+        raw_cookie = (data.get("cookie") or "").strip()
+        if not raw_cookie:
+            return {"status": "error", "message": "Cookie string cannot be empty."}
+        saved_cookie = save_cookie_to_env(raw_cookie)
+        teams = fetch_user_teams(cookie=saved_cookie)
+        return {
+            "status": "ok",
+            "message": "Cookie saved and verified successfully!",
+            "teams": teams
+        }
+    except F1FantasySyncError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        logger.error(f"Failed to save and verify cookie: {e}", exc_info=True)
+        return {"status": "error", "message": f"Error saving cookie: {str(e)}"}
+
 @app.get("/api/chips")
 def get_chips():
     from engine.strategy.chip_advisor import load_chip_state
