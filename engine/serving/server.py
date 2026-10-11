@@ -219,15 +219,22 @@ async def save_team(request: Request):
     return {"status": "ok"}
 
 
+_CACHED_F1_TEAMS: dict[int, dict] = {}
+
+
 @app.get("/api/f1-sync/teams")
 async def get_f1_teams(cookie: Optional[str] = None):
-    """Fetch all user teams from F1 Fantasy via session cookie."""
-    from engine.core.fantasy_sync import fetch_user_teams, F1FantasySyncError
+    """Fetch all user teams from F1 Fantasy via session cookie, with metadata status."""
+    global _CACHED_F1_TEAMS
+    from engine.core.fantasy_sync import fetch_user_teams, inspect_f1_cookie, F1FantasySyncError
     try:
         teams = fetch_user_teams(cookie=cookie)
-        return {"status": "ok", "teams": teams}
+        _CACHED_F1_TEAMS = {t["team_no"]: t for t in teams}
+        status_info = inspect_f1_cookie(cookie=cookie)
+        return {"status": "ok", "teams": teams, "cookie_status": status_info}
     except F1FantasySyncError as e:
-        return {"status": "error", "message": str(e)}
+        status_info = inspect_f1_cookie(cookie=cookie)
+        return {"status": "error", "message": str(e), "cookie_status": status_info}
     except Exception as e:
         logger.error(f"Unexpected error syncing F1 Fantasy teams: {e}", exc_info=True)
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
@@ -235,13 +242,18 @@ async def get_f1_teams(cookie: Optional[str] = None):
 
 @app.post("/api/f1-sync/import")
 async def import_f1_team(request: Request):
-    """Import a specific team (1, 2, or 3) from F1 Fantasy into local team state."""
+    """
+    Import a specific team (1, 2, or 3) from F1 Fantasy into local team state.
+    Uses cached/direct team data for 0ms execution without redundant network calls.
+    """
+    global _CACHED_F1_TEAMS
     from engine.core.fantasy_sync import import_user_team, F1FantasySyncError
     try:
         data = await request.json()
         team_no = int(data.get("team_no", 1))
         cookie = data.get("cookie")
-        imported = import_user_team(team_no=team_no, cookie=cookie)
+        team_data = data.get("team_data") or _CACHED_F1_TEAMS.get(team_no)
+        imported = import_user_team(team_no=team_no, cookie=cookie, team_data=team_data)
         return {
             "status": "ok",
             "imported": imported,
@@ -257,7 +269,8 @@ async def import_f1_team(request: Request):
 @app.post("/api/f1-sync/cookie")
 async def save_f1_cookie(request: Request):
     """Save user's F1 Fantasy cookie directly to .env and runtime config, then verify."""
-    from engine.core.fantasy_sync import save_cookie_to_env, fetch_user_teams, F1FantasySyncError
+    global _CACHED_F1_TEAMS
+    from engine.core.fantasy_sync import save_cookie_to_env, fetch_user_teams, inspect_f1_cookie, F1FantasySyncError
     try:
         data = await request.json()
         raw_cookie = (data.get("cookie") or "").strip()
@@ -265,10 +278,13 @@ async def save_f1_cookie(request: Request):
             return {"status": "error", "message": "Cookie string cannot be empty."}
         saved_cookie = save_cookie_to_env(raw_cookie)
         teams = fetch_user_teams(cookie=saved_cookie)
+        _CACHED_F1_TEAMS = {t["team_no"]: t for t in teams}
+        status_info = inspect_f1_cookie(cookie=saved_cookie)
         return {
             "status": "ok",
             "message": "Cookie saved and verified successfully!",
-            "teams": teams
+            "teams": teams,
+            "cookie_status": status_info
         }
     except F1FantasySyncError as e:
         return {"status": "error", "message": str(e)}

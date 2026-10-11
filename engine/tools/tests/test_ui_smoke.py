@@ -263,6 +263,40 @@ class UISmokeTests(unittest.TestCase):
         self.assertEqual(data.get("status"), "error")
         self.assertIn("cannot be empty", data.get("message", "").lower())
 
+    def test_f1_sync_cookie_status_reporting(self):
+        """Verify GET /api/f1-sync/teams returns cookie_status metadata dictionary."""
+        from engine.core.fantasy_sync import inspect_f1_cookie
+        status_empty = inspect_f1_cookie("")
+        self.assertEqual(status_empty["status"], "not_configured")
+        self.assertFalse(status_empty["is_valid"])
+
+        res = self.client.get("/api/f1-sync/teams")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("cookie_status", data)
+        self.assertIn("status", data["cookie_status"])
+        self.assertIn("is_valid", data["cookie_status"])
+
+    def test_f1_sync_import_direct_team_data(self):
+        """Verify POST /api/f1-sync/import bypasses external network when team_data is provided."""
+        payload = {
+            "team_no": 1,
+            "team_data": {
+                "team_no": 1,
+                "team_name": "Proactive Futureproof Team",
+                "drivers": ["Oliver Bearman", "Gabriel Bortoleto", "Nico Hulkenberg", "Arvid Lindblad", "Kimi Antonelli"],
+                "constructors": ["Ferrari", "Mercedes"],
+                "transfers": 3,
+                "budget_remaining": 0.5,
+                "current_points": 3900.0,
+            }
+        }
+        res = self.client.post("/api/f1-sync/import", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data.get("status"), "ok")
+        self.assertEqual(data.get("imported", {}).get("team_name"), "Proactive Futureproof Team")
+
 # Alias for compatibility with test runners targeting TestUISmoke
 TestUISmoke = UISmokeTests
 

@@ -899,7 +899,10 @@
                         <p class="dim-text" style="margin:2px 0 0 0; font-size:0.75rem;">Official F1 Fantasy Account • 3 Teams Available</p>
                     </div>
                 </div>
-                <button class="f1-sync-close-btn" onclick="closeF1SyncModal()">&times;</button>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span id="f1-sync-cookie-badge" style="display:none; font-size:0.75rem; padding:3px 10px; border-radius:12px; font-weight:600; letter-spacing:0.3px;"></span>
+                    <button class="f1-sync-close-btn" onclick="closeF1SyncModal()">&times;</button>
+                </div>
             </div>
             <div class="f1-sync-modal-body">
                 <div id="f1-sync-loading" style="text-align:center; padding:36px 16px;">
@@ -971,6 +974,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=26"></script>
+    <script src="/static/app.js?v=30"></script>
 </body>
 </html>

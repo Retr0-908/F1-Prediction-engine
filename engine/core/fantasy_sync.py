@@ -62,7 +62,7 @@ def _normalize_name(name: str) -> str:
 
 def _get_cookie_string(explicit_cookie: Optional[str] = None) -> str:
     """Resolve cookie string from argument, env variable, or .env file."""
-    if explicit_cookie and explicit_cookie.strip():
+    if explicit_cookie is not None:
         return explicit_cookie.strip()
 
     # 1. Dynamically check .env file first so any updates are immediately picked up
@@ -141,6 +141,91 @@ def save_cookie_to_env(cookie_str: str) -> str:
         f.writelines(lines)
 
     return cleaned
+
+
+def inspect_f1_cookie(cookie: Optional[str] = None) -> dict[str, Any]:
+    """
+    Safely inspect the F1 Fantasy login-session cookie without exposing tokens.
+    Extracts the JWT expiration timestamp (exp) to determine active duration,
+    days remaining, and validity status.
+    """
+    import base64
+    from datetime import datetime, timezone
+
+    raw_cookie = _get_cookie_string(cookie)
+    if not raw_cookie:
+        return {
+            "status": "not_configured",
+            "is_valid": False,
+            "is_expired": True,
+            "days_remaining": None,
+            "expires_at": None,
+            "message": "F1 Fantasy cookie is not configured.",
+        }
+
+    # Extract login-session part if in key=value format
+    cookie_body = raw_cookie
+    for part in raw_cookie.split(";"):
+        part = part.strip()
+        if part.startswith("login-session="):
+            cookie_body = part[len("login-session="):].strip()
+            break
+
+    # URL-decode and JSON-parse
+    try:
+        decoded_json = urllib.parse.unquote(cookie_body)
+        if decoded_json.startswith('"') and decoded_json.endswith('"'):
+            decoded_json = decoded_json[1:-1]
+        data = json.loads(decoded_json) if decoded_json.startswith("{") else {}
+        token = data.get("data", {}).get("subscriptionToken", "")
+        parts = token.split(".")
+        if len(parts) >= 2:
+            payload_b64 = parts[1]
+            rem = len(payload_b64) % 4
+            if rem:
+                payload_b64 += "=" * (4 - rem)
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            payload = json.loads(payload_bytes.decode("utf-8"))
+            exp_ts = payload.get("exp")
+            if exp_ts:
+                exp_dt = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+                now = datetime.now(timezone.utc)
+                delta = exp_dt - now
+                total_secs = int(delta.total_seconds())
+                is_expired = total_secs <= 0
+                days_rem = max(0, delta.days)
+                hours_rem = max(0, int(delta.total_seconds() // 3600))
+
+                if is_expired:
+                    status = "expired"
+                    msg = f"Session expired on {exp_dt.strftime('%b %d, %Y')}."
+                elif days_rem <= 2:
+                    status = "expiring_soon"
+                    msg = f"Session expires in {hours_rem}h ({exp_dt.strftime('%b %d')})."
+                else:
+                    status = "active"
+                    msg = f"Session active (expires in {days_rem} days on {exp_dt.strftime('%b %d')})."
+
+                return {
+                    "status": status,
+                    "is_valid": not is_expired,
+                    "is_expired": is_expired,
+                    "days_remaining": days_rem,
+                    "hours_remaining": hours_rem,
+                    "expires_at": exp_dt.isoformat(),
+                    "message": msg,
+                }
+    except Exception as exc:
+        logger.debug(f"Could not parse JWT exp from cookie: {exc}")
+
+    return {
+        "status": "configured",
+        "is_valid": True,
+        "is_expired": False,
+        "days_remaining": None,
+        "expires_at": None,
+        "message": "Session cookie configured.",
+    }
 
 
 def fetch_user_teams(cookie: Optional[str] = None) -> list[dict[str, Any]]:
@@ -345,19 +430,25 @@ def fetch_user_teams(cookie: Optional[str] = None) -> list[dict[str, Any]]:
 def import_user_team(
     team_no: int = 1,
     cookie: Optional[str] = None,
-    sync_chips: bool = True
+    sync_chips: bool = True,
+    team_data: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """
     Import a specific team (1, 2, or 3) from F1 Fantasy into the local engine cache.
     Persists to MY_TEAM_PATH and syncs used chip states to CHIP_STATE_PATH.
+    If team_data is provided directly (e.g. from the client's rendered cards),
+    uses it immediately without making redundant external network calls.
     """
-    teams = fetch_user_teams(cookie=cookie)
-    target = next((t for t in teams if t["team_no"] == team_no), None)
-    if not target:
-        available = [t["team_no"] for t in teams]
-        raise F1FantasySyncError(
-            f"Team #{team_no} not found. Available teams: {available}"
-        )
+    if team_data and team_data.get("drivers") and team_data.get("constructors"):
+        target = team_data
+    else:
+        teams = fetch_user_teams(cookie=cookie)
+        target = next((t for t in teams if t["team_no"] == team_no), None)
+        if not target:
+            available = [t["team_no"] for t in teams]
+            raise F1FantasySyncError(
+                f"Team #{team_no} not found. Available teams: {available}"
+            )
 
     saved_payload = {
         "drivers": target["drivers"],

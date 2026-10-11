@@ -198,8 +198,10 @@ HEADERS_BASE = {
 
 def _get_headers() -> dict:
     h = dict(HEADERS_BASE)
-    if F1_FANTASY_COOKIE:
-        h["Cookie"] = F1_FANTASY_COOKIE
+    from engine.core.fantasy_sync import _get_cookie_string
+    cookie = _get_cookie_string()
+    if cookie:
+        h["Cookie"] = cookie
     return h
 
 
@@ -235,7 +237,8 @@ def scrape_driver_prices(force_refresh: bool = False) -> tuple[dict[str, dict], 
         return prices, roster
 
     # Attempt 3: Cookie auth
-    if F1_FANTASY_COOKIE:
+    from engine.core.fantasy_sync import _get_cookie_string
+    if _get_cookie_string():
         result = _try_cookie_auth_api()
         if isinstance(result, tuple) and result:
             prices, roster = result

@@ -745,6 +745,37 @@ function renderF1TeamCards(teams, cardsEl) {
     });
 }
 
+let _lastLoadedTeams = [];
+
+function renderCookieStatusBadge(statusInfo) {
+    const badge = document.getElementById('f1-sync-cookie-badge');
+    if (!badge || !statusInfo) return;
+    if (statusInfo.status === 'active') {
+        badge.style.display = 'inline-block';
+        badge.style.background = 'rgba(0, 210, 190, 0.15)';
+        badge.style.color = 'var(--telemetry-cyan, #00D2BE)';
+        badge.style.border = '1px solid rgba(0, 210, 190, 0.35)';
+        badge.innerText = `🟢 Active (${statusInfo.days_remaining}d left)`;
+        badge.title = statusInfo.message;
+    } else if (statusInfo.status === 'expiring_soon') {
+        badge.style.display = 'inline-block';
+        badge.style.background = 'rgba(255, 183, 3, 0.15)';
+        badge.style.color = '#ffb703';
+        badge.style.border = '1px solid rgba(255, 183, 3, 0.4)';
+        badge.innerText = `🟡 Expiring Soon (${statusInfo.hours_remaining}h left)`;
+        badge.title = statusInfo.message;
+    } else if (statusInfo.status === 'expired') {
+        badge.style.display = 'inline-block';
+        badge.style.background = 'rgba(232, 0, 45, 0.15)';
+        badge.style.color = '#ff4d6a';
+        badge.style.border = '1px solid rgba(232, 0, 45, 0.4)';
+        badge.innerText = `🔴 Expired`;
+        badge.title = statusInfo.message;
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
 function toggleF1CookieGuide() {
     const guideEl = document.getElementById('f1-sync-guide');
     if (!guideEl) return;
@@ -798,12 +829,17 @@ async function saveF1CookieAndSync() {
         if (cookieBoxEl) cookieBoxEl.style.display = 'none';
         inputEl.value = '';
 
+        if (data.cookie_status) {
+            renderCookieStatusBadge(data.cookie_status);
+        }
+
         if (!data.teams || data.teams.length === 0) {
             errorEl.style.display = 'block';
             errorMsgEl.innerText = 'Cookie saved, but no teams were found under this F1 Fantasy account.';
             return;
         }
 
+        _lastLoadedTeams = data.teams || [];
         contentEl.style.display = 'block';
         renderF1TeamCards(data.teams, cardsEl);
 
@@ -839,6 +875,10 @@ async function openF1SyncModal() {
 
         loadingEl.style.display = 'none';
 
+        if (data.cookie_status) {
+            renderCookieStatusBadge(data.cookie_status);
+        }
+
         if (!res.ok) {
             errorEl.style.display = 'block';
             const detailMsg = data.detail || data.message || `HTTP ${res.status}`;
@@ -858,6 +898,7 @@ async function openF1SyncModal() {
             return;
         }
 
+        _lastLoadedTeams = data.teams || [];
         contentEl.style.display = 'block';
         renderF1TeamCards(data.teams, cardsEl);
 
@@ -893,8 +934,11 @@ async function importF1Team(teamNo) {
 
     const inputEl = document.getElementById('f1-sync-cookie-input');
     const cookieVal = inputEl ? inputEl.value.trim() : '';
+    const targetTeam = (_lastLoadedTeams || []).find(t => t.team_no === teamNo);
+
     const payload = { team_no: teamNo };
     if (cookieVal) payload.cookie = cookieVal;
+    if (targetTeam) payload.team_data = targetTeam;
 
     try {
         const res = await fetch('/api/f1-sync/import', {
@@ -903,9 +947,23 @@ async function importF1Team(teamNo) {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (!res.ok) {
-            const detailMsg = data.detail || data.message || `HTTP ${res.status}`;
-            showToast(`Server error (${res.status}): ${detailMsg}. Please restart your backend server.`, 'error');
+        if (!res.ok || data.status !== 'ok') {
+            const errorMsg = data.detail || data.message || `HTTP ${res.status}`;
+            const isAuthIssue = errorMsg.toLowerCase().includes('cookie') ||
+                                errorMsg.toLowerCase().includes('expired') ||
+                                errorMsg.toLowerCase().includes('auth') ||
+                                errorMsg.toLowerCase().includes('datainitializer') ||
+                                res.status === 401;
+            if (isAuthIssue) {
+                openF1SyncModal();
+                const errorEl = document.getElementById('f1-sync-error');
+                const errorMsgEl = document.getElementById('f1-sync-error-msg');
+                if (errorEl) errorEl.style.display = 'block';
+                if (errorMsgEl) errorMsgEl.innerText = errorMsg;
+                if (inputEl) inputEl.focus();
+            } else {
+                showToast(`Server error: ${errorMsg}`, 'error');
+            }
             if (btn) {
                 btn.disabled = false;
                 btn.innerText = `⚡ Load Team ${teamNo}`;
@@ -948,6 +1006,7 @@ window.importF1Team = importF1Team;
 window.toggleF1CookieGuide = toggleF1CookieGuide;
 window.saveF1CookieAndSync = saveF1CookieAndSync;
 window.showCookieInputManually = showCookieInputManually;
+window.renderCookieStatusBadge = renderCookieStatusBadge;
 
 // ---- PRICES (SCREEN 4) ----
 function renderPriceLists() {
