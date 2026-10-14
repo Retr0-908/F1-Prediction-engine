@@ -3744,13 +3744,13 @@ async function initStageComparison() {
             }
         });
 
-        // Click compare button
+        // Click compare button (triggers a fresh calculation)
         if (compareBtn) {
             compareBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 const selectedRound = parseInt(roundSelect.value, 10);
                 if (!isNaN(selectedRound)) {
-                    loadStageComparison(selectedRound);
+                    loadStageComparison(selectedRound, true);
                 }
             });
         }
@@ -3802,8 +3802,9 @@ async function initStageComparison() {
     }
 }
 
-async function loadStageComparison(roundNum) {
+async function loadStageComparison(roundNum, forceRefresh = false) {
     const tbody = document.getElementById('stage-comparison-tbody');
+    const sprintBadge = document.getElementById('stage-sprint-badge');
     if (!tbody) return;
 
     // Loading state with skeleton styling
@@ -3816,11 +3817,13 @@ async function loadStageComparison(roundNum) {
     `;
 
     try {
-        const res = await fetch(`/api/analysis/stage-comparison/${roundNum}`);
+        const url = `/api/analysis/stage-comparison/${roundNum}${forceRefresh ? '?force_refresh=true' : ''}`;
+        const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         if (data.status !== 'ok') {
+            if (sprintBadge) sprintBadge.style.display = 'none';
             tbody.innerHTML = `
                 <tr>
                     <td colspan="8" class="stage-table-loading" style="color:var(--color-red);">
@@ -3834,6 +3837,11 @@ async function loadStageComparison(roundNum) {
         _stageComparisonData = data;
         _stageComparisonLoadedRound = roundNum;
 
+        // Toggle sprint weekend badge
+        if (sprintBadge) {
+            sprintBadge.style.display = data.is_sprint ? 'inline-block' : 'none';
+        }
+
         // Animate / Render KPI cards
         renderStageComparisonKPIs(data.metrics);
 
@@ -3842,6 +3850,7 @@ async function loadStageComparison(roundNum) {
 
     } catch (err) {
         console.error('Failed to load stage comparison for round', roundNum, err);
+        if (sprintBadge) sprintBadge.style.display = 'none';
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" class="stage-table-loading" style="color:var(--color-red);">
@@ -3945,6 +3954,8 @@ function renderStageComparisonTable(data, filter) {
         return;
     }
 
+    const sessionLabel = data.is_sprint ? 'FP1' : 'FP2';
+
     tbody.innerHTML = rows.map(r => {
         const dName = r.driver || 'Unknown';
         const dCode = driverCodes[dName] || dName.slice(0, 3).toUpperCase();
@@ -3988,7 +3999,7 @@ function renderStageComparisonTable(data, filter) {
         if (fpPaceDelta != null && !isNaN(fpPaceDelta)) {
             const sign = fpPaceDelta > 0 ? '+' : '';
             const paceColor = fpPaceDelta < 0 ? 'var(--color-green)' : (fpPaceDelta > 0 ? 'var(--color-red)' : 'var(--text-dim)');
-            fpPaceHtml = `<span class="stage-sub-delta" style="color:${paceColor}">${sign}${fpPaceDelta.toFixed(3)}s FP2</span>`;
+            fpPaceHtml = `<span class="stage-sub-delta" style="color:${paceColor}">${sign}${fpPaceDelta.toFixed(3)}s ${sessionLabel}</span>`;
         }
 
         // 5. Post-Qualifying Grid Locked

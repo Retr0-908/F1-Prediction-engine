@@ -449,11 +449,11 @@ def compare_prediction(filename: str):
 
 
 @app.get("/api/analysis/stage-comparison/{round_num}")
-def get_stage_comparison_api(round_num: int, season: int = None):
+def get_stage_comparison_api(round_num: int, season: int = None, force_refresh: bool = False):
     from engine.analysis.stage_comparator import get_stage_comparison
     from engine.core.config import CURRENT_SEASON
     target_season = season if season else CURRENT_SEASON
-    return get_stage_comparison(round_num, target_season)
+    return get_stage_comparison(round_num, target_season, force_refresh=force_refresh)
 
 
 @app.get("/api/analysis/available-rounds")

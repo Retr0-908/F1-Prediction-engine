@@ -466,7 +466,7 @@ def _score_no_negative(
     sm_eff = get_track_feature(circuit_key, "overtake_mode_efficiency", 0.5)
     if sm_eff >= 0.7:
         score += 1.0  # High SM efficiency = more overtaking = more variance = NN safer
-        reasons.append(f"Average SC probability ({sc_prob:.0%})")
+        reasons.append(f"High Straight Mode efficiency ({sm_eff:.0%}) increases overtaking variance")
 
     track_type = circuit_config.get("track_type", "permanent")
     if track_type == "street":

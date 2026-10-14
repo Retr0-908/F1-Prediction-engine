@@ -33,6 +33,7 @@ class BayesianPointsModel:
 
     def __init__(self):
         self.evs = {}
+        self.posteriors = {}
 
     def fit_driver(
         self,
@@ -41,6 +42,7 @@ class BayesianPointsModel:
         ensemble_pred_pts: float = 15.0,
         circuit_key: str = None,
         dnf_flags: list[bool] = None,
+        retained_non_sunday_pts: float = None,
     ) -> float:
         """
         Fit the model for a single driver with track-informed priors.
@@ -49,10 +51,10 @@ class BayesianPointsModel:
         ----------
         driver_name: Full name of the driver
         historical_points: List of fantasy points scored in recent races
-        ensemble_pred_pts: The deterministic point prediction from the ML ensemble (prior mean)
+        ensemble_pred_pts: Clean finish expected fantasy points from the ML ensemble (prior mean)
         circuit_key: Optional circuit key to load track-specific DNF and variance priors
         dnf_flags: Optional per-race DNF flags aligned with historical_points.
-                   When None, zeros are NOT counted as DNFs (only the prior informs ψ).
+        retained_non_sunday_pts: Saturday qualifying + sprint points retained even on a Sunday DNF
         """
         # Raw historical fantasy points without artificial non-negative clamping
         points_data = np.array([float(p) for p in historical_points])
@@ -80,7 +82,8 @@ class BayesianPointsModel:
         alpha0 = N0 * mu_dnf_prior
         beta0 = N0 * (1.0 - mu_dnf_prior)
 
-        dnf_net_expected_points = self.DNF_QUALI_POINTS_RETAINED + DNF_PENALTY
+        retained_pts = self.DNF_QUALI_POINTS_RETAINED if retained_non_sunday_pts is None else float(retained_non_sunday_pts)
+        dnf_net_expected_points = retained_pts + float(DNF_PENALTY)
 
         # If very little data, use prior expected value
         if len(points_data) < 3:
@@ -89,6 +92,12 @@ class BayesianPointsModel:
                 + mu_dnf_prior * dnf_net_expected_points
             )
             self.evs[driver_name] = robust_ev
+            self.posteriors[driver_name] = {
+                "ev": robust_ev,
+                "psi": mu_dnf_prior,
+                "mu_clean": ensemble_pred_pts,
+                "retained_pts": retained_pts,
+            }
             return robust_ev
 
         num_races = len(points_data)
@@ -105,7 +114,7 @@ class BayesianPointsModel:
                     "%s: no DNF flags supplied; zeros excluded from ψ update",
                     driver_name,
                 )
-        psi_dnf_post = (alpha0 + dnf_count) / (N0 + num_races)
+        psi_dnf_post = float((alpha0 + dnf_count) / (N0 + num_races))
 
         # 2. Update mean scoring-race points μ via known-variance Normal conjugate
         # (all non-DNF races count toward μ, including low-scoring ones)
@@ -120,18 +129,28 @@ class BayesianPointsModel:
             emp_mu = float(np.mean(non_dnf_points))
             emp_var = float(np.var(non_dnf_points)) if len(non_dnf_points) > 1 else 25.0
             weight_data = len(non_dnf_points) / max(5.0, emp_var)
-            mu_post = (ensemble_pred_pts * weight_prior + emp_mu * weight_data) / (weight_prior + weight_data)
+            mu_post = float((ensemble_pred_pts * weight_prior + emp_mu * weight_data) / (weight_prior + weight_data))
         else:
-            mu_post = ensemble_pred_pts
+            mu_post = float(ensemble_pred_pts)
 
-        # 3. Net EV: non-DNF races score μ_post, DNF weekends retain quali bonus plus DNF penalty
+        # 3. Net EV: non-DNF races score μ_post, DNF weekends retain non-Sunday pts plus DNF penalty
         robust_ev = float((1.0 - psi_dnf_post) * mu_post + psi_dnf_post * dnf_net_expected_points)
         self.evs[driver_name] = robust_ev
+        self.posteriors[driver_name] = {
+            "ev": robust_ev,
+            "psi": psi_dnf_post,
+            "mu_clean": mu_post,
+            "retained_pts": retained_pts,
+        }
         return robust_ev
 
     def get_ev(self, driver_name: str, fallback: float) -> float:
         """Get the computed robust Expected Value, or fallback if not fitted."""
         return self.evs.get(driver_name, fallback)
+
+    def get_posterior(self, driver_name: str) -> dict:
+        """Get the full posterior dict containing ev, psi, mu_clean."""
+        return self.posteriors.get(driver_name, {})
 
 
 # Singleton accessor

@@ -569,10 +569,24 @@ def _derive_standings_from_results(rows: list[dict]) -> list[dict]:
 def standings_asof(year: int, round_num: int) -> list[dict]:
     """Driver standings after `round_num` of `year` (plan 5b / 9-M9).
 
-    1) If the per-round API payload is already cached → serve it verbatim.
-    2) Else DERIVE from cached season results up to round_num (zero network).
+    1) If round_num <= 0: fallback to final standings of year - 1 (prior championship finish)
+       to eliminate Round 1 lookahead bias.
+    2) If the per-round API payload is already cached → serve it verbatim.
+    3) Else DERIVE from cached season results up to round_num (zero network).
        Derived output matches the API shape; exotic tie-breaks may differ in
        rare edge cases, so the API remains authoritative whenever present."""
+    if round_num <= 0:
+        prior_year = year - 1
+        try:
+            prior_rows = get_season_results(prior_year)
+            if prior_rows:
+                max_rnd = max((r.get("round", 0) for r in prior_rows), default=0)
+                if max_rnd > 0:
+                    return standings_asof(prior_year, max_rnd)
+        except Exception:
+            pass
+        return []
+
     cached_api = _load_cache(f"jolpica_/{year}/{round_num}/driverStandings.json_{{}}", 3)
     if cached_api:
         return get_driver_standings(year, round_num)

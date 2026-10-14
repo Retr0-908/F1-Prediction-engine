@@ -15,7 +15,7 @@ from typing import Optional, Dict, List
 
 from engine.core.config import (
     FANTASY_BUDGET, FANTASY_NUM_DRIVERS, FANTASY_NUM_CONSTRUCTORS,
-    CONSTRUCTORS_2025, DRIVER_TEAMS_2025, CURRENT_SEASON,
+    CONSTRUCTORS_2025, DRIVER_TEAMS_2025, DRIVER_TEAMS_2026, CURRENT_SEASON,
 )
 
 # A top-5 driver / top-3 constructor may only be swapped out for a replacement
@@ -112,7 +112,7 @@ def suggest_team_changes(
         price = _get_driver_price(name, driver_prices)
         if price <= 0:
             continue
-        team = DRIVER_TEAMS_2025.get(name, "")
+        team = cand.get("team") or DRIVER_TEAMS_2026.get(name) or DRIVER_TEAMS_2025.get(name, "")
         d_candidates.append({"name": name, "pts": pts, "price": price, "team": team})
 
     c_candidates = []
@@ -299,6 +299,9 @@ def find_optimal_team(
                     if matched:
                         team = season_roster[matched]
                 if not team or team == "Unknown":
+                    matched_2026 = _fuzzy_match(name, DRIVER_TEAMS_2026)
+                    team = DRIVER_TEAMS_2026.get(name) or (DRIVER_TEAMS_2026.get(matched_2026) if matched_2026 else None)
+                if not team or team == "Unknown":
                     matched_2025 = _fuzzy_match(name, DRIVER_TEAMS_2025)
                     team = DRIVER_TEAMS_2025.get(name) or (DRIVER_TEAMS_2025.get(matched_2025) if matched_2025 else "Unknown")
             drivers.append({
@@ -322,7 +325,7 @@ def find_optimal_team(
 
     all_teams = set([d["team"] for d in drivers] + [c["team"] for c in constructors])
     
-    best_overall_pts = -1.0
+    best_overall_pts = -float("inf")
     best_overall_team = None
 
     # 2. Iterate over each possible Turbo Driver (2x boost)
@@ -584,11 +587,18 @@ def _fuzzy_match(name: str, data: dict) -> Optional[str]:
     return None
 
 
-def _count_team_assets(drivers: list[str], constructors: list[str]) -> dict[str, int]:
+def _count_team_assets(
+    drivers: list[str],
+    constructors: list[str],
+    driver_team_map: Optional[dict] = None,
+) -> dict[str, int]:
     """Count total assets (drivers + constructor) per team for the 2-asset-per-team cap."""
     counts: dict[str, int] = {}
+    team_lookup = dict(DRIVER_TEAMS_2026)
+    if driver_team_map:
+        team_lookup.update(driver_team_map)
     for drv in drivers:
-        team = DRIVER_TEAMS_2025.get(drv, drv)
+        team = team_lookup.get(drv) or DRIVER_TEAMS_2025.get(drv, drv)
         counts[team] = counts.get(team, 0) + 1
     for ctor in constructors:
         counts[ctor] = counts.get(ctor, 0) + 1

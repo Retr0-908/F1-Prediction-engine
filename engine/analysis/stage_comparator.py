@@ -107,12 +107,18 @@ def _load_or_generate_stage_data(
     if not hasattr(p, "_trained") or not p._trained:
         p.train(verbose=False)
 
+    from engine.core.data_fetcher import is_sprint_weekend, race_has_happened
+
     circuit_cfg = race_info.get("circuit_config", {}) if race_info else {}
     p.load_context(circuit_cfg, {}, mode=stage, race_info=race_info)
     race_order = p.predict_finishing_order()
     quali_order = p.predict_qualifying_order()
+
+    is_sprint = is_sprint_weekend(race_info) if race_info else False
+    sprint_order = p.predict_sprint_order() if is_sprint else None
+
     driver_pts = [
-        p.estimate_fantasy_points(d["driver"], race_order, quali_order, False, None)
+        p.estimate_fantasy_points(d["driver"], race_order, quali_order, is_sprint, sprint_order)
         for d in race_order
     ]
 
@@ -122,11 +128,15 @@ def _load_or_generate_stage_data(
         "generated_at": datetime.datetime.now().isoformat(),
         "stage": stage,
         "season": season,
+        "is_sprint": is_sprint,
         "race": race_info,
         "race_order": race_order,
         "qualifying_order": quali_order,
         "driver_pts": driver_pts,
     }
+    if is_sprint and sprint_order:
+        stage_data["sprint_order"] = sprint_order
+
     try:
         with open(stage_file, "w", encoding="utf-8") as f:
             json.dump(stage_data, f, indent=2, default=str)
@@ -145,21 +155,34 @@ def get_stage_comparison(
     Compare pre-practice, post-practice, and post-quali predictions against
     actual classification results for a round.
     """
+    from engine.core.data_fetcher import is_sprint_weekend, race_has_happened
+
     STAGES_DIR.mkdir(parents=True, exist_ok=True)
     cache_path = STAGES_DIR / f"comparison_round_{round_num}.json"
+
+    race_info = get_race_by_round(round_num, season)
+    if not race_info:
+        race_info = {"round": round_num, "name": f"Round {round_num}", "season": season}
+
+    is_sprint = is_sprint_weekend(race_info) if race_info else False
 
     if not force_refresh and cache_path.exists():
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 cached = json.load(f)
             if cached.get("status") == "ok" and cached.get("round") == round_num and cached.get("matrix"):
-                return cached
+                matrix = cached.get("matrix", [])
+                has_pending = any(
+                    r.get("actual", {}).get("status") == "Pending" or r.get("actual", {}).get("pos") == 0
+                    for r in matrix
+                )
+                # Auto-invalidate stale cache if results were pending when created but race has finished!
+                if not (has_pending and race_has_happened(race_info, season)):
+                    cached["is_sprint"] = is_sprint
+                    return cached
+                logger.info(f"Stale pre-race stage cache detected for {season} R{round_num}. Refreshing with actual results...")
         except Exception as e:
             logger.warning(f"Error reading cache {cache_path}: {e}")
-
-    race_info = get_race_by_round(round_num, season)
-    if not race_info:
-        race_info = {"round": round_num, "name": f"Round {round_num}", "season": season}
 
     # Fetch actual results
     actual_results = []
@@ -354,6 +377,7 @@ def get_stage_comparison(
         "round": round_num,
         "season": season,
         "race_name": race_info.get("name", race_info.get("race_name", f"Round {round_num}")),
+        "is_sprint": is_sprint,
         "matrix": matrix,
         "metrics": metrics,
     }

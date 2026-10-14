@@ -25,6 +25,7 @@ Research backing:
 """
 
 import warnings
+import math
 import datetime
 import json
 import hashlib
@@ -218,7 +219,7 @@ N_FEATURES = len(FEATURE_NAMES)
 # Bump on ANY change to feature construction, target construction, or model
 # hyperparameters. Embedded in the disk-cache key so stale models are never
 # silently loaded after a schema change.
-MODEL_SCHEMA_VERSION = "7"   # v7: 6c labels + 6d temp + 6e rain_prob + 9-M3 elo + device provenance
+MODEL_SCHEMA_VERSION = "8"   # v8: decoupled Bayesian EV, stage-aware features, simplex meta-weights
 
 # Monotonic label ceiling for ranker targets (higher = better). Larger than
 # any possible field position; only ORDER matters for lambdarank/ndcg.
@@ -689,9 +690,10 @@ class F1Predictor:
             circ_dnf = form_dnf_rate
 
         # — Rookie detection —
-        # If driver has < 4 races of current-season data, use constructor form as baseline.
+        # Check career starts / Elo history so seasoned veterans at R1–R3 are not flagged as rookies
         races_counted = driver_form.get(driver_name, {}).get("races_counted", 0) if driver_form else 0
-        is_rookie_flag = 1.0 if races_counted < 4 else 0.0
+        career_starts = self._elo.get_driver(driver_name).race_count if getattr(self, "_elo", None) else races_counted
+        is_rookie_flag = 1.0 if (races_counted < 4 and career_starts < 10) else 0.0
         if is_rookie_flag and n_circuit_races == 0:
             ctor_rel_inner = ctor_reliability.get(ctor_name, {}) if ctor_reliability else {}
             circ_avg = ctor_rel_inner.get("avg_position", form_avg_pos)
@@ -827,7 +829,7 @@ class F1Predictor:
             sc_nudge = adj.get("sc_prob", 0.0)
             form_nudge = adj.get("form_score", 0.0)
             sc_prob = max(0.0, min(1.0, sc_prob + sc_nudge))
-            form_score = form_score * (1.0 + form_nudge)
+            form_score = form_score + form_nudge * 10.0
 
         # ── Phase 4: Fantasy Features ───────────────────────────────────────
         lap_1_risk = _get_lap_1_risk(circuit_key, quali_pos_val)
@@ -959,12 +961,19 @@ class F1Predictor:
           3. Bumping MODEL_SCHEMA_VERSION
         """
         eff_seasons = getattr(self, "_train_seasons", HISTORICAL_SEASONS)
+        completed_cur_rnd = 0
+        try:
+            from engine.core.data_fetcher import _latest_completed_round_num
+            completed_cur_rnd = _latest_completed_round_num(CURRENT_SEASON)
+        except Exception:
+            pass
         # Device provenance (plan I3): CUDA-trained pickles must never be
         # reused by a CPU-only process sharing this cache dir.
         from engine.core.hardware import profile as _hw_profile
         _dev = _hw_profile()["xgb_device"]
         seasons_str = (
             ",".join(str(y) for y in sorted(eff_seasons))
+            + f"_curR{completed_cur_rnd}"
             + "_features_" + "|".join(FEATURE_NAMES)
             + f"_xgb{_dev}"
             + f"_v{MODEL_SCHEMA_VERSION}"
@@ -1020,6 +1029,12 @@ class F1Predictor:
         with open(cache_file, "wb") as f:
             pickle.dump(state, f, protocol=5)
 
+        try:
+            from engine.strategy.self_improvement import decay_bias_corrections_on_retrain
+            decay_bias_corrections_on_retrain(0.35)
+        except Exception:
+            pass
+
     def train(self, verbose: bool = True, force: bool = False, progress_callback = None, seasons: list = None):
         """
         Train 3 models on all historical completed race data.
@@ -1060,7 +1075,7 @@ class F1Predictor:
             _get_year_roster = None
 
         for year in training_list:
-            if year >= CURRENT_SEASON:
+            if year > CURRENT_SEASON:
                 continue
             try:
                 schedule = get_season_schedule(year)
@@ -1089,8 +1104,8 @@ class F1Predictor:
                     name = race["name"]
                     try:
                         # Dynamic features to prevent dataset lookahead bias
-                        drv_standings  = standings_asof(year, max(1, rnd - 1))
-                        ctor_standings = get_constructor_standings(year, max(1, rnd - 1))
+                        drv_standings  = standings_asof(year, rnd - 1)
+                        ctor_standings = get_constructor_standings(year, rnd - 1) if rnd > 1 else (get_constructor_standings(year - 1, 99) or [])
                         curr_form      = compute_driver_form(year, num_races=5, until_round=rnd)
                         drv_form       = {**multi_form, **curr_form}
 
@@ -1430,12 +1445,14 @@ class F1Predictor:
         for drv in drivers:
             pred, std = self._predict_position(drv, mode="race")
 
-            # Apply FastF1 heuristics as deterministic modifiers
+            # Apply FastF1 heuristics as deterministic modifiers (soft-clamped to prevent boundary collapse)
             fp_delta = self._practice_pace.get(drv, 0.0) if self._practice_pace else 0.0
-            pred += fp_delta * 2.0
+            heur_delta = fp_delta * 2.0
             if self._quali_sectors and drv in self._quali_sectors:
-                pred += self._quali_sectors[drv].get("q_lap_delta", 0.0) * 1.5
-            pred = max(1.0, min(22.0, pred))
+                heur_delta += self._quali_sectors[drv].get("q_lap_delta", 0.0) * 1.5
+            max_heur_shift = 2.0
+            bounded_heur = max_heur_shift * math.tanh(heur_delta / max_heur_shift) if abs(heur_delta) > 1e-6 else 0.0
+            pred = max(1.0, min(float(len(drivers)), pred + bounded_heur))
 
             ctor = self._roster.get(drv, "")
             dnf_prob = self._estimate_dnf_prob(drv, ctor)
@@ -1567,6 +1584,7 @@ class F1Predictor:
                     actual_entry = next((x for x in self._actual_grid if x["driver"] == drv), None)
                     if actual_entry:
                         effective_grid = actual_entry["effective_grid"]
+                        class_pos = actual_entry.get("grid_pos", actual_entry.get("quali_class_pos", class_pos))
                         ml_entry["grid_penalty"] = actual_entry.get("grid_penalty", 0)
                         ml_entry["q1_time"] = actual_entry.get("q1_time", "")
                         ml_entry["q2_time"] = actual_entry.get("q2_time", "")
@@ -1759,76 +1777,88 @@ class F1Predictor:
             quali_pts = 0.0
         breakdown["qualifying"] = round(quali_pts, 1)
 
-        # Race position points — discounted by survival probability so the
-        # deterministic EV is consistent with the Monte Carlo engine (which
-        # scores DNF sims with the DNF penalty).
-        rp = RACE_POSITION_POINTS.get(race_pos, 0)
-        breakdown["race_position"] = round(rp * (1.0 - dnf_prob), 1)
-
-        # Positions gained/lost (from effective grid after penalty)
+        # Clean Sunday race expectations (un-discounted by survival probability)
+        rp_clean = float(RACE_POSITION_POINTS.get(race_pos, 0))
         delta = effective_grid - race_pos
-        if delta > 0:
-            # Gained places
-            pos_pts = delta * POSITIONS_GAINED_PER
-        else:
-            # Lost places (delta is negative or zero)
-            pos_pts = abs(delta) * POSITIONS_LOST_PER
-        breakdown["positions_delta"] = round(pos_pts * (1.0 - dnf_prob), 1)
-
-        # DNF penalty (reconciled with Monte Carlo and F1 fantasy rules)
-        breakdown["dnf_risk"] = round(float(DNF_PENALTY) * dnf_prob, 1)
-
-        # Fastest lap — only top-10 finishers are eligible under F1 rules
-        fl_prob = max(0.0, (0.09 - (race_pos - 1) * 0.005)) * (1.0 - dnf_prob)
-        if race_pos > 10:
-            fl_prob = 0.0
-        breakdown["fastest_lap"] = round(FASTEST_LAP_BONUS * fl_prob, 2)
-
-        # Driver of the Day
-        dotd_prob = max(0.0, 0.12 - (race_pos - 1) * 0.01) * (1.0 - dnf_prob)
-        breakdown["driver_of_day"] = round(DRIVER_OF_DAY_BONUS * dotd_prob, 2)
+        pos_pts_clean = float(delta * POSITIONS_GAINED_PER if delta > 0 else abs(delta) * POSITIONS_LOST_PER)
+        fl_prob_clean = max(0.0, (0.09 - (race_pos - 1) * 0.005)) if race_pos <= 10 else 0.0
+        fl_pts_clean = float(FASTEST_LAP_BONUS * fl_prob_clean)
+        dotd_prob_clean = max(0.0, 0.12 - (race_pos - 1) * 0.01)
+        dotd_pts_clean = float(DRIVER_OF_DAY_BONUS * dotd_prob_clean)
 
         # Sprint weekend
+        sprint_pts = 0.0
         if is_sprint_weekend and sprint_order:
             sprint_entry = next((s for s in sprint_order if s["driver"] == driver_name), None)
             if sprint_entry:
                 sp_rank = sprint_entry["predicted_sprint_rank"]
-                sprint_pts = SPRINT_RACE_POINTS.get(sp_rank, 0)
-                breakdown["sprint"] = round(sprint_pts, 1)
-            else:
-                breakdown["sprint"] = 0.0
-        else:
-            breakdown["sprint"] = 0.0
+                sprint_pts = float(SPRINT_RACE_POINTS.get(sp_rank, 0))
 
-        total = sum(breakdown.values())
+        clean_sunday_pts = rp_clean + pos_pts_clean + fl_pts_clean + dotd_pts_clean
+        retained_non_sunday = float(quali_pts + sprint_pts)
+        clean_total = retained_non_sunday + clean_sunday_pts
+
+        # Initial deterministic breakdown with single-pass DNF discount
+        breakdown["qualifying"] = round(quali_pts, 2)
+        breakdown["race_position"] = round(rp_clean * (1.0 - dnf_prob), 2)
+        breakdown["positions_delta"] = round(pos_pts_clean * (1.0 - dnf_prob), 2)
+        breakdown["dnf_risk"] = round(float(DNF_PENALTY) * dnf_prob, 2)
+        breakdown["fastest_lap"] = round(fl_pts_clean * (1.0 - dnf_prob), 2)
+        breakdown["driver_of_day"] = round(dotd_pts_clean * (1.0 - dnf_prob), 2)
+        breakdown["sprint"] = round(sprint_pts, 2)
+        total = round(sum(breakdown.values()), 2)
 
         # ── Phase 4: Bayesian Point Projection ───────────────────────────────
-        # Refines the deterministic total using a Zero-Inflated Negative Binomial
-        # posterior predictive distribution.
         if _PHASE4_AVAILABLE:
             try:
                 bm = _get_bayesian_model()
                 form_entry = self._driver_form.get(driver_name, {})
                 pts_history = form_entry.get("points_list", [])
-                # Real DNF flags from the form window (position-99 convention
-                # excluded upstream); None → Bayesian model falls back gracefully.
                 dnf_flags = form_entry.get("dnf_list") or None
 
                 if pts_history:
-                    # Deterministic total acts as the prior mean for the Bayesian fit
+                    # Clean finish expectation acts as prior mean for the Bayesian fit
                     bayesian_ev = bm.fit_driver(
                         driver_name,
                         pts_history,
-                        ensemble_pred_pts=total,
+                        ensemble_pred_pts=clean_total,
                         dnf_flags=dnf_flags,
                         circuit_key=self._circuit_config.get("key", "") or None,
+                        retained_non_sunday_pts=retained_non_sunday,
                     )
-                    if bayesian_ev is not None and total > 0:
-                        # Keep the published breakdown consistent with the headline
-                        # number (consumers assert total == sum of parts)
-                        scale = bayesian_ev / total
-                        breakdown = {k: round(v * scale, 2) for k, v in breakdown.items()}
-                        total = bayesian_ev
+                    post = bm.get_posterior(driver_name)
+                    psi = post.get("psi", dnf_prob)
+                    if bayesian_ev is not None:
+                        # Decoupled Bayesian Breakdown Reconciliation:
+                        # 1. Saturday qualifying and sprint points remain exact and unaffected.
+                        # 2. dnf_risk is updated to psi * DNF_PENALTY.
+                        # 3. Clean Sunday components are survived at (1 - psi) and residual is allocated.
+                        q_b = breakdown["qualifying"]
+                        sp_b = breakdown["sprint"]
+                        dnf_b = round(float(DNF_PENALTY) * psi, 2)
+
+                        survived_rp = rp_clean * (1.0 - psi)
+                        survived_delta = pos_pts_clean * (1.0 - psi)
+                        survived_fl = fl_pts_clean * (1.0 - psi)
+                        survived_dotd = dotd_pts_clean * (1.0 - psi)
+
+                        target_sunday_sum = bayesian_ev - (q_b + sp_b + dnf_b)
+                        current_sunday_sum = survived_rp + survived_delta + survived_fl + survived_dotd
+                        residual = target_sunday_sum - current_sunday_sum
+
+                        new_rp = max(0.0, survived_rp + 0.75 * residual)
+                        allocated_to_rp = new_rp - survived_rp
+                        rem_residual = residual - allocated_to_rp
+
+                        breakdown["qualifying"] = q_b
+                        breakdown["race_position"] = round(new_rp, 2)
+                        breakdown["positions_delta"] = round(survived_delta + rem_residual, 2)
+                        breakdown["dnf_risk"] = dnf_b
+                        breakdown["fastest_lap"] = round(max(0.0, survived_fl), 2)
+                        breakdown["driver_of_day"] = round(max(0.0, survived_dotd), 2)
+                        breakdown["sprint"] = sp_b
+
+                        total = round(sum(breakdown.values()), 2)
             except Exception:
                 logger.exception("Bayesian point projection failed for %s", driver_name)
 
@@ -1940,11 +1970,11 @@ def _train_meta_learner(
     if first_test_start < len(y):
         X_meta = oof_preds[first_test_start:]
         y_meta = y[first_test_start:]
-        meta_model = Ridge(alpha=1.0)
+        meta_model = Ridge(alpha=1.0, positive=True)
         meta_model.fit(X_meta, y_meta)
         return meta_model
     else:
-        meta_model = Ridge(alpha=1.0)
+        meta_model = Ridge(alpha=1.0, positive=True)
         meta_model.fit(oof_preds, y)
         return meta_model
 

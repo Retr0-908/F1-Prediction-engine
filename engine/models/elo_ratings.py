@@ -260,11 +260,13 @@ class Glicko2RatingSystem:
                 v_sum     += g_b ** 2 * E_ab * (1.0 - E_ab)
                 delta_sum += g_b * (s - E_ab)
 
-            # Canonical Glicko-2 accumulators: v⁻¹ = Σ g²·E·(1−E), Δ = v·Σ g·(s−E)
-            # (summed over ALL opponents — no per-comparison division)
-            v_inv = max(v_sum, 1e-9)
+            # Multi-car field composite-likelihood scaling (gamma_field = 1 / sqrt(N - 1))
+            # Driver i participates in (N - 1) pairwise comparisons which carry O(1) independent
+            # degrees of freedom. Scaling Fisher info and gradient prevents RD collapse to the floor.
+            gamma_field = 1.0 / math.sqrt(max(1.0, float(n - 1)))
+            v_inv = max(gamma_field * v_sum, 1e-9)
             v     = 1.0 / v_inv
-            delta = v * delta_sum
+            delta = v * (gamma_field * delta_sum)
 
             # ── Step 3: Glicko-2 volatility update (Illinois algorithm) ──
             sigma_new = self._update_volatility(d_a, v, delta)
@@ -274,7 +276,7 @@ class Glicko2RatingSystem:
 
             # ── Step 5: Update rating and RD ──
             phi_new = 1.0 / math.sqrt(1.0 / phi_star ** 2 + 1.0 / v)
-            mu_new  = mu_a + phi_new ** 2 * delta_sum
+            mu_new  = mu_a + phi_new ** 2 * (gamma_field * delta_sum)
 
             # Convert back to display scale
             new_mu_disp  = _to_display(mu_new)

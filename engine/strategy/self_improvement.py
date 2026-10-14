@@ -273,3 +273,29 @@ def reset_corrections():
                 logger.warning("Suppressed error", exc_info=True)
                 pass
     return {"status": "ok", "message": "Corrections reset successfully"}
+
+
+def decay_bias_corrections_on_retrain(decay_factor: float = 0.35):
+    """Exponentially decay bias corrections on model retraining to avoid double-counting residuals."""
+    if not BIAS_CORRECTIONS.exists():
+        return
+    try:
+        with open(BIAS_CORRECTIONS, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not data:
+            return
+        for drv, bmap in data.get("driver_biases", {}).items():
+            for k, val in bmap.items():
+                if isinstance(val, (int, float)):
+                    bmap[k] = round(val * decay_factor, 3)
+        for drv, cmap in data.get("driver_circuit_biases", {}).items():
+            for k, val in cmap.items():
+                if isinstance(val, (int, float)):
+                    cmap[k] = round(val * decay_factor, 3)
+        tmp = BIAS_CORRECTIONS.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, BIAS_CORRECTIONS)
+        logger.info("Decayed existing bias corrections by factor %.2f upon model retrain.", decay_factor)
+    except Exception as e:
+        logger.warning("Could not decay bias corrections on retrain: %s", e)

@@ -165,9 +165,13 @@ def _simulate_one_race(
     # race_order already sorted by predicted_rank
     positions = {d["driver"]: d["predicted_rank"] for d in race_order}
     raw_effective = []
+    quali_class_pos_map: dict[str, int] = {}
     for q in quali_order:
         drv_name = q["driver"]
-        base_grid = q.get("predicted_grid", 20)
+        base_grid = q.get("predicted_grid", n_drivers)
+        # Saturday Qualifying classification position (pre-penalty)
+        q_class = q.get("quali_class_pos", base_grid)
+        quali_class_pos_map[drv_name] = int(q_class)
         # Post-quali mode: predicted_grid already reflects penalties (locked
         # actual grid). Only add penalties to a raw pre-quali prediction.
         if q.get("is_actual", False):
@@ -320,14 +324,14 @@ def _simulate_one_race(
         is_dnf  = drv in dnf_set
         pts     = 0.0
 
-        # Qualifying points — F1 Fantasy rules: top-10 → Q3 bonus (+ pole),
-        # P11–15 → Q2 bonus only (never both). grid_p here is the effective
-        # grid; bonus eligibility follows it as an approximation.
-        if grid_p <= 10:
-            pts += QUALI_POSITION_POINTS.get(grid_p, 0) + QUALI_Q3_BONUS
-            if grid_p == 1:
+        # Qualifying points — F1 Fantasy rules: points and Q2/Q3/pole bonuses
+        # are awarded strictly on Saturday qualifying classification (pre-penalty).
+        q_pos = quali_class_pos_map.get(drv, grid_p)
+        if q_pos <= 10:
+            pts += QUALI_POSITION_POINTS.get(q_pos, 0) + QUALI_Q3_BONUS
+            if q_pos == 1:
                 pts += POLE_BONUS
-        elif grid_p <= 15:
+        elif q_pos <= 15:
             pts += float(QUALI_Q2_BONUS)
 
         if is_dnf:
