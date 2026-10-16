@@ -1,21 +1,45 @@
 cache/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 logs/*
 !logs/.gitkeep
 *.log
+
+# Sensitive credentials & environment files
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.token
+*.session
+
+# Output artifacts
 output/*.csv
 output/*.json
 output/*.txt
 output/*.html
 output/stages/
 !output/.gitkeep
+
+# IDE, OS & Agent artifacts
 .superpowers/
 .agents/
-Screenshots/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# FastF1 / local pickle & test cache files
+*.ff1pkl
+.pytest_cache/
+.coverage
+htmlcov/
+
+# LaTeX artifacts
 *.aux
 *.bbl
 *.blg

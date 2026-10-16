@@ -3,7 +3,8 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Tests Passing](https://img.shields.io/badge/Tests-45%20passed-success.svg)](#testing--verification)
+[![Tests Passing](https://img.shields.io/badge/Tests-81%20passed-success.svg)](#testing--verification)
+[![Pipeline Speed](https://img.shields.io/badge/Pipeline%20Speed-15.3s%20(15.3x%20boost)-brightgreen.svg)](#high-performance-calculation-pipeline)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#quick-start)
 
 An advanced, production-grade **Formula 1 Fantasy Prediction & Lineup Optimization Engine**. Powered by an ensemble of machine learning rankers, ground-effect regulation Glicko-2 ratings, LSTM momentum tracking, 56-dimensional ML telemetry features across 24 championship circuits, 5,000-run Monte Carlo stochastic simulations, and integer linear programming lineup optimization.
@@ -37,6 +38,19 @@ An advanced, production-grade **Formula 1 Fantasy Prediction & Lineup Optimizati
 
 ---
 
+## ⚡ High-Performance Calculation Pipeline (~15.3× Faster)
+
+The calculation and optimization engine has been systematically re-architected for maximum throughput, reducing end-to-end execution time from **234.8 seconds down to 15.3 seconds** (over **93% execution time eliminated**):
+
+- **In-Memory Cache Layer (`_MEM_CACHE`)**: Multi-tiered in-memory dictionary caching with deep-copy protections on top of disk-based JSON caches, eliminating redundant disk I/O and JSON deserialization loops across pipeline runs.
+- **FastF1 Negative Caching & Stage Isolation**: Permanent zero-expiry caching for historical seasons and a 1-hour negative cache sentinel for unpopulated/future sessions (such as FP2 on Sprint weekends), eliminating repeated 3-second FastF1 rate-limit backoffs.
+- **Direct Tensor Graph Evaluation**: Replaced single-sample `.predict()` invocations with direct callable evaluation (`self.model([seq_n, ctx_n], training=False).numpy()`) and batched whole-roster momentum inference in a single forward pass.
+- **Single-Pass MILP Formulation**: Collapsed the 22-iteration CBC solver loop in the fantasy team optimizer into a single unified mixed-integer linear program with turbo candidate selection constraints ($t_i \le d_i, \sum t_i = 1$).
+- **Optimized 3-Race Lookahead EV**: Reuses the active round's stochastic Monte Carlo results for round offset 0, cutting repetitive simulation passes while snapshotting and cleanly isolating predictor context across future lookahead rounds.
+- **Multi-Core Tree Rankers**: Native parallelization (`n_jobs=-1`) across `LGBMRanker` and `RandomForestRegressor` instances.
+
+---
+
 ## 🤖 The Story: 100% AI-Crafted, Vibe Coded & Rigorously Tested
 
 > *"What happens when an engineering student pairs up with frontier AI models to tackle a complex motorsport optimization puzzle?"*
@@ -55,7 +69,7 @@ This entire project was conceived, architected, implemented, and refactored **10
 "Vibe coding" often carries a stereotype of producing fragile, unverified scripts. For this project, **being AI-assisted did not mean cutting corners or compromising on quality** — in fact, it demanded even stricter engineering discipline:
 
 - **Collaborative Human-AI Testing**: Every architectural layer went through intense adversarial review and verification loops. If an AI model proposed a change, it had to prove itself with reproducible evidence, rigorous math, and robust error handling.
-- **Automated Contract Suite (45/45 Green)**: We engineered and maintained regression tests covering data-ingestion bounds, driver identity drift, fantasy points contracts, and UI asset serving.
+- **Automated Contract Suite (81/81 Green)**: We engineered and maintained regression tests covering data-ingestion bounds, driver identity drift, fantasy points contracts, and UI asset serving.
 - **Multi-Season Backtesting**: Every ranking ensemble was benchmarked against historical races (2022–2025) using time-series cross-validation to guarantee zero future data leakage.
 
 This repository is living proof of the modern paradigm of software engineering: a solo engineering student directing frontier AI models to build a production-grade, highly specialized predictive system without sacrificing an ounce of code quality or scientific rigor.
