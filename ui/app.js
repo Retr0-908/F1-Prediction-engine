@@ -776,10 +776,82 @@ function renderCookieStatusBadge(statusInfo) {
     }
 }
 
+function cleanF1CookieInput(raw) {
+    if (!raw) return '';
+    let val = String(raw).trim();
+    // If user copied full document.cookie string containing login-session
+    if (val.includes('login-session=')) {
+        const match = val.match(/login-session=([^;]+)/);
+        if (match && match[1]) {
+            val = match[1].trim();
+        } else {
+            val = val.replace(/^login-session=/, '').trim();
+        }
+    }
+    // Strip surrounding quotes
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1).trim();
+    }
+    return val;
+}
+
 function toggleF1CookieGuide() {
     const guideEl = document.getElementById('f1-sync-guide');
     if (!guideEl) return;
     guideEl.style.display = guideEl.style.display === 'none' ? 'block' : 'none';
+}
+
+async function copyF1ConsoleSnippet() {
+    const btn = document.getElementById('f1-sync-copy-snippet-btn');
+    const snippet = `copy(document.cookie.split('; ').find(r => r.startsWith('login-session=')).split('=')[1])`;
+    try {
+        await navigator.clipboard.writeText(snippet);
+        if (btn) {
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<span>✓</span> Snippet Copied! Paste into F1 Console (F12)';
+            btn.style.color = 'var(--telemetry-green, #34C759)';
+            btn.style.borderColor = 'rgba(52, 199, 89, 0.4)';
+            setTimeout(() => {
+                btn.innerHTML = orig;
+                btn.style.color = '';
+                btn.style.borderColor = '';
+            }, 2500);
+        }
+    } catch (err) {
+        prompt('Copy this snippet and paste it into DevTools Console on fantasy.formula1.com:', snippet);
+    }
+}
+
+async function pasteF1CookieFromClipboard() {
+    const btn = document.getElementById('f1-sync-paste-btn');
+    const inputEl = document.getElementById('f1-sync-cookie-input');
+    if (!inputEl) return;
+
+    try {
+        const text = await navigator.clipboard.readText();
+        const cleaned = cleanF1CookieInput(text);
+        if (cleaned) {
+            inputEl.value = cleaned;
+            inputEl.style.borderColor = 'var(--telemetry-cyan, #00D2BE)';
+            if (btn) {
+                const orig = btn.innerHTML;
+                btn.innerHTML = '<span>✓</span> Cookie Pasted!';
+                btn.style.color = 'var(--telemetry-green, #34C759)';
+                btn.style.borderColor = 'rgba(52, 199, 89, 0.4)';
+                setTimeout(() => {
+                    btn.innerHTML = orig;
+                    btn.style.color = '';
+                    btn.style.borderColor = '';
+                }, 2000);
+            }
+        } else {
+            inputEl.focus();
+            inputEl.placeholder = 'Clipboard is empty or contains invalid text. Please paste manually.';
+        }
+    } catch (err) {
+        inputEl.focus();
+        inputEl.placeholder = 'Clipboard access denied by browser. Please press Ctrl+V here to paste.';
+    }
 }
 
 async function saveF1CookieAndSync() {
@@ -792,12 +864,13 @@ async function saveF1CookieAndSync() {
     const cardsEl = document.getElementById('f1-sync-teams-cards');
 
     if (!inputEl) return;
-    const cookieVal = inputEl.value.trim();
+    const cookieVal = cleanF1CookieInput(inputEl.value);
     if (!cookieVal) {
         inputEl.style.borderColor = '#ff4d6a';
         inputEl.focus();
         return;
     }
+    inputEl.value = cookieVal;
 
     if (btnEl) {
         btnEl.disabled = true;
@@ -814,18 +887,18 @@ async function saveF1CookieAndSync() {
 
         if (btnEl) {
             btnEl.disabled = false;
-            btnEl.innerHTML = '<span>💾</span> Save Cookie &amp; Retry Sync';
+            btnEl.innerHTML = '<span>💾</span> Save Cookie &amp; Connect';
         }
 
         if (!res.ok || data.status !== 'ok') {
-            errorEl.style.display = 'block';
-            errorMsgEl.innerText = data.message || 'Authentication failed. Please check the copied cookie.';
+            if (errorEl) errorEl.style.display = 'block';
+            if (errorMsgEl) errorMsgEl.innerText = data.message || 'Authentication failed. Please check the copied cookie.';
             inputEl.style.borderColor = '#ff4d6a';
             return;
         }
 
         // Success!
-        errorEl.style.display = 'none';
+        if (errorEl) errorEl.style.display = 'none';
         if (cookieBoxEl) cookieBoxEl.style.display = 'none';
         inputEl.value = '';
 
@@ -834,22 +907,22 @@ async function saveF1CookieAndSync() {
         }
 
         if (!data.teams || data.teams.length === 0) {
-            errorEl.style.display = 'block';
-            errorMsgEl.innerText = 'Cookie saved, but no teams were found under this F1 Fantasy account.';
+            if (errorEl) errorEl.style.display = 'block';
+            if (errorMsgEl) errorMsgEl.innerText = 'Cookie saved, but no teams were found under this F1 Fantasy account.';
             return;
         }
 
         _lastLoadedTeams = data.teams || [];
-        contentEl.style.display = 'block';
+        if (contentEl) contentEl.style.display = 'block';
         renderF1TeamCards(data.teams, cardsEl);
 
     } catch (err) {
         if (btnEl) {
             btnEl.disabled = false;
-            btnEl.innerHTML = '<span>💾</span> Save Cookie &amp; Retry Sync';
+            btnEl.innerHTML = '<span>💾</span> Save Cookie &amp; Connect';
         }
-        errorEl.style.display = 'block';
-        errorMsgEl.innerText = 'Network error saving cookie: ' + err.message;
+        if (errorEl) errorEl.style.display = 'block';
+        if (errorMsgEl) errorMsgEl.innerText = 'Network error saving cookie: ' + err.message;
     }
 }
 
@@ -863,60 +936,93 @@ async function openF1SyncModal() {
     const contentEl = document.getElementById('f1-sync-content');
     const cardsEl = document.getElementById('f1-sync-teams-cards');
     const guideEl = document.getElementById('f1-sync-guide');
+    const cookieBoxEl = document.getElementById('f1-sync-cookie-box');
+    const cancelBtn = document.getElementById('f1-sync-cookie-cancel-btn');
 
-    loadingEl.style.display = 'block';
-    errorEl.style.display = 'none';
-    contentEl.style.display = 'none';
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (errorEl) errorEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'none';
+    if (cookieBoxEl) cookieBoxEl.style.display = 'none';
     if (guideEl) guideEl.style.display = 'none';
+    if (cancelBtn) cancelBtn.style.display = 'none';
 
     try {
         const res = await fetch('/api/f1-sync/teams');
         const data = await res.json();
 
-        loadingEl.style.display = 'none';
+        if (loadingEl) loadingEl.style.display = 'none';
 
         if (data.cookie_status) {
             renderCookieStatusBadge(data.cookie_status);
         }
 
         if (!res.ok) {
-            errorEl.style.display = 'block';
+            if (errorEl) errorEl.style.display = 'block';
             const detailMsg = data.detail || data.message || `HTTP ${res.status}`;
-            document.getElementById('f1-sync-error-msg').innerText = `API error (${res.status}): ${detailMsg}`;
+            const errEl = document.getElementById('f1-sync-error-msg');
+            if (errEl) errEl.innerText = `API error (${res.status}): ${detailMsg}`;
+            if (cookieBoxEl) cookieBoxEl.style.display = 'block';
             return;
         }
 
         if (data.status !== 'ok') {
-            errorEl.style.display = 'block';
-            document.getElementById('f1-sync-error-msg').innerText = data.message || 'Unable to retrieve teams from F1 Fantasy. Please check your session cookie.';
+            if (errorEl) errorEl.style.display = 'block';
+            const errEl = document.getElementById('f1-sync-error-msg');
+            if (errEl) errEl.innerText = data.message || 'Unable to retrieve teams from F1 Fantasy. Please check or update your session cookie below.';
+            if (cookieBoxEl) cookieBoxEl.style.display = 'block';
             return;
         }
 
         if (!data.teams || data.teams.length === 0) {
-            errorEl.style.display = 'block';
-            document.getElementById('f1-sync-error-msg').innerText = 'No teams found under this F1 Fantasy account. Please check your team setup in the official game.';
+            if (errorEl) errorEl.style.display = 'block';
+            const errEl = document.getElementById('f1-sync-error-msg');
+            if (errEl) errEl.innerText = 'No teams found under this F1 Fantasy account. Please check your team setup in the official game.';
+            if (cookieBoxEl) cookieBoxEl.style.display = 'block';
             return;
         }
 
         _lastLoadedTeams = data.teams || [];
-        contentEl.style.display = 'block';
+        if (contentEl) contentEl.style.display = 'block';
         renderF1TeamCards(data.teams, cardsEl);
 
     } catch (err) {
-        loadingEl.style.display = 'none';
-        errorEl.style.display = 'block';
-        document.getElementById('f1-sync-error-msg').innerText = 'Network error contacting backend: ' + err.message;
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl) errorEl.style.display = 'block';
+        const errEl = document.getElementById('f1-sync-error-msg');
+        if (errEl) errEl.innerText = 'Network error contacting backend: ' + err.message;
+        if (cookieBoxEl) cookieBoxEl.style.display = 'block';
     }
 }
 
 function showCookieInputManually() {
+    const cookieBoxEl = document.getElementById('f1-sync-cookie-box');
+    const cancelBtn = document.getElementById('f1-sync-cookie-cancel-btn');
+    const inputEl = document.getElementById('f1-sync-cookie-input');
     const errorEl = document.getElementById('f1-sync-error');
-    const errorMsgEl = document.getElementById('f1-sync-error-msg');
-    if (errorEl) {
-        errorEl.style.display = 'block';
-        if (errorMsgEl) errorMsgEl.innerText = 'Paste your new F1 Fantasy session cookie below to update credentials or switch accounts:';
-        const inputEl = document.getElementById('f1-sync-cookie-input');
-        if (inputEl) inputEl.focus();
+
+    // Dismiss any error alerts when manually toggling cookie settings
+    if (errorEl) errorEl.style.display = 'none';
+
+    if (cookieBoxEl) {
+        cookieBoxEl.style.display = 'block';
+        if (cancelBtn) {
+            cancelBtn.style.display = (_lastLoadedTeams && _lastLoadedTeams.length > 0) ? 'inline-block' : 'none';
+        }
+        if (inputEl) {
+            inputEl.focus();
+            try {
+                cookieBoxEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (e) {
+                // Ignore fallback
+            }
+        }
+    }
+}
+
+function hideCookieInputManually() {
+    const cookieBoxEl = document.getElementById('f1-sync-cookie-box');
+    if (cookieBoxEl) {
+        cookieBoxEl.style.display = 'none';
     }
 }
 

@@ -19,14 +19,14 @@ python sanity_check.py
 ```
 
 ### Key Verification Metrics:
-- **Feature Count**: Must strictly equal **54 features** (37 base + 15 track features + 2 derived metrics).
+- **Feature Count**: Must strictly equal **56 features** (37 base + 15 track features + 2 derived metrics + 2 fantasy features).
 - **Track Enrichment**: All 24 circuits (Albert Park through Saudi Arabia) must show `enriched OK`.
 
 ---
 
 ## 2. Multi-Season Backtesting Workflow
 
-Evaluate the accuracy of the 54-feature ensemble stack against historical race rounds:
+Evaluate the accuracy of the 56-feature ensemble stack against historical race rounds:
 
 ```bash
 # Backtest specific 2025 rounds
@@ -68,4 +68,4 @@ Start the FastAPI live dashboard with real-time SSE updates:
 ```bash
 python server.py
 ```
-Open your browser to `http://localhost:8000` to view live race predictions, Monte Carlo position distributions, and PuLP fantasy lineup recommendations.
+Open your browser to `http://localhost:5762` to view live race predictions, Monte Carlo position distributions, and PuLP fantasy lineup recommendations.

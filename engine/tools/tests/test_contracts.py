@@ -602,6 +602,19 @@ class PlannedFixProbes(unittest.TestCase):
         self.assertEqual(next_race["round"], latest_completed + 1)
         self.assertFalse(df.race_has_happened(next_race, 2026))
 
+    def test_future_race_and_quali_never_hit_network(self):
+        from engine.core import data_fetcher as df
+        future_race = {
+            "round": 99,
+            "date": "2099-12-01",
+            "time": "14:00:00Z",
+            "quali_date": "2099-11-30",
+            "quali_time": "14:00:00Z",
+        }
+        with patch.object(df._http_session, "get", side_effect=AssertionError("Must not make live HTTP request for future date")):
+            self.assertFalse(df.race_has_happened(future_race, 2099))
+            self.assertFalse(df.qualifying_has_happened(future_race, 2099))
+
     def test_qualifying_has_happened_multi_signal(self):
         from engine.core import data_fetcher as df
         r15 = df.get_race_by_round(15, 2026)

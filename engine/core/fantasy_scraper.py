@@ -222,21 +222,14 @@ def scrape_driver_prices(force_refresh: bool = False) -> tuple[dict[str, dict], 
             roster = {name: d["team"] for name, d in cached.items() if not d.get("is_constructor")}
             return cached, roster
 
-    # Attempt 1: Playwright headless browser (Public SPA)
-    result = _try_playwright_scrape(is_constructor=False)
-    if isinstance(result, tuple) and result:
-        prices, roster = result
-        _save_cache(cache_key, prices)
-        return prices, roster
-
-    # Attempt 2: Public feed (no auth)
+    # Attempt 1: Public feed (no auth, fastest ~150ms HTTP request)
     result = _try_public_feed()
     if isinstance(result, tuple) and result:
         prices, roster = result
         _save_cache(cache_key, prices)
         return prices, roster
 
-    # Attempt 3: Cookie auth
+    # Attempt 2: Cookie auth (fast API request if session token available)
     from engine.core.fantasy_sync import _get_cookie_string
     if _get_cookie_string():
         result = _try_cookie_auth_api()
@@ -244,6 +237,13 @@ def scrape_driver_prices(force_refresh: bool = False) -> tuple[dict[str, dict], 
             prices, roster = result
             _save_cache(cache_key, prices)
             return prices, roster
+
+    # Attempt 3: Playwright headless browser (Public SPA, heavier ~3-5s)
+    result = _try_playwright_scrape(is_constructor=False)
+    if isinstance(result, tuple) and result:
+        prices, roster = result
+        _save_cache(cache_key, prices)
+        return prices, roster
 
     # Attempt 4: HTML scrape
     result = _try_html_scrape()

@@ -547,6 +547,17 @@ class TireDegradationModel:
         air_temp_v   = float(air_temp) if air_temp is not None else track_temp - 10.0
         track_enc    = float(TRACK_TYPE_ENC.get(track_type, 2))
 
+        cache_key = (
+            compound.upper(), int(stint_length), round(track_temp, 1),
+            round(air_temp_v, 1), int(lap_number), track_type,
+            round(rain_enc, 1), round(avg_lap_sec_norm, 1),
+            round(alt_val, 1), round(deg_val, 1)
+        )
+        if not hasattr(self, "_deg_pred_cache"):
+            self._deg_pred_cache = {}
+        if cache_key in self._deg_pred_cache:
+            return self._deg_pred_cache[cache_key]
+
         X = np.array([[
             compound_enc, float(stint_length), float(track_temp),
             air_temp_v, float(lap_number), track_enc,
@@ -555,18 +566,30 @@ class TireDegradationModel:
 
         X_n = self.scaler.transform(X)
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            preds = self.model.predict(X_n, verbose=0)
+        try:
+            preds = self.model(X_n, training=False)
+            if isinstance(preds, dict):
+                deg = float(preds["deg_output"].numpy()[0, 0])
+            elif isinstance(preds, (list, tuple)):
+                deg = float(preds[0].numpy()[0, 0])
+            else:
+                deg = float(preds.numpy()[0, 0])
+        except Exception:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                preds = self.model.predict(X_n, verbose=0)
+            deg = float(preds["deg_output"][0, 0])
 
-        deg = float(preds["deg_output"][0, 0])
         alt_mult = 1.0 + 0.04 * (alt_val / 1000.0)
         # Plan 9-M4: the NN input vector carries no track-physics scalars, so
         # without this the trained path returned IDENTICAL deg for Bahrain
         # (tire_degradation=5) and Silverstone (=2). Apply the same physics
         # multiplier the fallback path uses, symmetric and documented.
         physics_mult = 1.0 + 0.15 * (deg_val - 3.0)
-        return max(0.001, deg * alt_mult * physics_mult)
+        final_deg = max(0.001, deg * alt_mult * physics_mult)
+        if len(self._deg_pred_cache) < 1000:
+            self._deg_pred_cache[cache_key] = final_deg
+        return final_deg
 
     def predict_strategy(
         self,

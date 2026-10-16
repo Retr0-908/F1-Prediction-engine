@@ -6,7 +6,7 @@
 [![Tests Passing](https://img.shields.io/badge/Tests-45%20passed-success.svg)](#testing--verification)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#quick-start)
 
-An advanced, production-grade **Formula 1 Fantasy Prediction & Lineup Optimization Engine**. Powered by an ensemble of machine learning rankers, ground-effect regulation Glicko-2 ratings, LSTM momentum tracking, 54-dimensional ML telemetry features across 24 championship circuits, 5,000-run Monte Carlo stochastic simulations, and integer linear programming lineup optimization.
+An advanced, production-grade **Formula 1 Fantasy Prediction & Lineup Optimization Engine**. Powered by an ensemble of machine learning rankers, ground-effect regulation Glicko-2 ratings, LSTM momentum tracking, 56-dimensional ML telemetry features across 24 championship circuits, 5,000-run Monte Carlo stochastic simulations, and integer linear programming lineup optimization.
 
 ---
 
@@ -62,8 +62,8 @@ This repository is living proof of the modern paradigm of software engineering: 
 
 ---
 
-### 1. 🏎️ 24 Championship Circuits & 54+ ML Telemetry Features
-Every championship circuit (all 24 circuits on the calendar) is modeled using canonical telemetry profiles defined in [`track_features/`](track_features/). The ML ensemble uses a 54+ feature vector combining driver form, weather, and circuit physics:
+### 1. 🏎️ 24 Championship Circuits & 56 ML Telemetry Features
+Every championship circuit (all 24 circuits on the calendar) is modeled using canonical telemetry profiles defined in [`track_features/`](track_features/). The ML ensemble uses a 56-feature vector combining driver form, weather, and circuit physics:
 - **Tire & Chassis Demands**: Lateral grip energy, longitudinal traction stress, asphalt micro/macro-abrasion, and degradation multipliers by compound (C1–C6).
 - **Aero & Drag Dynamics**: Low, medium, high downforce setups, drag sensitivity, DRS delta impact, and telemetry speed trap benchmarks.
 - **Circuit Environment & Chaos**: Safety Car / Virtual Safety Car baseline probabilities, pit lane transit time loss, elevation gradients, and overtaking difficulty indices.

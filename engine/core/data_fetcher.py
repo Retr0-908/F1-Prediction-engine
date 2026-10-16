@@ -23,6 +23,7 @@ import time
 import datetime
 import threading
 import random
+import copy
 import requests
 import fastf1
 import pandas as pd
@@ -72,29 +73,46 @@ def _cache_path(key: str) -> Path:
 
 
 _cache_io_lock = threading.Lock()
+# In-memory cache: key -> (mtime_ns, size, parsed_data)
+_MEM_CACHE: dict[str, tuple[int, int, object]] = {}
 
 def _load_cache(key: str, max_age_hours: float = 6, allow_stale: bool = False) -> Optional[dict]:
     p = _cache_path(key)
-    if p.exists():
-        if max_age_hours <= 0 or allow_stale:
-            pass
-        else:
-            age = time.time() - p.stat().st_mtime
-            if age >= max_age_hours * 3600:
-                return None
-        try:
-            with _cache_io_lock:
-                with open(p, "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            # Corrupt/partial cache file (e.g. interrupted write) — treat as a miss
-            logger.warning("Corrupt cache file %s (%s) — ignoring", p.name, e)
-            try:
-                p.unlink()
-            except OSError:
-                pass
+    try:
+        st = p.stat()
+    except OSError:
+        with _cache_io_lock:
+            _MEM_CACHE.pop(key, None)
+        return None
+
+    if max_age_hours <= 0 or allow_stale:
+        pass
+    else:
+        age = time.time() - st.st_mtime
+        if age >= max_age_hours * 3600:
             return None
-    return None
+
+    with _cache_io_lock:
+        entry = _MEM_CACHE.get(key)
+        if entry is not None and entry[0] == st.st_mtime_ns and entry[1] == st.st_size:
+            return copy.deepcopy(entry[2])
+
+    try:
+        with _cache_io_lock:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            _MEM_CACHE[key] = (st.st_mtime_ns, st.st_size, data)
+            return copy.deepcopy(data)
+    except (json.JSONDecodeError, OSError) as e:
+        # Corrupt/partial cache file (e.g. interrupted write) — treat as a miss
+        logger.warning("Corrupt cache file %s (%s) — ignoring", p.name, e)
+        with _cache_io_lock:
+            _MEM_CACHE.pop(key, None)
+        try:
+            p.unlink()
+        except OSError:
+            pass
+        return None
 
 
 def _save_cache(key: str, data) -> None:
@@ -103,9 +121,15 @@ def _save_cache(key: str, data) -> None:
     target = _cache_path(key)
     tmp = target.with_suffix(".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str)
-        os.replace(tmp, target)
+        with _cache_io_lock:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, default=str)
+            os.replace(tmp, target)
+            try:
+                st = target.stat()
+                _MEM_CACHE[key] = (st.st_mtime_ns, st.st_size, copy.deepcopy(data))
+            except OSError:
+                _MEM_CACHE.pop(key, None)
     except OSError as e:
         logger.warning("Failed to write cache %s: %s", target.name, e)
         try:
@@ -339,10 +363,12 @@ def _jolpica_get(endpoint: str, params: dict = None, cache_hours: float = 6) -> 
 
     cached = _load_cache(cache_key, effective_cache_hours)
     if cached:
-        # If we have a permanent cache (hours <= 0) but it's an empty response, ignore it and re-fetch
+        # If we have a permanent cache (hours <= 0) but it's an empty response, accept only if fresh (<30m)
         total_str = cached.get("MRData", {}).get("total", "1")
         if str(total_str) == "0" and effective_cache_hours <= 0:
-            pass
+            fresh_empty = _load_cache(cache_key, max_age_hours=0.5)
+            if fresh_empty is not None:
+                return fresh_empty
         else:
             return cached
 
@@ -369,12 +395,8 @@ def _jolpica_get(endpoint: str, params: dict = None, cache_hours: float = 6) -> 
             data = resp.json()
             _pacer.on_success()
 
-            # Avoid permanently caching empty responses (e.g. race results before race finishes)
-            total_str = data.get("MRData", {}).get("total", "1")
-            if str(total_str) == "0" and effective_cache_hours <= 0:
-                pass # Do not cache empty responses permanently
-            else:
-                _save_cache(cache_key, data)
+            # Cache response (empty responses will be invalidated after 30 mins via freshness check above)
+            _save_cache(cache_key, data)
 
             return data
         except requests.exceptions.HTTPError as e:
@@ -935,6 +957,27 @@ def race_has_happened(race: dict, year: int = CURRENT_SEASON) -> bool:
     race_date_str = race.get("date")
     race_time_str = race.get("time")
 
+    is_future_date = False
+    if race_date_str:
+        try:
+            race_date = datetime.date.fromisoformat(race_date_str)
+            now_utc_date = datetime.datetime.now(datetime.timezone.utc).date()
+            if race_date > now_utc_date:
+                is_future_date = True
+        except Exception:
+            pass
+
+    # If scheduled date is strictly in the future, only check local cache/memory; never make a live HTTP request!
+    if is_future_date:
+        if round_num:
+            cache_key = f"jolpica_/{year}/{round_num}/results.json_{{}}"
+            cached_raw = _load_cache(cache_key, 0, allow_stale=True)
+            if cached_raw:
+                races = cached_raw.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+                if races and len(races[0].get("Results", [])) >= 10:
+                    return True
+        return False
+
     # 1. Official Results check: If classified results exist, race is 100% completed
     if round_num:
         try:
@@ -976,6 +1019,27 @@ def qualifying_has_happened(race: dict, year: int = CURRENT_SEASON) -> bool:
     round_num = race.get("round")
     quali_date = race.get("quali_date")
     quali_time = race.get("quali_time")
+
+    is_future_date = False
+    if quali_date:
+        try:
+            q_date = datetime.date.fromisoformat(quali_date)
+            now_utc_date = datetime.datetime.now(datetime.timezone.utc).date()
+            if q_date > now_utc_date:
+                is_future_date = True
+        except Exception:
+            pass
+
+    # If qualifying date is strictly in the future, only check local cache/memory; never make a live HTTP request!
+    if is_future_date:
+        if round_num:
+            cache_key = f"jolpica_/{year}/{round_num}/qualifying.json_{{}}"
+            cached_raw = _load_cache(cache_key, 0, allow_stale=True)
+            if cached_raw:
+                races = cached_raw.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+                if races and len(races[0].get("QualifyingResults", [])) >= 10:
+                    return True
+        return False
 
     # 1. Official Results check
     if round_num:
@@ -1130,8 +1194,6 @@ def get_circuit_history(circuit_id: str, seasons: list[int] = None) -> pd.DataFr
     all_rows = []
     for i, year in enumerate(seasons):
         try:
-            if i > 0:
-                time.sleep(0.3)
             # Normalise circuit ID — Jolpica uses 'villeneuve' for Canada, not 'canada'
             api_circuit_id = _normalize_circuit_id(circuit_id)
             data = _jolpica_get(f"/{year}/circuits/{api_circuit_id}/results.json",
@@ -1294,6 +1356,29 @@ def get_driver_lap_stats(year: int, gp: str, session_type: str = "R") -> pd.Data
         return pd.DataFrame()
 
 
+def _load_ff1_summary_cache(key: str, year: int) -> Optional[dict]:
+    # Historical seasons or past completed events: permanent cache (max_age_hours=0)
+    # Current season: check if cached payload is a negative cache (__empty__)
+    max_age = 0 if year < CURRENT_SEASON else 72
+    cached = _load_cache(key, max_age_hours=max_age)
+    if cached is not None and isinstance(cached, dict):
+        if cached.get("__empty__") is True:
+            # Negative cache: only honor for 1 hour to prevent hammering unavailable sessions
+            p = CACHE_DIR / f"{key}.json"
+            if p.exists() and (time.time() - p.stat().st_mtime) < 3600:
+                return {}
+            return None
+        return cached
+    return None
+
+
+def _save_ff1_summary_cache(key: str, data: dict) -> None:
+    if not data:
+        _save_cache(key, {"__empty__": True})
+    else:
+        _save_cache(key, data)
+
+
 # ─────────────────────────────────────────────
 # PHASE 2/4: TIRE STINTS & ALLOCATIONS (NEW)
 # ─────────────────────────────────────────────
@@ -1305,8 +1390,8 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
     Counts unique stints across FP1, FP2, FP3, Q to decrement the allocation.
     """
     cache_key = f"tire_allocs_{year}_{gp_name.replace(' ', '_')}_v1"
-    cached = _load_cache(cache_key, 72)
-    if cached:  # truthiness: an empty dict (all sessions failed) should be retried
+    cached = _load_ff1_summary_cache(cache_key, year)
+    if cached is not None:
         return cached
 
     driver_used_sets = {}
@@ -1368,10 +1453,11 @@ def get_weekend_tire_allocations(year: int, gp_name: str) -> dict[str, dict]:
                 "total_fresh": h_left + m_left + s_left
             }
             
-        _save_cache(cache_key, result)
+        _save_ff1_summary_cache(cache_key, result)
         return result
     except Exception as e:
         print(f"    [WARN] get_weekend_tire_allocations({year}, {gp_name}): {e}")
+        _save_ff1_summary_cache(cache_key, {})
         return {}
 
 
@@ -1433,8 +1519,8 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
       - `telemetry=False` keeps the session load fast — we only need laps + weather.
     """
     cache_key = f"tire_stints_{session_type}_{year}_{str(gp_name).replace(' ', '_')}_v1"
-    cached = _load_cache(cache_key, 72)
-    if cached:   # truthiness: an empty dict (session failed) should be retried
+    cached = _load_ff1_summary_cache(cache_key, year)
+    if cached is not None:
         return cached
 
     try:
@@ -1445,10 +1531,12 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
             session.load(telemetry=False, weather=True, messages=False)
         except Exception as e:
             logger.debug("FastF1 load failed for %s %s %s: %s", year, gp_name, session_type, e)
+            _save_ff1_summary_cache(cache_key, {})
             return {}
         laps = getattr(session, "_laps", None)
 
         if laps is None or laps.empty:
+            _save_ff1_summary_cache(cache_key, {})
             return {}
 
         # Pull weather data for track temperature (free from FastF1)
@@ -1574,13 +1662,14 @@ def get_tire_stints(year: int, gp_name: str, session_type: str = "R") -> dict[st
             if driver_stints:
                 result[full_name] = driver_stints
 
-        _save_cache(cache_key, result)
+        _save_ff1_summary_cache(cache_key, result)
         return result
 
     except Exception as exc:
         exc_str = str(exc)
         if "has not been loaded yet" not in exc_str and "No data" not in exc_str:
             print(f"    [WARN] get_tire_stints({year}, {gp_name}, {session_type}): {exc}")
+        _save_ff1_summary_cache(cache_key, {})
         return {}
 
 
@@ -1708,8 +1797,8 @@ def compute_practice_pace(year: int, gp_name: str, session_type: str = "FP2") ->
     Returns: {driver_name: delta_seconds} or {} if session data unavailable.
     """
     cache_key = f"practice_pace_{session_type}_{year}_{gp_name.replace(' ', '_')}_v2"
-    cached = _load_cache(cache_key, 72)
-    if cached:
+    cached = _load_ff1_summary_cache(cache_key, year)
+    if cached is not None:
         return cached
 
     try:
@@ -1719,6 +1808,7 @@ def compute_practice_pace(year: int, gp_name: str, session_type: str = "FP2") ->
         laps = session.laps
 
         if laps is None or laps.empty:
+            _save_ff1_summary_cache(cache_key, {})
             return {}
 
         # Filter to representative laps only
@@ -1755,6 +1845,7 @@ def compute_practice_pace(year: int, gp_name: str, session_type: str = "FP2") ->
                 driver_long_run_avgs[driver_abbr] = avg_sec
 
         if not driver_long_run_avgs:
+            _save_ff1_summary_cache(cache_key, {})
             return {}
 
         # Compute field median and delta
@@ -1785,10 +1876,11 @@ def compute_practice_pace(year: int, gp_name: str, session_type: str = "FP2") ->
                     name = abbr
             result[name] = round(avg_sec - median_pace, 3)
 
-        _save_cache(cache_key, result)
+        _save_ff1_summary_cache(cache_key, result)
         return result
 
     except Exception:
+        _save_ff1_summary_cache(cache_key, {})
         return {}
 
 
@@ -1821,8 +1913,8 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
     Returns {} if qualifying data not yet available.
     """
     cache_key = f"quali_sectors_{year}_{gp_name.replace(' ', '_')}_v2"
-    cached = _load_cache(cache_key, 48)
-    if cached:
+    cached = _load_ff1_summary_cache(cache_key, year)
+    if cached is not None:
         return cached
 
     try:
@@ -1832,6 +1924,7 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
         laps = session.laps
 
         if laps is None or laps.empty:
+            _save_ff1_summary_cache(cache_key, {})
             return {}
 
         # Get best lap per driver
@@ -1841,6 +1934,7 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
         ).dropna()
 
         if best_laps.empty:
+            _save_ff1_summary_cache(cache_key, {})
             return {}
 
         # Compute fastest sector times across all drivers
@@ -1894,10 +1988,11 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
                 "q_lap_delta": round(lap - best_lap, 3) if lap is not None else None,
             }
 
-        _save_cache(cache_key, result)
+        _save_ff1_summary_cache(cache_key, result)
         return result
 
     except Exception:
+        _save_ff1_summary_cache(cache_key, {})
         return {}
 
 
@@ -2065,8 +2160,6 @@ def compute_multiseason_driver_form(
 
     for i, (year, weight) in enumerate(season_weights.items()):
         try:
-            if i > 0:
-                time.sleep(0.3)
             all_results = get_season_results(year)
             if not all_results:
                 continue
@@ -2158,8 +2251,6 @@ def compute_multiseason_constructor_stats(
 
     for i, (year, weight) in enumerate(season_weights.items()):
         try:
-            if i > 0:
-                time.sleep(0.3)
             all_results = get_season_results(year)
             if not all_results:
                 continue

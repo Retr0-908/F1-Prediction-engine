@@ -301,3 +301,10 @@ class UISmokeTests(unittest.TestCase):
 TestUISmoke = UISmokeTests
 
 
+def load_tests(loader, tests, pattern):
+    """Ensure standard test discovery loads the test suite once despite the TestUISmoke alias."""
+    suite = unittest.TestSuite()
+    suite.addTests(loader.loadTestsFromTestCase(UISmokeTests))
+    return suite
+
+

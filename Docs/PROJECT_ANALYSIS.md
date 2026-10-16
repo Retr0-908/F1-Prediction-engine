@@ -91,21 +91,23 @@ This is a **sophisticated F1 Fantasy prediction and optimization tool** designed
 - PyMC probabilistic model (`bayesian_model.py`)
 - Provides uncertainty quantification
 
-**Feature Engineering (54 features):**
+**Feature Engineering (56 features):**
 - Championship position/points (4 features)
 - Glicko-2 rating system (7 features) - skill rating with uncertainty
-- Rolling form (EWMA, 6 features)
+- Rolling form (EWMA, 5 features)
 - Circuit history (2 features)
 - Constructor reliability (2 features)
-- Circuit characteristics (4 features)
+- Circuit characteristics encodings (4 features)
 - Weather (2 features)
-- Safety car probability (1 feature)
-- Grid penalties (1 feature)
-- Relative strength metrics (3 features)
-- LSTM momentum prediction (1 feature)
-- Tire efficiency score (1 feature)
-- Track-specific JSON features (17 features - Phase 5)
-- Derived metrics (3 features)
+- Safety car / grid (2 features)
+- Relative strength metrics (2 features)
+- Qualifying/rookie (v3, 3 features)
+- LSTM momentum prediction (1 feature - Phase 3)
+- Tire efficiency score (1 feature - Phase 3)
+- Lap-1 risk + fresh tires (2 features - Phase 4)
+- Track-specific JSON features (15 features - Phase 5)
+- Derived track metrics (2 features - Phase 5)
+- Fantasy metrics (2 features)
 
 **Training Strategy:**
 - Historical seasons: 2021-2026 (regulation-era weighted)
@@ -368,7 +370,7 @@ User Request (CLI/Web)
     │   └─ Grid penalties
     ↓
 [6] Prediction → Qualifying + Race order
-    │   ├─ Feature engineering (54 features)
+    │   ├─ Feature engineering (56 features)
     │   ├─ Ensemble prediction
     │   ├─ Confidence scoring
     │   └─ DNF probability

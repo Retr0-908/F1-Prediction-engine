@@ -2,6 +2,7 @@ import logging
 import time
 from pathlib import Path
 import json
+import pandas as pd
 
 from engine.core.config import CONSTRUCTORS_2026, CONSTRUCTORS_2025, CURRENT_SEASON, SC_PROBABILITY
 from engine.core.data_fetcher import get_next_race, get_race_by_round, is_sprint_weekend, qualifying_has_happened
@@ -302,10 +303,8 @@ def run_full_pipeline(
             predictor, race.get("round", 1), options, sims,
             run_id=run_id, progress_callback=progress_callback,
             roster=dynamic_roster, grid_overrides=grid_overrides,
+            current_round_cache={"mc_ev_pts": mc_ev_pts},
         ) if race.get("round") else mc_ev_pts
-        
-        # Restore predictor context for the current race just in case
-        predictor.load_context(circuit_cfg, weather, roster=dynamic_roster, mode=detected_mode, race_info=race, grid_overrides=grid_overrides)
 
         progress_callback(run_id, "ANALYSIS", "loading", "Running LP solver to find globally optimal team combinations...")
         if detected_mode in ["post-quali", "race-day"]:
@@ -420,6 +419,7 @@ def calculate_lookahead_ev(
     run_id=None, progress_callback=None,
     roster=None, grid_overrides=None,
     season=None,
+    current_round_cache=None,
 ):
     """
     Sum of MC expected values over the next 3 races with temporal discounting.
@@ -462,70 +462,100 @@ def calculate_lookahead_ev(
     total_weight = 0.0
     gamma = 0.75  # Exponential temporal discount factor per race lookahead step
 
-    # We will do 3 races: round, round+1, round+2
-    for offset, r in enumerate(range(current_race_round, current_race_round + 3)):
-        race = get_race_by_round(r, season)
-        if not race:
-            break
-        weight = gamma ** offset
-        rounds_simulated += 1
-        total_weight += weight
+    # Snapshot current predictor context to restore after lookahead simulations
+    _ctx_snapshot = {
+        "_circuit_config": getattr(predictor, "_circuit_config", {}),
+        "_weather": getattr(predictor, "_weather", {}),
+        "_mode": getattr(predictor, "_mode", "auto"),
+        "_race_info": getattr(predictor, "_race_info", {}),
+        "_grid_overrides": getattr(predictor, "_grid_overrides", {}),
+        "_actual_grid": getattr(predictor, "_actual_grid", []),
+        "_practice_pace": getattr(predictor, "_practice_pace", {}),
+        "_practice_session_name": getattr(predictor, "_practice_session_name", "N/A"),
+        "_quali_sectors": getattr(predictor, "_quali_sectors", {}),
+        "_grid_penalties": getattr(predictor, "_grid_penalties", {}),
+        "_circuit_history": getattr(predictor, "_circuit_history", pd.DataFrame()),
+    }
+
+    try:
+        # We will do 3 races: round, round+1, round+2
+        for offset, r in enumerate(range(current_race_round, current_race_round + 3)):
+            race = get_race_by_round(r, season)
+            if not race:
+                break
+            weight = gamma ** offset
+            rounds_simulated += 1
+            total_weight += weight
+                
+            if progress_callback and run_id:
+                progress_callback(run_id, "ANALYSIS", "loading", f"Simulating Round {r} lookahead ({race['name'].replace(' Grand Prix', '')})...")
+                
+            is_sprint = is_sprint_weekend(race)
             
-        if progress_callback and run_id:
-            progress_callback(run_id, "ANALYSIS", "loading", f"Simulating Round {r} lookahead ({race['name'].replace(' Grand Prix', '')})...")
-            
-        is_sprint = is_sprint_weekend(race)
-        try:
-            from engine.core.config import get_enriched_circuit_config
-            circuit_cfg = get_enriched_circuit_config(race.get("name", ""))
-            if not circuit_cfg:
+            # Fast-path for offset == 0: reuse existing MC simulation results if provided
+            if offset == 0 and current_round_cache and "mc_ev_pts" in current_round_cache:
+                round_ev_pts = current_round_cache["mc_ev_pts"]
+                for name, points in round_ev_pts.items():
+                    total_ev[name] = total_ev.get(name, 0.0) + points * weight
+                continue
+
+            try:
+                from engine.core.config import get_enriched_circuit_config
+                circuit_cfg = get_enriched_circuit_config(race.get("name", ""))
+                if not circuit_cfg:
+                    circuit_cfg = race.get("circuit_config", {})
+            except Exception:
                 circuit_cfg = race.get("circuit_config", {})
-        except Exception:
-            circuit_cfg = race.get("circuit_config", {})
-        weather = get_race_weekend_weather(race["name"], race["date"], race_info=race)
-        
-        # Load context for this future race.
-        # Future rounds do NOT inherit current-round grid penalties/overrides.
-        round_grid_overrides = grid_overrides if r == current_race_round else None
-        predictor.load_context(
-            circuit_cfg, weather, roster=roster,
-            mode="pre-quali", race_info=race, grid_overrides=round_grid_overrides,
-        )
-        
-        race_order = predictor.predict_finishing_order()
-        quali_order = predictor.predict_qualifying_order()
-        sprint_order = predictor.predict_sprint_order() if is_sprint else None
-        
-        # Pass None as progress_callback for lookahead MC to keep it quiet and fast.
-        # Future rounds do not inherit current-round grid penalties.
-        mc_results = simulate_race_weekend(
-            race_order, quali_order, circuit_cfg, weather, sims, is_sprint, sprint_order,
-            grid_penalties={}
-        )
-        ev_pts = get_expected_value_pts(mc_results)
-        
-        for name, points in ev_pts.items():
-            total_ev[name] = total_ev.get(name, 0.0) + points * weight
+            weather = get_race_weekend_weather(race["name"], race["date"], race_info=race)
             
-        # Calculate constructor expected values for this round.
-        # ev_pts already contains MC-integrated driver points (including sprint when is_sprint=True).
-        # Constructor points = sum of both drivers' EV minus DOTD (driver-only bonus) + pit stop bonus.
-        for ctor in constructors:
-            drv_list = [d for d, c in base_driver_teams.items() if c == ctor]
-            pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
-            ctor_ev = 0.0
-            for d in drv_list:
-                d_race = next((x for x in race_order if x["driver"] == d), None)
-                if d_race:
-                    rank = d_race["predicted_rank"]
-                    dnf_prob = d_race["dnf_prob_pct"] / 100.0
-                    dotd_prob = max(0.0, 0.12 - (rank - 1) * 0.01) * (1.0 - dnf_prob)
-                    dotd_ev = DRIVER_OF_DAY_BONUS * dotd_prob
-                else:
-                    dotd_ev = 0.0
-                ctor_ev += ev_pts.get(d, 0.0) - dotd_ev
-            ctor_ev += pit_pts
-            total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev * weight
+            # Load context for this future race.
+            # Future rounds do NOT inherit current-round grid penalties/overrides.
+            round_grid_overrides = grid_overrides if r == current_race_round else None
+            predictor.load_context(
+                circuit_cfg, weather, roster=roster,
+                mode="pre-quali", race_info=race, grid_overrides=round_grid_overrides,
+            )
+            
+            race_order = predictor.predict_finishing_order()
+            quali_order = predictor.predict_qualifying_order()
+            sprint_order = predictor.predict_sprint_order() if is_sprint else None
+            
+            # Pass None as progress_callback for lookahead MC to keep it quiet and fast.
+            # Future rounds do not inherit current-round grid penalties.
+            mc_results = simulate_race_weekend(
+                race_order, quali_order, circuit_cfg, weather, sims, is_sprint, sprint_order,
+                grid_penalties={}
+            )
+            ev_pts = get_expected_value_pts(mc_results)
+            
+            for name, points in ev_pts.items():
+                total_ev[name] = total_ev.get(name, 0.0) + points * weight
+                
+            # Calculate constructor expected values for this round.
+            # ev_pts already contains MC-integrated driver points (including sprint when is_sprint=True).
+            # Constructor points = sum of both drivers' EV minus DOTD (driver-only bonus) + pit stop bonus.
+            for ctor in constructors:
+                drv_list = [d for d, c in base_driver_teams.items() if c == ctor]
+                pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
+                ctor_ev = 0.0
+                for d in drv_list:
+                    d_race = next((x for x in race_order if x["driver"] == d), None)
+                    if d_race:
+                        rank = d_race["predicted_rank"]
+                        dnf_prob = d_race["dnf_prob_pct"] / 100.0
+                        dotd_prob = max(0.0, 0.12 - (rank - 1) * 0.01) * (1.0 - dnf_prob)
+                        dotd_ev = DRIVER_OF_DAY_BONUS * dotd_prob
+                    else:
+                        dotd_ev = 0.0
+                    ctor_ev += ev_pts.get(d, 0.0) - dotd_ev
+                ctor_ev += pit_pts
+                total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev * weight
+    finally:
+        # Restore snapshot to leave predictor clean for subsequent requests
+        for k, v in _ctx_snapshot.items():
+            setattr(predictor, k, v)
+        if hasattr(predictor, "_rank_cache"):
+            predictor._rank_cache = {}
 
     # Normalize by total discount weight to obtain single-race expected value scale
     if total_weight > 0.0:

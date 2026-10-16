@@ -54,7 +54,7 @@ Wednesday / Thursday       Friday / Saturday            Saturday Post-Qualy / Su
      python -m engine.serving.server
      # or double-click "F1 Fantasy.bat"
      ```
-     Navigate to `http://localhost:8000` to monitor live pipeline runs and SSE updates.
+     Navigate to `http://localhost:5762` to monitor live pipeline runs and SSE updates.
    - **Terminal CLI:**
      ```bash
      python main.py

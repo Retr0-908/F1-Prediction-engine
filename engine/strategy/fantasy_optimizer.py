@@ -328,70 +328,72 @@ def find_optimal_team(
     best_overall_pts = -float("inf")
     best_overall_team = None
 
-    # 2. Iterate over each possible Turbo Driver (2x boost)
-    # Since only one driver can be Turbo, we can solve the LP for each case
-    # or add a binary variable for it. Solving 20 small LPs is instantaneous.
-    for turbo_candidate_idx in range(len(drivers)):
-        prob = pulp.LpProblem(f"F1_Fantasy_Opt_Turbo_{turbo_candidate_idx}", pulp.LpMaximize)
+    # 2. Single Unified MILP formulation (replaces 22 CBC iterations with 1)
+    # Binary variables: d_i (driver selected), c_j (constructor selected), t_i (driver chosen for Turbo 2x)
+    prob = pulp.LpProblem("F1_Fantasy_Opt_Unified", pulp.LpMaximize)
 
-        # Decision Variables
-        d_vars = [pulp.LpVariable(f"d_{i}", cat=pulp.LpBinary) for i in range(len(drivers))]
-        c_vars = [pulp.LpVariable(f"c_{j}", cat=pulp.LpBinary) for j in range(len(constructors))]
+    d_vars = [pulp.LpVariable(f"d_{i}", cat=pulp.LpBinary) for i in range(len(drivers))]
+    c_vars = [pulp.LpVariable(f"c_{j}", cat=pulp.LpBinary) for j in range(len(constructors))]
+    t_vars = [pulp.LpVariable(f"t_{i}", cat=pulp.LpBinary) for i in range(len(drivers))]
 
-        # Objective: Maximize Points (including 2x for the chosen turbo candidate)
-        # Note: Turbo only applies if that driver is actually selected in the team
-        obj_terms = []
+    # Objective: Sum(pts_i * d_i) + Sum(pts_i * t_i) + Sum(pts_j * c_j)
+    # The chosen turbo driver gets pts_i * 1 (from d_i) + pts_i * 1 (from t_i) = 2x pts_i
+    obj_terms = []
+    for i, d in enumerate(drivers):
+        obj_terms.append(d["pts"] * d_vars[i] + d["pts"] * t_vars[i])
+    for j, c in enumerate(constructors):
+        obj_terms.append(c["pts"] * c_vars[j])
+
+    prob += pulp.lpSum(obj_terms)
+
+    # Constraints:
+    # 1. Exactly 5 drivers
+    prob += pulp.lpSum(d_vars) == FANTASY_NUM_DRIVERS
+    # 2. Exactly 2 constructors
+    prob += pulp.lpSum(c_vars) == FANTASY_NUM_CONSTRUCTORS
+    # 3. Exactly 1 turbo driver
+    prob += pulp.lpSum(t_vars) == 1
+    # 4. Turbo driver must be a selected driver (t_i <= d_i)
+    for i in range(len(drivers)):
+        prob += t_vars[i] <= d_vars[i]
+    # 5. Budget limit
+    prob += pulp.lpSum([drivers[i]["price"] * d_vars[i] for i in range(len(drivers))]) + \
+            pulp.lpSum([constructors[j]["price"] * c_vars[j] for j in range(len(constructors))]) <= budget
+    # 6. Max 2 assets per team (Driver + Constructor)
+    for t_name in all_teams:
+        team_assets = []
         for i, d in enumerate(drivers):
-            multiplier = 2.0 if i == turbo_candidate_idx else 1.0
-            obj_terms.append(d["pts"] * multiplier * d_vars[i])
+            if d["team"] == t_name: team_assets.append(d_vars[i])
         for j, c in enumerate(constructors):
-            obj_terms.append(c["pts"] * c_vars[j])
-        
-        prob += pulp.lpSum(obj_terms)
+            if c["team"] == t_name: team_assets.append(c_vars[j])
+        if team_assets:
+            prob += pulp.lpSum(team_assets) <= 2
 
-        # Constraints
-        # 1. Exactly 5 drivers
-        prob += pulp.lpSum(d_vars) == FANTASY_NUM_DRIVERS
-        # 2. Exactly 2 constructors
-        prob += pulp.lpSum(c_vars) == FANTASY_NUM_CONSTRUCTORS
-        # 3. Budget limit
-        prob += pulp.lpSum([drivers[i]["price"] * d_vars[i] for i in range(len(drivers))]) + \
-                pulp.lpSum([constructors[j]["price"] * c_vars[j] for j in range(len(constructors))]) <= budget
-        # 4. Max 2 assets per team (Driver + Constructor)
-        for t_name in all_teams:
-            team_assets = []
-            for i, d in enumerate(drivers):
-                if d["team"] == t_name: team_assets.append(d_vars[i])
-            for j, c in enumerate(constructors):
-                if c["team"] == t_name: team_assets.append(c_vars[j])
-            if team_assets:
-                prob += pulp.lpSum(team_assets) <= 2
+    # Solve once
+    prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
-        # 5. Turbo driver MUST be in the team for this iteration to be valid
-        prob += d_vars[turbo_candidate_idx] == 1
+    if pulp.LpStatus[prob.status] == 'Optimal':
+        current_pts = pulp.value(prob.objective)
+        selected_drivers = [drivers[i] for i in range(len(drivers)) if float(pulp.value(d_vars[i]) or 0) > 0.5]
+        selected_ctors = [constructors[j] for j in range(len(constructors)) if float(pulp.value(c_vars[j]) or 0) > 0.5]
+        turbo_driver_name = "N/A"
+        for i in range(len(drivers)):
+            if float(pulp.value(t_vars[i]) or 0) > 0.5:
+                turbo_driver_name = drivers[i]["name"]
+                break
 
-        # Solve
-        prob.solve(pulp.PULP_CBC_CMD(msg=0))
+        best_overall_team = {
+            "drivers": sorted(selected_drivers, key=lambda x: x["pts"], reverse=True),
+            "constructors": sorted(selected_ctors, key=lambda x: x["pts"], reverse=True),
+            "total_pts": round(float(current_pts), 1),
+            "total_price": round(sum(float(d["price"]) for d in selected_drivers) + sum(float(c["price"]) for c in selected_ctors), 1),
+            "budget_left": round(float(budget) - (sum(float(d["price"]) for d in selected_drivers) + sum(float(c["price"]) for c in selected_ctors)), 1),
+            "turbo_driver": turbo_driver_name,
+            "using_mc_pts": mc_pts is not None,
+        }
+        return best_overall_team
 
-        if pulp.LpStatus[prob.status] == 'Optimal':
-            current_pts = pulp.value(prob.objective)
-            if current_pts > best_overall_pts:
-                best_overall_pts = current_pts
-                
-                selected_drivers = [drivers[i] for i in range(len(drivers)) if float(pulp.value(d_vars[i]) or 0) > 0.5]
-                selected_ctors = [constructors[j] for j in range(len(constructors)) if float(pulp.value(c_vars[j]) or 0) > 0.5]
-                
-                best_overall_team = {
-                    "drivers": sorted(selected_drivers, key=lambda x: x["pts"], reverse=True),
-                    "constructors": sorted(selected_ctors, key=lambda x: x["pts"], reverse=True),
-                    "total_pts": round(float(current_pts), 1),
-                    "total_price": round(sum(float(d["price"]) for d in selected_drivers) + sum(float(c["price"]) for c in selected_ctors), 1),
-                    "budget_left": round(float(budget) - (sum(float(d["price"]) for d in selected_drivers) + sum(float(c["price"]) for c in selected_ctors)), 1),
-                    "turbo_driver": drivers[turbo_candidate_idx]["name"],
-                    "using_mc_pts": mc_pts is not None,
-                }
-
-    return best_overall_team if best_overall_team else {
+    return {
         "drivers": [], "constructors": [], "total_pts": 0.0, "total_price": 0.0, "budget_left": budget, "using_mc_pts": False
     }
 

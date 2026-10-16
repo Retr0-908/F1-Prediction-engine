@@ -16,8 +16,11 @@ import logging
 
 
 logger = logging.getLogger("f1_predictor.weather")
+import copy
+
 # Disk cache for weather responses (avoids burning call limits on re-runs)
 _WEATHER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_WEATHER_MEM_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 def _weather_cache_key(lat: float, lon: float) -> str:
@@ -27,12 +30,22 @@ def _weather_cache_key(lat: float, lon: float) -> str:
 
 
 def _load_weather_cache(key: str, max_age_hours: float = 3) -> Optional[dict]:
+    now = time.time()
+    if key in _WEATHER_MEM_CACHE:
+        cached_time, cached_val = _WEATHER_MEM_CACHE[key]
+        if max_age_hours == 0 or (now - cached_time) < max_age_hours * 3600:
+            return copy.deepcopy(cached_val)
     p = _WEATHER_CACHE_DIR / f"{key}.json"
     if p.exists():
-        age = time.time() - p.stat().st_mtime
-        if age < max_age_hours * 3600:
-            with open(p, "r", encoding="utf-8") as f:
-                return json.load(f)
+        age = now - p.stat().st_mtime
+        if max_age_hours == 0 or age < max_age_hours * 3600:
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    val = json.load(f)
+                    _WEATHER_MEM_CACHE[key] = (p.stat().st_mtime, val)
+                    return copy.deepcopy(val)
+            except Exception:
+                pass
     return None
 
 
@@ -40,6 +53,7 @@ def _save_weather_cache(key: str, data: dict) -> None:
     p = _WEATHER_CACHE_DIR / f"{key}.json"
     with open(p, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    _WEATHER_MEM_CACHE[key] = (time.time(), copy.deepcopy(data))
 
 
 # ─────────────────────────────────────────────

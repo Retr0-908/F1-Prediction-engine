@@ -27,6 +27,8 @@ Research backing:
 import warnings
 import math
 import datetime
+import time
+import copy
 import json
 import hashlib
 import logging
@@ -429,48 +431,69 @@ class F1Predictor:
         except Exception as e:
             print(f"  [WARN] Failed to load weight adjustments: {e}")
 
-        print("  [1/5] Loading championship standings...")
-        self._driver_standings = get_driver_standings(CURRENT_SEASON)
-        self._ctor_standings   = get_constructor_standings(CURRENT_SEASON)
+        # Check if season-invariant context is cached on class/instance
+        season_cache = getattr(F1Predictor, "_SEASON_CONTEXT_CACHE", None)
+        now_ts = time.time()
+        if season_cache and (now_ts - season_cache.get("timestamp", 0) < 1800):
+            self._driver_standings = copy.deepcopy(season_cache["driver_standings"])
+            self._ctor_standings   = copy.deepcopy(season_cache["ctor_standings"])
+            self._elo              = season_cache["elo"]
+            self._ctor_elo         = copy.deepcopy(season_cache["ctor_elo"])
+            self._driver_form      = copy.deepcopy(season_cache["driver_form"])
+            self._ctor_reliability = copy.deepcopy(season_cache["ctor_reliability"])
+        else:
+            print("  [1/5] Loading championship standings...")
+            self._driver_standings = get_driver_standings(CURRENT_SEASON)
+            self._ctor_standings   = get_constructor_standings(CURRENT_SEASON)
 
-        print("  [2/5] Building Glicko-2 ratings (2022–now, regulation-era weighted)...")
-        self._elo = get_elo_system(sorted(HISTORICAL_SEASONS), verbose=True)
+            print("  [2/5] Building Glicko-2 ratings (2022–now, regulation-era weighted)...")
+            self._elo = get_elo_system(sorted(HISTORICAL_SEASONS), verbose=True)
 
-        # Constructor Glicko-2
-        ctor_elo_sys = ConstructorEloSystem(self._elo)
-        self._ctor_elo = ctor_elo_sys.compute_constructor_ratings(self._roster)
+            # Constructor Glicko-2
+            ctor_elo_sys = ConstructorEloSystem(self._elo)
+            self._ctor_elo = ctor_elo_sys.compute_constructor_ratings(self._roster)
 
-        print("  [3/5] Computing EWMA driver form + momentum trends...")
-        current_form = compute_driver_form(CURRENT_SEASON, num_races=5)
-        multi_form   = compute_multiseason_driver_form(CURRENT_SEASON)
-        # current_form overrides multi_form for pace metrics (more recent = more relevant),
-        # BUT we preserve the career race total from multi_form so rookie detection is correct.
-        # A driver with 3 races in 2026 but 37 across their career is NOT a rookie.
-        self._driver_form = {**multi_form, **current_form}
-        for drv, mdata in multi_form.items():
-            if drv in self._driver_form:
-                career_races = mdata.get("races_counted", 0)
-                current_races = current_form.get(drv, {}).get("races_counted", 0)
-                self._driver_form[drv]["races_counted"] = max(career_races, current_races)
+            print("  [3/5] Computing EWMA driver form + momentum trends...")
+            current_form = compute_driver_form(CURRENT_SEASON, num_races=5)
+            multi_form   = compute_multiseason_driver_form(CURRENT_SEASON)
+            # current_form overrides multi_form for pace metrics (more recent = more relevant),
+            # BUT we preserve the career race total from multi_form so rookie detection is correct.
+            # A driver with 3 races in 2026 but 37 across their career is NOT a rookie.
+            self._driver_form = {**multi_form, **current_form}
+            for drv, mdata in multi_form.items():
+                if drv in self._driver_form:
+                    career_races = mdata.get("races_counted", 0)
+                    current_races = current_form.get(drv, {}).get("races_counted", 0)
+                    self._driver_form[drv]["races_counted"] = max(career_races, current_races)
 
-        print("  [4/5] Computing regulation-era constructor performance trends...")
-        ms_ctor   = compute_multiseason_constructor_stats(CURRENT_SEASON)
-        curr_ctor = compute_constructor_reliability(CURRENT_SEASON)
-        self._ctor_reliability = {}
-        for ctor in list(ms_ctor.keys()) + list(curr_ctor.keys()):
-            ms  = ms_ctor.get(ctor, {})
-            cur = curr_ctor.get(ctor, {})
-            if cur and ms:
-                self._ctor_reliability[ctor] = {
-                    "dnf_rate":     round(0.65 * cur["dnf_rate"]     + 0.35 * ms["dnf_rate"], 3),
-                    "avg_points":   round(0.65 * cur["avg_points"]   + 0.35 * ms["avg_points"], 2),
-                    "avg_position": round(0.65 * cur["avg_position"] + 0.35 * ms["avg_position"], 2),
-                    "pts_trend":    ms.get("pts_trend", 0.0),
-                }
-            elif cur:
-                self._ctor_reliability[ctor] = cur
-            else:
-                self._ctor_reliability[ctor] = ms
+            print("  [4/5] Computing regulation-era constructor performance trends...")
+            ms_ctor   = compute_multiseason_constructor_stats(CURRENT_SEASON)
+            curr_ctor = compute_constructor_reliability(CURRENT_SEASON)
+            self._ctor_reliability = {}
+            for ctor in list(ms_ctor.keys()) + list(curr_ctor.keys()):
+                ms  = ms_ctor.get(ctor, {})
+                cur = curr_ctor.get(ctor, {})
+                if cur and ms:
+                    self._ctor_reliability[ctor] = {
+                        "dnf_rate":     round(0.65 * cur["dnf_rate"]     + 0.35 * ms["dnf_rate"], 3),
+                        "avg_points":   round(0.65 * cur["avg_points"]   + 0.35 * ms["avg_points"], 2),
+                        "avg_position": round(0.65 * cur["avg_position"] + 0.35 * ms["avg_position"], 2),
+                        "pts_trend":    ms.get("pts_trend", 0.0),
+                    }
+                elif cur:
+                    self._ctor_reliability[ctor] = cur
+                else:
+                    self._ctor_reliability[ctor] = ms
+
+            F1Predictor._SEASON_CONTEXT_CACHE = {
+                "timestamp": now_ts,
+                "driver_standings": copy.deepcopy(self._driver_standings),
+                "ctor_standings": copy.deepcopy(self._ctor_standings),
+                "elo": self._elo,
+                "ctor_elo": copy.deepcopy(self._ctor_elo),
+                "driver_form": copy.deepcopy(self._driver_form),
+                "ctor_reliability": copy.deepcopy(self._ctor_reliability),
+            }
 
         circuit_id = circuit_config.get("key", "")
         if circuit_id:
@@ -577,9 +600,12 @@ class F1Predictor:
                     
                 # Phase 4: Fetch upcoming race tire allocations
                 if rnd not in self._tire_allocs_by_round:
-                    self._tire_allocs_by_round[rnd] = get_weekend_tire_allocations(
-                        CURRENT_SEASON, race_info.get("name", "")
-                    )
+                    if effective_mode == "pre-practice":
+                        self._tire_allocs_by_round[rnd] = {}
+                    else:
+                        self._tire_allocs_by_round[rnd] = get_weekend_tire_allocations(
+                            CURRENT_SEASON, race_info.get("name", "")
+                        )
                     
                 print(f"      Cached results for {len(self._recent_race_results)} past races.")
             except Exception as e:
@@ -760,25 +786,30 @@ class F1Predictor:
         # Falls back to statistical proxy (form_avg_pos - momentum_trend * 0.5) if model is unavailable.
         lstm_momentum_pos = form_avg_pos  # neutral fallback
         if _PHASE3_AVAILABLE and not getattr(self, '_is_training', False):
-            try:
-                if self._temporal_model is None:
-                    self._temporal_model = _get_temporal_model(verbose=False)
-                _cond = str((weather or {}).get('summary_condition', 'dry')).lower()
-                _rain_enc = 1.0 if _cond in ('wet', 'mixed') else 0.0
-                _ctor_z = 0.0
-                ctx_vec = np.array(
-                    [quali_pos_val, 35.0, _rain_enc,
-                     SC_PROBABILITY.get(circuit_key, 0.40), _ctor_z],
-                    dtype=np.float32,
-                )
-                lstm_momentum_pos = self._temporal_model.predict_driver_momentum(
-                    driver_name,
-                    self._recent_race_results,
-                    self._tire_data_by_round,
-                    context_vec=ctx_vec,
-                )
-            except Exception:
-                logger.exception("LSTM momentum prediction failed for %s", driver_name)
+            # Check if pre-batched momentum exists on self
+            batch_moms = getattr(self, "_cached_batch_momenta", None)
+            if batch_moms and driver_name in batch_moms:
+                lstm_momentum_pos = batch_moms[driver_name]
+            else:
+                try:
+                    if self._temporal_model is None:
+                        self._temporal_model = _get_temporal_model(verbose=False)
+                    _cond = str((weather or {}).get('summary_condition', 'dry')).lower()
+                    _rain_enc = 1.0 if _cond in ('wet', 'mixed') else 0.0
+                    _ctor_z = 0.0
+                    ctx_vec = np.array(
+                        [quali_pos_val, 35.0, _rain_enc,
+                         SC_PROBABILITY.get(circuit_key, 0.40), _ctor_z],
+                        dtype=np.float32,
+                    )
+                    lstm_momentum_pos = self._temporal_model.predict_driver_momentum(
+                        driver_name,
+                        self._recent_race_results,
+                        self._tire_data_by_round,
+                        context_vec=ctx_vec,
+                    )
+                except Exception:
+                    logger.exception("LSTM momentum prediction failed for %s", driver_name)
         else:
             # Statistical proxy: EWMA finishing position adjusted by momentum trend (train-serve parity)
             lstm_momentum_pos = form_avg_pos - momentum_trend * 0.5
@@ -791,29 +822,36 @@ class F1Predictor:
         tire_efficiency_score = 0.0   # neutral fallback
         if _PHASE3_AVAILABLE and not getattr(self, '_is_training', False):
             try:
-                if self._tire_model is None:
-                    self._tire_model = _get_tire_model(verbose=False)
-                try:
-                    _rs = (weather or {}).get("sessions", {}).get("Race", {})
-                    _tmax = float(_rs.get("temp_max_c", 25.0))
-                    _tmin = float(_rs.get("temp_min_c", 15.0))
-                    track_temp_val = max(5.0, 0.65 * _tmax + 0.35 * _tmin - 3.0)
-                except Exception:
-                    track_temp_val = 35.0
+                _t_eff_cache = getattr(self, "_cached_tire_efficiency", None)
+                if _t_eff_cache is not None and circuit_key in _t_eff_cache:
+                    tire_efficiency_score = _t_eff_cache[circuit_key]
+                else:
+                    if self._tire_model is None:
+                        self._tire_model = _get_tire_model(verbose=False)
+                    try:
+                        _rs = (weather or {}).get("sessions", {}).get("Race", {})
+                        _tmax = float(_rs.get("temp_max_c", 25.0))
+                        _tmin = float(_rs.get("temp_min_c", 15.0))
+                        track_temp_val = max(5.0, 0.65 * _tmax + 0.35 * _tmin - 3.0)
+                    except Exception:
+                        track_temp_val = 35.0
 
-                try:
-                    from engine.core.track_features_loader import load_track_features as _ltf2
-                    _deg_track = int((_ltf2(circuit_key) or {}).get("tire_degradation", 3))
-                except Exception:
-                    _deg_track = 3
-                primary_compound = "SOFT" if _deg_track <= 2 else "MEDIUM"
-                driver_deg = self._tire_model.predict_deg_per_lap(
-                    primary_compound,
-                    stint_length=20.0,
-                    track_temp=track_temp_val,   # plan 6d
-                    track_type=circuit_cfg.get("track_type", "permanent"),
-                )
-                tire_efficiency_score = float(np.clip(-driver_deg, -0.1, 0.1))
+                    try:
+                        from engine.core.track_features_loader import load_track_features as _ltf2
+                        _deg_track = int((_ltf2(circuit_key) or {}).get("tire_degradation", 3))
+                    except Exception:
+                        _deg_track = 3
+                    primary_compound = "SOFT" if _deg_track <= 2 else "MEDIUM"
+                    driver_deg = self._tire_model.predict_deg_per_lap(
+                        primary_compound,
+                        stint_length=20.0,
+                        track_temp=track_temp_val,   # plan 6d
+                        track_type=circuit_cfg.get("track_type", "permanent"),
+                    )
+                    tire_efficiency_score = float(np.clip(-driver_deg, -0.1, 0.1))
+                    if not hasattr(self, "_cached_tire_efficiency"):
+                        self._cached_tire_efficiency = {}
+                    self._cached_tire_efficiency[circuit_key] = tire_efficiency_score
             except Exception:
                 logger.warning("Suppressed error", exc_info=True)
                 pass
@@ -1219,7 +1257,7 @@ class F1Predictor:
                 n_estimators=400, num_leaves=31, learning_rate=0.03,
                 subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1,
                 reg_lambda=1.0, random_state=42, verbose=-1,
-                objective="lambdarank",
+                objective="lambdarank", n_jobs=-1,
             )
             if progress_callback:
                 progress_callback("Fitting Random Forest race model...")
@@ -1264,7 +1302,7 @@ class F1Predictor:
                 n_estimators=400, num_leaves=31, learning_rate=0.03,
                 subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1,
                 reg_lambda=1.0, random_state=42, verbose=-1,
-                objective="lambdarank",
+                objective="lambdarank", n_jobs=-1,
             )
             if progress_callback:
                 progress_callback("Fitting Random Forest qualifying model...")
@@ -1327,7 +1365,23 @@ class F1Predictor:
         drivers = list(self._roster.keys()) or list(self._driver_form.keys())
         if not drivers:
             return {}
-        feats = np.array([self._build_features(d) for d in drivers])
+
+        # Pre-batch LSTM momentum for the whole roster to avoid 22 individual inferences
+        if _PHASE3_AVAILABLE and not getattr(self, '_is_training', False):
+            try:
+                if self._temporal_model is None:
+                    self._temporal_model = _get_temporal_model(verbose=False)
+                if hasattr(self._temporal_model, "predict_driver_momentum_batch"):
+                    self._cached_batch_momenta = self._temporal_model.predict_driver_momentum_batch(
+                        drivers, self._recent_race_results, self._tire_data_by_round
+                    )
+            except Exception:
+                self._cached_batch_momenta = None
+
+        try:
+            feats = np.array([self._build_features(d) for d in drivers])
+        finally:
+            self._cached_batch_momenta = None
 
         if mode == "race":
             scaler, mdl_rf = self.scaler_race, self.race_rf

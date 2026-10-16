@@ -492,11 +492,54 @@ class TemporalFormModel:
         seq_n = self.scaler.transform_seq(seq[np.newaxis])       # (1, SEQ, FEAT)
         ctx_n = self.scaler.transform_ctx(context_vec[np.newaxis])  # (1, CTX)
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            y_norm = self.model.predict([seq_n, ctx_n], verbose=0)[0, 0]
+        try:
+            preds = self.model([seq_n, ctx_n], training=False).numpy()
+            y_norm = preds[0, 0]
+        except Exception:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                y_norm = self.model.predict([seq_n, ctx_n], verbose=0)[0, 0]
 
         return float(np.clip(self.scaler.inverse_y(np.array([y_norm]))[0], 1.0, 22.0))
+
+    def predict_driver_momentum_batch(
+        self,
+        driver_names: list[str],
+        recent_race_results: list[dict],
+        tire_data_by_round: dict[int, dict],
+        context_vecs: Optional[dict[str, np.ndarray]] = None,
+    ) -> dict[str, float]:
+        """Batched tensor inference for an entire roster of drivers at once."""
+        if not self._trained or self.model is None:
+            return {d: 11.0 for d in driver_names}
+
+        seqs = []
+        ctxs = []
+        default_ctx = np.array([11.0, 35.0, 0.0, 0.40, 0.0], dtype=np.float32)
+        for d in driver_names:
+            seq = _extract_sequence_for_driver(d, recent_race_results, tire_data_by_round, SEQ_LENGTH)
+            seqs.append(seq)
+            ctx = context_vecs.get(d, default_ctx) if context_vecs else default_ctx
+            ctxs.append(ctx)
+
+        seq_arr = np.array(seqs, dtype=np.float32)
+        ctx_arr = np.array(ctxs, dtype=np.float32)
+
+        seq_n = self.scaler.transform_seq(seq_arr)
+        ctx_n = self.scaler.transform_ctx(ctx_arr)
+
+        try:
+            preds = self.model([seq_n, ctx_n], training=False).numpy().flatten()
+        except Exception:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                preds = self.model.predict([seq_n, ctx_n], verbose=0).flatten()
+
+        y_inv = self.scaler.inverse_y(preds)
+        result = {}
+        for d, y_val in zip(driver_names, y_inv):
+            result[d] = float(np.clip(y_val, 1.0, 22.0))
+        return result
 
     def get_momentum_tensor(
         self,
@@ -519,14 +562,19 @@ class TemporalFormModel:
         seq_n = self.scaler.transform_seq(seq[np.newaxis])
         ctx_n = self.scaler.transform_ctx(context_vec[np.newaxis])
 
-        # Build a sub-model that outputs the history_dense layer (32-dim)
-        tensor_model = keras.Model(
-            inputs=self.model.inputs,
-            outputs=self.model.get_layer("history_dense").output,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            tensor = tensor_model.predict([seq_n, ctx_n], verbose=0)[0]
+        # Cache sub-model to avoid rebuilding on every call
+        if not hasattr(self, "_tensor_submodel") or self._tensor_submodel is None:
+            self._tensor_submodel = keras.Model(
+                inputs=self.model.inputs,
+                outputs=self.model.get_layer("history_dense").output,
+            )
+
+        try:
+            tensor = self._tensor_submodel([seq_n, ctx_n], training=False).numpy()[0]
+        except Exception:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                tensor = self._tensor_submodel.predict([seq_n, ctx_n], verbose=0)[0]
 
         return tensor.astype(np.float32)
 

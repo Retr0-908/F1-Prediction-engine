@@ -913,47 +913,81 @@
                 </div>
                 <div id="f1-sync-error" style="display:none; padding:16px; background:rgba(232, 0, 45, 0.12); border:1px solid rgba(232, 0, 45, 0.35); border-radius:8px; margin-bottom:16px;">
                     <div style="font-weight:700; color:#ff4d6a; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-                        <span>⚠️</span> Sync Failed
+                        <span>⚠️</span> Sync Notice
                     </div>
                     <div id="f1-sync-error-msg" style="font-size:0.88rem; color:var(--text-main); line-height:1.4;"></div>
+                </div>
 
-                    <!-- In-app Cookie Update & Interactive Guide Box -->
-                    <div id="f1-sync-cookie-box" style="margin-top:14px; padding:14px; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.15); border-radius:8px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <label for="f1-sync-cookie-input" style="font-weight:700; font-size:0.85rem; color:#fff; display:flex; align-items:center; gap:6px;">
-                                <span>🔑</span> Paste New F1 Fantasy Cookie
-                            </label>
-                            <button type="button" class="f1-sync-help-btn" onclick="toggleF1CookieGuide()" style="background:none; border:none; color:var(--telemetry-cyan, #00D2BE); font-size:0.8rem; cursor:pointer; font-weight:600; padding:2px 6px; border-radius:4px; display:flex; align-items:center; gap:4px;">
-                                <span>📖</span> How to find your cookie
+                <!-- Independent F1 Fantasy Cookie & Credentials Box -->
+                <div id="f1-sync-cookie-box" style="display:none; margin-bottom:18px; padding:18px; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.15); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.35);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                        <label for="f1-sync-cookie-input" style="font-weight:700; font-size:0.92rem; color:#fff; display:flex; align-items:center; gap:8px;">
+                            <span>🔑</span> F1 Fantasy Session Cookie
+                        </label>
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <a href="https://fantasy.formula1.com/en/" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:#fff; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); padding:5px 11px; border-radius:6px; font-weight:600; transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.16)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
+                                <span>🏎️</span> Open F1 Fantasy ↗
+                            </a>
+                            <a href="https://fantasy.formula1.com/en/my-team" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--telemetry-cyan, #00D2BE); background:rgba(0, 210, 190, 0.08); border:1px solid rgba(0, 210, 190, 0.25); padding:5px 11px; border-radius:6px; font-weight:600; transition:all 0.15s;" onmouseover="this.style.background='rgba(0, 210, 190, 0.16)'" onmouseout="this.style.background='rgba(0, 210, 190, 0.08)'">
+                                <span>🏁</span> Go to My Team ↗
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Action Helpers Bar -->
+                    <div style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; align-items:center;">
+                        <button type="button" onclick="copyF1ConsoleSnippet()" id="f1-sync-copy-snippet-btn" style="background:rgba(255, 183, 3, 0.1); border:1px solid rgba(255, 183, 3, 0.35); color:#ffb703; font-size:0.78rem; font-weight:600; padding:6px 12px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;">
+                            <span>⚡</span> Copy 1-Click Console Snippet
+                        </button>
+                        <button type="button" onclick="pasteF1CookieFromClipboard()" id="f1-sync-paste-btn" style="background:rgba(0, 210, 190, 0.1); border:1px solid rgba(0, 210, 190, 0.35); color:var(--telemetry-cyan, #00D2BE); font-size:0.78rem; font-weight:600; padding:6px 12px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;">
+                            <span>📋</span> Paste from Clipboard
+                        </button>
+                        <button type="button" class="f1-sync-help-btn" onclick="toggleF1CookieGuide()" style="background:none; border:none; color:var(--text-dim); font-size:0.78rem; cursor:pointer; font-weight:600; padding:4px 8px; border-radius:4px; display:flex; align-items:center; gap:4px; margin-left:auto;">
+                            <span>📖</span> Step-by-Step Instructions
+                        </button>
+                    </div>
+
+                    <p class="dim-text" style="font-size:0.78rem; margin:0 0 8px 0; line-height:1.4; color:#bbb;">
+                        Paste your fresh <code style="background:rgba(255,255,255,0.08); padding:2px 5px; border-radius:3px; color:#ffb703;">login-session</code> cookie value below. It will be securely stored in your local configuration.
+                    </p>
+
+                    <textarea id="f1-sync-cookie-input" rows="3" placeholder="Paste login-session cookie here (e.g. %7B%22data... or login-session=...)" style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.22); border-radius:8px; color:#fff; font-family:monospace; font-size:0.8rem; padding:10px 12px; resize:vertical; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--telemetry-cyan, #00D2BE)'" onblur="this.style.borderColor='rgba(255,255,255,0.22)'"></textarea>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                        <button type="button" id="f1-sync-cookie-cancel-btn" onclick="hideCookieInputManually()" style="display:none; background:transparent; border:1px solid rgba(255,255,255,0.2); color:var(--text-dim); font-size:0.82rem; padding:8px 16px; border-radius:6px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.color='#fff'; this.style.borderColor='rgba(255,255,255,0.4)'" onmouseout="this.style.color='var(--text-dim)'; this.style.borderColor='rgba(255,255,255,0.2)'">
+                            Cancel
+                        </button>
+                        <div style="margin-left:auto; display:flex; gap:10px;">
+                            <button type="button" id="f1-sync-save-btn" onclick="saveF1CookieAndSync()" style="background:linear-gradient(135deg, #e10600, #ff2a24); border:none; color:#fff; font-weight:700; font-size:0.85rem; padding:9px 20px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:opacity 0.2s; box-shadow:0 2px 10px rgba(225,6,0,0.35);">
+                                <span>💾</span> Save Cookie &amp; Connect
                             </button>
                         </div>
-                        <p class="dim-text" style="font-size:0.78rem; margin:0 0 10px 0; line-height:1.35; color:#bbb;">
-                            Paste your fresh <code style="background:rgba(255,255,255,0.08); padding:2px 4px; border-radius:3px; color:#ffb703;">login-session</code> cookie value. It will be saved into the app and your <code style="background:rgba(255,255,255,0.08); padding:2px 4px; border-radius:3px; color:#fff;">.env</code> file automatically.
-                        </p>
-                        <textarea id="f1-sync-cookie-input" rows="3" placeholder="Paste login-session cookie here (starts with %7B%22data or login-session=)..." style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.22); border-radius:6px; color:#fff; font-family:monospace; font-size:0.78rem; padding:8px 10px; resize:vertical; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--telemetry-cyan, #00D2BE)'" onblur="this.style.borderColor='rgba(255,255,255,0.22)'"></textarea>
-                        
-                        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
-                            <button type="button" id="f1-sync-save-btn" onclick="saveF1CookieAndSync()" style="background:linear-gradient(135deg, #e10600, #ff2a24); border:none; color:#fff; font-weight:700; font-size:0.85rem; padding:9px 18px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:opacity 0.2s; box-shadow:0 2px 8px rgba(225,6,0,0.3);">
-                                <span>💾</span> Save Cookie &amp; Retry Sync
-                            </button>
-                        </div>
+                    </div>
 
-                        <!-- Expandable Step-by-Step Instructions -->
-                        <div id="f1-sync-guide" style="display:none; margin-top:14px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.15); font-size:0.82rem; color:var(--text-main); line-height:1.5;">
-                            <div style="font-weight:700; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-                                <span>🔍</span> How to retrieve your login-session cookie:
-                            </div>
-                            <ol style="margin:0 0 10px 0; padding-left:20px; color:#ddd;">
-                                <li style="margin-bottom:6px;">Open <a href="https://fantasy.formula1.com" target="_blank" rel="noopener noreferrer" style="color:var(--telemetry-cyan, #00D2BE); text-decoration:underline;">fantasy.formula1.com</a> in Chrome, Edge, or Firefox and <strong>log in</strong> to your account.</li>
-                                <li style="margin-bottom:6px;">Press <kbd style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:3px; padding:1px 5px; font-family:monospace; font-size:0.75rem;">F12</kbd> (or right-click anywhere &rarr; <strong>Inspect</strong>) to open Developer Tools.</li>
-                                <li style="margin-bottom:6px;">Click the <strong>Application</strong> tab (on Chrome/Edge/Brave) or the <strong>Storage</strong> tab (on Firefox).</li>
-                                <li style="margin-bottom:6px;">In the left sidebar, expand <strong>Cookies</strong> and select <code style="color:var(--telemetry-cyan, #00D2BE);">https://fantasy.formula1.com</code>.</li>
-                                <li style="margin-bottom:6px;">Find the row named <strong style="color:#ffb703;">login-session</strong>.</li>
-                                <li style="margin-bottom:6px;">Double-click its <strong>Value</strong> column, copy the entire string (starts with <code style="color:#aaa;">%7B%22data</code>), paste it into the box above, and click <strong>Save Cookie &amp; Retry Sync</strong>.</li>
-                            </ol>
-                            <div style="font-size:0.75rem; color:#aaa; font-style:italic;">
-                                💡 Tip: F1 Fantasy session cookies expire every 1–2 weeks. When expired, simply repeat these steps.
-                            </div>
+                    <!-- Expandable Step-by-Step Instructions -->
+                    <div id="f1-sync-guide" style="display:none; margin-top:14px; padding-top:14px; border-top:1px dashed rgba(255,255,255,0.15); font-size:0.82rem; color:var(--text-main); line-height:1.5;">
+                        <div style="font-weight:700; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                            <span>⚡</span> Quick Option: 10-Second DevTools Console Method (Fastest)
+                        </div>
+                        <ol style="margin:0 0 12px 0; padding-left:20px; color:#ddd;">
+                            <li style="margin-bottom:6px;">Click <a href="https://fantasy.formula1.com/en/" target="_blank" rel="noopener noreferrer" style="color:var(--telemetry-cyan, #00D2BE); text-decoration:underline;">Open F1 Fantasy ↗</a> and make sure you are logged in.</li>
+                            <li style="margin-bottom:6px;">Press <kbd style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:3px; padding:1px 5px; font-family:monospace; font-size:0.75rem;">F12</kbd> (or right-click anywhere &rarr; <em>Inspect</em>) and click the <strong>Console</strong> tab.</li>
+                            <li style="margin-bottom:6px;">Click the <strong>⚡ Copy 1-Click Console Snippet</strong> button above.</li>
+                            <li style="margin-bottom:6px;">Paste it into the DevTools Console and press <kbd style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:3px; padding:1px 5px; font-family:monospace; font-size:0.75rem;">Enter</kbd>. The cookie is instantly copied to your clipboard!</li>
+                            <li style="margin-bottom:6px;">Return here, click <strong>📋 Paste from Clipboard</strong>, and hit <strong>Save Cookie &amp; Connect</strong>!</li>
+                        </ol>
+
+                        <div style="font-weight:700; color:#fff; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                            <span>🗂️</span> Standard Option: Application Storage Tab
+                        </div>
+                        <ol style="margin:0 0 10px 0; padding-left:20px; color:#ddd;">
+                            <li style="margin-bottom:6px;">In DevTools, open the <strong>Application</strong> tab (Chrome/Edge/Brave) or <strong>Storage</strong> tab (Firefox).</li>
+                            <li style="margin-bottom:6px;">In the left sidebar, expand <strong>Cookies</strong> and select <code style="color:var(--telemetry-cyan, #00D2BE);">https://fantasy.formula1.com</code>.</li>
+                            <li style="margin-bottom:6px;">Find the cookie named <strong style="color:#ffb703;">login-session</strong>.</li>
+                            <li style="margin-bottom:6px;">Double-click its <strong>Value</strong> column, copy it, and paste it into the box above.</li>
+                        </ol>
+                        <div style="font-size:0.75rem; color:#aaa; font-style:italic;">
+                            💡 Tip: F1 Fantasy session cookies expire every 1–2 weeks. When expired, simply repeat this quick process.
                         </div>
                     </div>
                 </div>
@@ -975,6 +1009,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=35"></script>
+    <script src="/static/app.js?v=36"></script>
 </body>
 </html>
