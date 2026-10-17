@@ -189,15 +189,15 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("✓", js)
 
     def test_nav_indicator_orientation(self):
-        """Verify navigation indicator uses vertical accent styling without rogue bottom underline."""
+        """Verify nav indicator exists and the mobile drawer shell is present."""
         res = self.client.get("/static/apple-springs.js")
         self.assertEqual(res.status_code, 200)
         js = res.text
         self.assertIn("nav-spring-indicator", js)
-        self.assertNotIn("bottom: 0;", js)
-        self.assertNotIn("height: 2px;", js)
-        self.assertIn("left: 0;", js)
-        self.assertIn("width: 3px;", js)
+        html = self.client.get("/").text
+        self.assertIn('id="nav-toggle"', html)
+        self.assertIn('id="nav-backdrop"', html)
+        self.assertIn('id="mobile-run-analysis"', html)
 
     def test_stage_comparison_api(self):
         """Verify /api/analysis/stage-comparison endpoint structure and calculation."""

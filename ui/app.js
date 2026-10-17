@@ -12,10 +12,33 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHeartbeat();
     initApp();
     setupNavigation();
+    initMobileNav();
     setupTabs();
     setupArchiveAnalyticsSubtabs();
     setupF1SyncButton();
 });
+
+function initMobileNav() {
+    const toggle = document.getElementById('nav-toggle');
+    const backdrop = document.getElementById('nav-backdrop');
+    const sidebar = document.getElementById('main-nav');
+    if (!toggle || !sidebar) return;
+    const setOpen = (open) => {
+        document.body.classList.toggle('nav-open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+    };
+    toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        setOpen(!document.body.classList.contains('nav-open'));
+    });
+    if (backdrop) backdrop.addEventListener('click', () => setOpen(false));
+    sidebar.querySelectorAll('.nav-btn').forEach((btn) => {
+        btn.addEventListener('click', () => setOpen(false));
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setOpen(false);
+    });
+}
 
 function setupF1SyncButton() {
     const btn = document.getElementById('btn-sync-f1');
