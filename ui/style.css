@@ -3,6 +3,7 @@
     --f1-red: #E10600;
     --f1-red-hover: #FF2D0F;
     --accent-primary: #E10600;
+    --accent-red: var(--accent-primary);  /* alias: referenced by the F1-sync spinner and team import button */
     --f1-carbon: #0E1017;
 
     /* ── Canonical F1 Timing & Telemetry Semantic Accents ── */
