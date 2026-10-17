@@ -1,7 +1,7 @@
 :root {
     /* ── Official F1 & Cockpit Brand Accents ── */
     --f1-red: #E10600;
-    --f1-red-hover: #FF1801;
+    --f1-red-hover: #FF2D0F;
     --accent-primary: #E10600;
     --f1-carbon: #0E1017;
 
@@ -18,15 +18,20 @@
     --color-grey: #94A3B8;
 
     /* ── Cupertino Dark Obsidian Glass Materials ── */
-    --bg-dark: #07090E;
-    --bg-panel: rgba(12, 17, 29, 0.85);
-    --bg-card: rgba(16, 22, 38, 0.70);
-    --bg-card-hover: rgba(26, 35, 60, 0.85);
-    --bg-glass: rgba(12, 17, 29, 0.82);
-    --border-subtle: rgba(255, 255, 255, 0.07);
-    --border-dim: rgba(0, 229, 255, 0.18);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-border-hover: rgba(0, 229, 255, 0.35);
+    --bg-dark: #0A0A0C;
+    --bg-panel: rgba(20, 20, 24, 0.82);
+    --bg-card: rgba(20, 20, 24, 0.72);
+    --bg-card-hover: rgba(30, 30, 36, 0.85);
+    --bg-glass: rgba(18, 18, 22, 0.85);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-dim: rgba(255, 255, 255, 0.10);
+    --glass-border: rgba(255, 255, 255, 0.07);
+    --glass-border-hover: rgba(225, 6, 0, 0.35);
+
+    /* ── Modern F1 surfaces & accent gradient ── */
+    --surface-hi: #141418;
+    --surface-lo: #0F0F12;
+    --gradient-accent: linear-gradient(180deg, #FF2D0F, #D50500);
 
     /* ── Typography & Contrast ── */
     --text-primary: #F8FAFC;
@@ -39,21 +44,21 @@
     --font-mono: 'JetBrains Mono', monospace;
 
     /* ── Apple Continuous Radius Scale ── */
-    --radius-xs: 6px;
-    --radius-sm: 10px;
+    --radius-xs: 8px;
+    --radius-sm: 12px;
     --radius-md: 14px;
-    --radius-lg: 20px;
+    --radius-lg: 16px;
     --radius-pill: 9999px;
-    --radius-panel: 14px;
-    --radius-inner: 10px;
-    --radius-badge: 6px;
+    --radius-panel: 16px;
+    --radius-inner: 12px;
+    --radius-badge: 8px;
 
     /* ── Legacy Aliases & Fallbacks ── */
     --font-main: var(--font-body);
-    --neon-cyan: var(--telemetry-cyan);
+    --neon-cyan: var(--accent-primary);  /* D2: cyan retired as UI accent — legacy usages now follow the F1 accent */
     --neon-lime: var(--telemetry-green);
     --bg-sidebar: var(--bg-card);
-    --bg-glass-overlay: rgba(10, 16, 28, 0.68);
+    --bg-glass-overlay: rgba(14, 14, 18, 0.72);
     --text-secondary: #94A3B8;
 
     /* SPACING SCALE */
@@ -67,10 +72,10 @@
     --space-10: 40px;
 
     /* SHADOW TOKENS */
-    --shadow-floating: 0 20px 45px rgba(0, 240, 255, 0.06), 0 12px 25px rgba(0, 0, 0, 0.65);
+    --shadow-floating: 0 20px 45px rgba(0, 0, 0, 0.50), 0 12px 25px rgba(0, 0, 0, 0.65);
     --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.45), 0 1px 1px rgba(255,255,255,0.04) inset;
-    --shadow-panel-hover: 0 20px 45px rgba(0, 240, 255, 0.12), 0 10px 25px rgba(0, 0, 0, 0.75);
-    --shadow-focus-ring: 0 0 0 4px rgba(0, 240, 255, 0.18);
+    --shadow-panel-hover: 0 20px 45px rgba(0, 0, 0, 0.55), 0 10px 25px rgba(0, 0, 0, 0.75);
+    --shadow-focus-ring: 0 0 0 4px rgba(225, 6, 0, 0.45);
 
     /* Phase 1: Touch target / tap delay */
     touch-action: manipulation;
@@ -81,8 +86,8 @@
 *:focus { outline: none; }
 
 *:focus-visible {
-    outline: 2px solid var(--neon-cyan);
-    outline-offset: 3px;
+    outline: 2px solid #FFFFFF;
+    outline-offset: 2px;
     border-radius: 2px;
 }
 
@@ -91,8 +96,8 @@ a:focus-visible,
 select:focus-visible,
 input:focus-visible,
 [tabindex]:focus-visible {
-    outline: 2px solid var(--neon-cyan);
-    outline-offset: 3px;
+    outline: 2px solid #FFFFFF;
+    outline-offset: 2px;
     box-shadow: var(--shadow-focus-ring);
 }
 

@@ -70,11 +70,12 @@ class UISmokeTests(unittest.TestCase):
         self.assertFalse(r_last.get("is_completed"))
 
     def test_ui_telemetry_tokens_and_visualizer_css(self):
-        """Verify style.css includes telemetry tokens and pipeline visualizer."""
+        """Verify style.css includes the F1 accent tokens and pipeline visualizer."""
         res = self.client.get("/static/style.css")
         self.assertEqual(res.status_code, 200)
         css = res.text
-        self.assertIn("--telemetry-cyan", css)
+        self.assertIn("--f1-red", css)
+        self.assertIn("--accent-primary", css)
         self.assertIn(".pipeline-visualizer", css)
         self.assertNotIn("f1-drive", css)
 
