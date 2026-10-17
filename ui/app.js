@@ -75,6 +75,8 @@ async function initApp() {
     await waitForServer();
     await loadDashboardData();
     await loadChipState();
+    setAnalysisIdleState();
+    loadAnalysisStandbyInfo();
 
     document.querySelector('.app-container').style.visibility = 'visible';
 
@@ -1204,23 +1206,88 @@ function initPipelineVisualizer() {
     setPipelineActivePhase('Initializing Strategy Pipeline...');
     const counter = document.getElementById('mc-iterations-counter');
     if (counter) {
-        counter.textContent = 'READY (10,000 SIMS)';
+        counter.textContent = '0 / 10,000 SIMS';
     }
 }
 
-function stopPipelineVisualizer() {
+// D3: idle means idle. Standby hides every run-only element so the screen never
+// implies a prediction is in progress when nothing is actually running.
+function setAnalysisIdleState() {
+    const screen = document.getElementById('analysis-screen');
+    if (screen) screen.classList.remove('running');
+
     const visualizer = document.getElementById('pipeline-visualizer');
     if (visualizer) {
         visualizer.classList.remove('active');
+        visualizer.style.display = 'none';
     }
+
+    const standby = document.getElementById('analysis-standby');
+    if (standby) standby.style.display = '';
+
     const badge = document.getElementById('pipeline-live-badge');
-    if (badge) {
-        badge.textContent = 'STANDBY';
-    }
+    if (badge) badge.textContent = 'STANDBY';
+
+    const phase = document.getElementById('pipeline-active-phase');
+    if (phase) phase.textContent = '';
+
+    const counter = document.getElementById('mc-iterations-counter');
+    if (counter) counter.textContent = '';
+
     if (_mcCounterTimer) {
         clearInterval(_mcCounterTimer);
         _mcCounterTimer = null;
     }
+}
+
+function setAnalysisRunningState() {
+    const screen = document.getElementById('analysis-screen');
+    if (screen) screen.classList.add('running');
+
+    const standby = document.getElementById('analysis-standby');
+    if (standby) standby.style.display = 'none';
+
+    const visualizer = document.getElementById('pipeline-visualizer');
+    if (visualizer) visualizer.style.display = '';
+
+    initPipelineVisualizer();
+}
+
+// Fills the standby panel's input summary and the last-run timestamp (time only,
+// never a duration) from the newest stored prediction.
+async function loadAnalysisStandbyInfo() {
+    const modeEl = document.getElementById('standby-mode');
+    const modeSel = document.getElementById('mode-selector');
+    if (modeEl && modeSel && modeSel.options.length) {
+        const opt = modeSel.options[modeSel.selectedIndex];
+        if (opt) modeEl.textContent = opt.textContent.trim();
+    }
+
+    const budgetEl = document.getElementById('standby-budget');
+    if (budgetEl && currentTeam && typeof currentTeam.budget === 'number') {
+        budgetEl.textContent = `$${currentTeam.budget.toFixed(1)}M`;
+    }
+
+    const transfersEl = document.getElementById('standby-transfers');
+    if (transfersEl && currentTeam && currentTeam.transfers !== undefined) {
+        transfersEl.textContent = String(currentTeam.transfers);
+    }
+
+    const lastEl = document.getElementById('analysis-last-run');
+    if (!lastEl) return;
+    try {
+        const res = await fetch('/api/predictions');
+        const data = await res.json();
+        const first = (data && data.predictions && data.predictions[0]) || null;
+        const ts = first && first.generated_at ? new Date(first.generated_at) : null;
+        lastEl.textContent = (ts && !isNaN(ts)) ? ts.toLocaleString() : 'never';
+    } catch (e) {
+        lastEl.textContent = 'never';
+    }
+}
+
+function stopPipelineVisualizer() {
+    setAnalysisIdleState();
 }
 
 function updateEnsembleSegments(rfWeight, xgbWeight, lgbWeight) {
@@ -1319,9 +1386,9 @@ async function startAnalysis() {
     const anim = document.getElementById('analysis-animation-container');
     if (anim) anim.style.display = 'flex';
     
-    // AI Strategy Simulation Visualizer
-    initPipelineVisualizer();
-    
+    // AI Strategy Simulation Visualizer — switches the screen into run state
+    setAnalysisRunningState();
+
     // Reset HUD displays to clean pending placeholders
     const roundEl = document.getElementById('hud-round');
     const circuitEl = document.getElementById('hud-circuit');

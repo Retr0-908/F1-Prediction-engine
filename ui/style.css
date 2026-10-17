@@ -3842,5 +3842,99 @@ td.number, td.numeric, td[class*="num"] {
     }
 }
 
+/* ── D3: Analysis standby — idle means idle ── */
+#analysis-screen:not(.running) #pipeline-visualizer,
+#analysis-screen:not(.running) #animation-status-text,
+#analysis-screen:not(.running) .analysis-subnote {
+    display: none;
+}
+
+#analysis-screen.running #analysis-standby {
+    display: none;
+}
+
+.analysis-standby {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--space-3);
+    padding: var(--space-8) var(--space-5);
+    border: 1px dashed var(--border-subtle);
+    border-radius: var(--radius-panel);
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.standby-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.standby-title {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+}
+
+.standby-desc {
+    max-width: 46ch;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin: 0;
+}
+
+.standby-inputs {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    width: 100%;
+    max-width: 340px;
+    display: grid;
+    gap: 6px;
+}
+
+.standby-inputs li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 6px;
+}
+
+.standby-inputs li span:last-child {
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.standby-last-run {
+    margin: var(--space-2) 0 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+/* Idle animations may only run while a real run is active */
+.pipeline-visualizer .radar-sweep,
+.pipeline-visualizer .pipeline-pulse-dot {
+    animation: none;
+}
+
+.pipeline-visualizer.active .radar-sweep {
+    animation: radar-spin 2.4s linear infinite;
+}
+
+.pipeline-visualizer.active .pipeline-pulse-dot {
+    animation: pipeline-dot-pulse 1.8s infinite ease-in-out;
+}
+
+#analysis-screen:not(.running) .pulse-text {
+    animation: none;
+}
+
 
 

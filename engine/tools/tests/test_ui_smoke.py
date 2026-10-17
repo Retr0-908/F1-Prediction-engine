@@ -119,6 +119,15 @@ class UISmokeTests(unittest.TestCase):
         css = self.client.get("/static/style.css").text
         self.assertEqual(css.count(".btn-primary {"), 1)
 
+    def test_analysis_idle_standby_contract(self):
+        """Verify the analysis screen ships a standby state and honest run-state functions."""
+        html = self.client.get("/").text
+        js = self.client.get("/static/app.js").text
+        self.assertIn('id="analysis-standby"', html)
+        self.assertNotIn("READY (10,000 SIMS)", html)
+        self.assertIn("setAnalysisIdleState", js)
+        self.assertIn("setAnalysisRunningState", js)
+
     def test_f1_sync_ui_elements(self):
         """Verify index.html and app.js include F1 sync button and modal handlers."""
         res_html = self.client.get("/")
