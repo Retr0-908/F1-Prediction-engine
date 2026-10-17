@@ -645,13 +645,13 @@
     <!-- Screen: Archive & Analytics -->
     <div id="archive-analytics-screen" class="screen content-padding scrollable">
         <div class="screen-header">
-            <h2>ARCHIVE & MODEL ANALYTICS</h2>
-            <p class="subtitle">Cross-stage prediction evolution, season accuracy verification, model health, and past race telemetry.</p>
+            <h2>ARCHIVE &amp; MODEL ANALYTICS</h2>
+            <p class="subtitle">Cross-stage prediction evolution, season accuracy verification, model operations, and past race telemetry.</p>
         </div>
 
-        <div class="archive-analytics-tabs subtab-group" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
+        <div class="archive-analytics-tabs subtab-group" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
             <button class="tab-btn active" data-subtab="tab-stage-comparison">📊 Stage Comparison</button>
-            <button class="tab-btn" data-subtab="tab-model-health">🩺 Model Health & Biases</button>
+            <button class="tab-btn" data-subtab="tab-model-health">⚙️ Model Ops</button>
             <button class="tab-btn" data-subtab="tab-past-predictions">📜 Past Predictions</button>
             <button class="tab-btn" data-subtab="tab-past-races">🏁 Race Telemetry</button>
         </div>
@@ -776,8 +776,11 @@
             </div>
         </div>
 
-        <!-- Subtab 2: Model Health & Biases -->
+        <!-- Subtab 2: Model Ops -->
         <div id="tab-model-health" class="subtab-pane" style="display:none;">
+            <p class="dim-text" style="font-size: 0.9rem; margin: 0 0 18px;">
+                Verify past predictions against real results, then review the bias corrections and blend nudges the engine has learned.
+            </p>
             <div class="panel">
                 <div class="panel-header">RUN POST-RACE VERIFICATION</div>
                 <p class="dim-text" style="font-size: 0.85rem; margin-bottom: 12px;">Compare model predictions against the actual grand prix results once a race is complete. This calculates accuracy metrics and updates the self-improvement biases.</p>

@@ -146,6 +146,13 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn('id="chart-driver-radar"', html)
         self.assertIn('id="chart-comparison-radar"', html)
 
+    def test_archive_model_ops_subtab(self):
+        """Verify the model-health sub-tab is presented as Model Ops."""
+        html = self.client.get("/").text
+        self.assertIn("Model Ops", html)
+        self.assertNotIn("Model Health & Biases", html)
+        self.assertIn('data-subtab="tab-model-health"', html)
+
     def test_f1_sync_ui_elements(self):
         """Verify index.html and app.js include F1 sync button and modal handlers."""
         res_html = self.client.get("/")
