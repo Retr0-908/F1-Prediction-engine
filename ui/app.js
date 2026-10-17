@@ -3128,15 +3128,10 @@ function renderTelemetryChart(telemetry) {
 // ---- RESULTS SYMBOL LEGEND TOGGLE ----
 function toggleResultsLegend() {
     const legend = document.getElementById('race-order-legend');
-    const icon = document.querySelector('#legend-toggle-btn .toggle-icon');
+    const btn = document.getElementById('legend-toggle-btn');
     if (!legend) return;
-    if (legend.classList.contains('collapsed')) {
-        legend.classList.remove('collapsed');
-        if (icon) icon.innerText = '▲';
-    } else {
-        legend.classList.add('collapsed');
-        if (icon) icon.innerText = '▼';
-    }
+    const collapsed = legend.classList.toggle('collapsed');
+    if (btn) btn.setAttribute('aria-expanded', String(!collapsed));
 }
 
 // ---- PREDICTION ANALYSIS & SELF-IMPROVEMENT ----

@@ -137,6 +137,15 @@ class UISmokeTests(unittest.TestCase):
         self.assertNotIn("renderInsightsPanel", js)
         self.assertIn("renderWeekendWeather", js)
 
+    def test_merged_driver_analysis_panel(self):
+        """Verify the analytics tab merges the radar and comparison tool into one panel."""
+        html = self.client.get("/").text
+        self.assertIn('id="driver-analysis-panel"', html)
+        self.assertNotIn("DRIVER ATTRIBUTE ANALYSIS", html)
+        self.assertNotIn("DRIVER COMPARISON TOOL", html)
+        self.assertIn('id="chart-driver-radar"', html)
+        self.assertIn('id="chart-comparison-radar"', html)
+
     def test_f1_sync_ui_elements(self):
         """Verify index.html and app.js include F1 sync button and modal handlers."""
         res_html = self.client.get("/")

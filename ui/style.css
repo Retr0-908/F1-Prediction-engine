@@ -1005,30 +1005,100 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .chip-hold-target { color: var(--text-main); font-weight: 600; }
 .chip-ev { font-family: var(--font-heading); font-size: 1rem; font-weight: 700; color: var(--color-green); }
 
-/* Dream Team */
-.dream-team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+/* Dream Team (single consolidated definition) */
+.dream-team-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
 .dt-card {
-    background: rgba(0,0,0,0.25);
+    background: rgba(0, 0, 0, 0.18);
     border: 1px solid var(--glass-border);
-    border-radius: var(--radius-md) !important;  /* Phase 5 */
+    border-radius: var(--radius-md);
     padding: 16px;
     text-align: center;
-    /* Phase 2: transform managed by GSAP */
-    transition: border-color 0.2s ease;
     position: relative;
     overflow: hidden;
+    /* Phase 2: transform managed by GSAP — no transform on hover */
+    transition: border-color 0.2s ease;
     user-select: none;
     -webkit-user-select: none;
 }
-.dt-card:hover { border-color: rgba(255,255,255,0.2); }
-.dt-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--f1-red), transparent); }
-.dt-ctor::after { background: linear-gradient(90deg, #748ffc, transparent); }
-.dt-rank { font-family: var(--font-heading); font-size: 0.75rem; font-weight: 700; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 8px; }
-.ctor-badge { color: #748ffc; }
-.dt-name { font-weight: 700; font-size: 1rem; margin-bottom: 8px; }
-.dt-stats { display: flex; justify-content: space-between; font-size: 0.8rem; }
-.dt-pts-val { color: var(--color-green); font-family: var(--font-heading); font-weight: 700; }
-.dt-price-val { color: var(--text-dim); }
+.dt-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+.dt-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--f1-red), transparent);
+}
+.dt-ctor {
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+}
+.dt-ctor::after {
+    background: linear-gradient(90deg, #748ffc, transparent);
+}
+.dt-rank {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    background: var(--f1-red);
+    color: var(--text-on-accent);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0.85rem;
+}
+.ctor-badge {
+    background: var(--color-yellow);
+    color: #111;
+    border-radius: var(--radius-pill);
+    width: auto;
+    padding: 0 8px;
+}
+.dt-thumb {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 50%;
+    margin-bottom: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+}
+.dt-name {
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin-bottom: 6px;
+}
+.dt-stats {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+.dt-pts-val {
+    color: var(--color-green);
+    font-weight: 700;
+}
+.dt-price-val {
+    color: var(--text-dim);
+}
+.dt-explanation {
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
 
 /* Quick Summary */
 .summary-content { flex: 1; display: flex; flex-direction: column; gap: 12px; }
@@ -2442,124 +2512,44 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     white-space: nowrap;
 }
 
-/* --- Dream Team Layout --- */
-.dream-team-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 15px;
-    margin-top: 15px;
-}
-.dt-card {
-    background: rgba(0, 0, 0, 0.18);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-md) !important;  /* Phase 5 */
-    padding: 16px;
-    text-align: center;
-    position: relative;
-    transition: border-color 0.2s ease;
-}
-.dt-card:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.15);
-    transform: translateY(-3px);
-}
-.dt-ctor {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.03);
-}
-.dt-rank {
-    position: absolute;
-    top: -10px;
-    left: -10px;
-    background: var(--f1-red);
-    color: var(--text-on-accent);
-    font-family: var(--font-heading);
-    font-weight: 700;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    font-size: 0.85rem;
-}
-.ctor-badge {
-    background: var(--color-yellow);
-    color: #111;
-    border-radius: 0 !important;
-    width: auto;
-    padding: 0 6px;
-}
-.dt-thumb {
-    width: 60px;
-    height: 60px;
-    object-fit: cover;
-    border-radius: 50%;
-    margin-bottom: 10px;
-    border: 2px solid rgba(255,255,255,0.1);
-}
-.dt-name {
-    font-weight: 700;
-    font-size: 1.1rem;
-    margin-bottom: 6px;
-}
-.dt-stats {
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-    font-family: var(--font-heading);
-    font-size: 1.1rem;
-    margin-bottom: 8px;
-}
-.dt-pts-val {
-    color: var(--color-green);
-    font-weight: 700;
-}
-.dt-price-val {
-    color: var(--text-dim);
-}
-.dt-explanation {
-    font-size: 0.8rem;
-    line-height: 1.3;
-}
+/* --- Dream Team Layout --- (consolidated into the single definition earlier) */
 
 /* ── Legend Panel ── */
 .legend-panel {
-    background: rgba(16, 20, 36, 0.4);
+    background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--glass-border);
-    border-radius: var(--radius-md) !important;  /* Phase 5 */
+    border-radius: var(--radius-md);
     margin-bottom: 20px;
     overflow: hidden;
-    transition: max-height 0.3s ease-out;
 }
-.legend-toggle {
-    width: 100%;
-    background: transparent;
-    border: none;
-    color: var(--text-main);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
+
+.legend-help {
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-dim);
     font-family: var(--font-heading);
-    font-size: 1.1rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    text-align: left;
-    outline: none;
+    transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
 }
-.legend-toggle:hover {
-    background: rgba(255, 255, 255, 0.03);
+
+.legend-help:hover {
+    color: var(--text-main);
+    border-color: var(--glass-border-hover);
+    background: rgba(225, 6, 0, 0.12);
 }
-.legend-toggle .toggle-icon {
-    font-size: 0.8rem;
-    transition: transform 0.3s ease;
-}
+
 .legend-panel.collapsed .legend-grid {
     display: none;
-}
-.legend-panel.collapsed .legend-toggle .toggle-icon {
-    transform: rotate(-90deg);
 }
 .legend-grid {
     display: grid;
@@ -4042,6 +4032,23 @@ td.number, td.numeric, td[class*="num"] {
     text-overflow: clip;
     overflow-wrap: anywhere;
     max-width: 62%;
+}
+
+/* ── D5: merged Driver Analysis panel ── */
+.analysis-subsection + .analysis-subsection {
+    margin-top: var(--space-6);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.subsection-label {
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: var(--space-4);
 }
 
 

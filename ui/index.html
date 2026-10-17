@@ -370,16 +370,15 @@
                 <div class="panel" id="res-race-weekend-panel" style="grid-column: 1 / -1;">
                     <!-- Normal race weekend view -->
                     <div id="normal-race-view">
-                        <div class="panel-header">PREDICTED RACE FINISHING ORDER</div>
+                        <div class="panel-header" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                            <span>PREDICTED RACE FINISHING ORDER</span>
+                            <button id="legend-toggle-btn" class="legend-help" type="button" onclick="toggleResultsLegend()" aria-label="Show prediction symbols and colour legend" title="Prediction symbols &amp; colour legend">?</button>
+                        </div>
                         <p class="dim-text" style="font-size:0.85rem;margin-bottom:14px;">
                             Predicted finishing positions with confidence levels. Practice session pace data is factored into these predictions.
                         </p>
                         <!-- Collapsible Symbol Legend -->
                         <div id="race-order-legend" class="legend-panel collapsed">
-                            <button id="legend-toggle-btn" class="legend-toggle" onclick="toggleResultsLegend()">
-                                <span>ℹ️ Prediction Symbols & Color Legend</span>
-                                <span class="toggle-icon">▼</span>
-                            </button>
                             <div class="legend-grid">
                                 <div class="legend-item">
                                     <span class="legend-swatch" style="color: var(--color-green); font-weight: bold;">▲</span>
@@ -500,14 +499,35 @@
 
         <div id="res-tab-analytics" class="tab-content">
             <div class="results-layout">
-                <div class="panel">
-                    <div class="panel-header">DRIVER ATTRIBUTE ANALYSIS</div>
-                    <div class="radar-wrapper">
-                        <canvas id="chart-driver-radar"></canvas>
+                <div id="driver-analysis-panel" class="panel" style="grid-column: 1 / -1;">
+                    <div class="panel-header">DRIVER ANALYSIS</div>
+
+                    <div class="analysis-subsection">
+                        <div class="subsection-label">Driver Attributes</div>
+                        <div class="radar-wrapper">
+                            <canvas id="chart-driver-radar"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="analysis-subsection">
+                        <div class="subsection-label">Head-to-Head Comparison</div>
+                        <div class="comparison-controls">
+                            <select id="comp-driver-1" class="input-field select-large" onchange="updateComparison()"></select>
+                            <span class="vs-badge">VS</span>
+                            <select id="comp-driver-2" class="input-field select-large" onchange="updateComparison()"></select>
+                        </div>
+                        <div class="comparison-results">
+                            <div class="radar-wrapper-large">
+                                <canvas id="chart-comparison-radar"></canvas>
+                            </div>
+                            <div id="comparison-stats" class="comparison-stats-grid">
+                                <!-- Filled via JS -->
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="panel">
+                <div class="panel" style="grid-column: 1 / -1;">
                     <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
                         <span>OPTIMAL DREAM TEAM</span>
                         <span style="font-size:0.82rem; color:var(--color-green); font-family:var(--font-heading);">
@@ -518,23 +538,6 @@
                         Mathematically optimal 5-driver, 2-constructor combination for this race.
                     </p>
                     <div id="res-dream-team" class="dream-team-grid"></div>
-                </div>
-
-                <div class="panel" style="grid-column: 1 / -1;">
-                    <div class="panel-header">DRIVER COMPARISON TOOL</div>
-                    <div class="comparison-controls">
-                        <select id="comp-driver-1" class="input-field select-large" onchange="updateComparison()"></select>
-                        <span class="vs-badge">VS</span>
-                        <select id="comp-driver-2" class="input-field select-large" onchange="updateComparison()"></select>
-                    </div>
-                    <div class="comparison-results">
-                        <div class="radar-wrapper-large">
-                            <canvas id="chart-comparison-radar"></canvas>
-                        </div>
-                        <div id="comparison-stats" class="comparison-stats-grid">
-                            <!-- Filled via JS -->
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
