@@ -546,11 +546,15 @@ async function loadDashboardData() {
             const windEl = document.querySelector('#weather-wind div:last-child');
             if (windEl) windEl.innerText = `${wind}kph`;
 
+            renderWeekendWeather(weather);
             markBootStepDone('boot-step-weather');
         } catch (e) {
             updateStatusRow('status-weather', 'red', 'Error');
+            renderWeekendWeather(null);
             markBootStepDone('boot-step-weather');
         }
+    } else {
+        renderWeekendWeather(null);
     }
 
     // System Health (Phase 2)
@@ -1865,9 +1869,6 @@ function displayResults(data) {
     // ── Chip Strategy ──
     renderChipCards(chips);
     
-    // ── AI Insights Panel ──
-    renderInsightsPanel(data);
-
     // ── Dream Team ──
     document.getElementById('dt-budget').innerText = opt.total_price ? opt.total_price.toFixed(1) : '0.0';
     document.getElementById('dt-pts').innerText = opt.total_pts ? opt.total_pts.toFixed(1) : '0.0';
@@ -1899,8 +1900,6 @@ function displayResults(data) {
         `;
     });
 
-    // ── Update Quick Summary on Dashboard ──
-    updateQuickSummary(data);
     showToast('Analysis complete! Results are ready.', 'success');
 }
 
@@ -2307,57 +2306,94 @@ function renderPracticeData(practiceData) {
     renderPracticeChart(sorted);
 }
 
-function updateQuickSummary(data) {
-    const panel = document.querySelector('#dashboard-screen .summary-content');
-    if (!panel) return;
+// ── Weekend Weather panel (D4) ─────────────────────────────────────────
+// Renders the per-session forecast plus plain-English race-impact notes.
+// The notes are authored copy selected by rain-risk thresholds; a neutral
+// state is shown whenever a forecast is missing so the panel is never blank
+// and never implies activity.
+const _WX_SESSION_ORDER = ['Free Practice 1', 'Free Practice 2', 'Free Practice 3', 'Sprint', 'Qualifying', 'Race'];
+const _WX_SESSION_LABELS = {
+    'Free Practice 1': 'FP1',
+    'Free Practice 2': 'FP2',
+    'Free Practice 3': 'FP3',
+    'Sprint': 'Sprint',
+    'Qualifying': 'Quali',
+    'Race': 'Race'
+};
+const _WX_ICONS = { low: '☀️', medium: '⛅', high: '🌧️', unknown: '❓' };
 
-    const sugg = data.suggestions || {};
-    const opt = data.optimal || {};
-    const chips = data.chips || [];
-    const race = data.race || {};
+function _weatherImpactNotes(raceRisk, sessions) {
+    const notes = [];
+    if (raceRisk === 'high') {
+        notes.push('High rain risk: expect safety cars, strategy gambles and a much wider spread of finishing positions.');
+        notes.push('Wet races are the most volatile for fantasy points — a bold chip call can win or lose the weekend.');
+    } else if (raceRisk === 'medium') {
+        notes.push('Mixed conditions likely: race-day pace and pit timing matter more than the starting order.');
+        notes.push('Drivers who are quick in the wet can outscore their price on a day like this.');
+    } else if (raceRisk === 'low') {
+        notes.push('Dry race expected: baseline pace and tyre management should shape the result.');
+        notes.push('Form, circuit history and grid position carry the most weight in these conditions.');
+    } else {
+        notes.push('No reliable forecast yet — treat this projection as pace-driven.');
+    }
 
-    const projPts = sugg.projected_pts_new || 0;
-    const transfers = sugg.suggested_changes || [];
-    const bestMove = transfers.length > 0 ? transfers[0] : null;
+    const practiceSessions = ['Free Practice 1', 'Free Practice 2', 'Free Practice 3'];
+    const wetPractice = practiceSessions.some(
+        s => String((sessions[s] || {}).rain_risk || '').toLowerCase() === 'high'
+    );
+    if (wetPractice) {
+        notes.push('Practice running wet limits how much the telemetry tells us about dry-weather pace.');
+    }
+    return notes;
+}
 
-    // Best chip to play now
-    const playNowChip = chips.find(c => c.use_now && !c.already_used);
-    const chipText = playNowChip
-        ? `<div class="summary-alert play-now">🔥 Play <strong>${playNowChip.chip}</strong> this week</div>`
-        : `<div class="summary-alert hold">✓ Hold all chips this race</div>`;
+function renderWeekendWeather(weather) {
+    const summaryEl = document.getElementById('weather-summary');
+    const listEl = document.getElementById('weather-session-list');
+    const notesEl = document.getElementById('weather-impact-notes');
+    if (!summaryEl || !listEl || !notesEl) return;
 
-    const dreamDrivers = (opt.drivers || []).slice(0, 3).map(d => d.name).join(', ');
+    const sessions = (weather && weather.sessions) || {};
+    const available = _WX_SESSION_ORDER.filter(s => sessions[s] && Object.keys(sessions[s]).length);
 
-    panel.classList.remove('empty-state');
-    panel.innerHTML = `
-        <div class="summary-stat">
-            <div class="summary-stat-label">Projected Points</div>
-            <div class="summary-stat-value highlight-text">${projPts.toFixed(1)}</div>
-        </div>
-        <div class="summary-stat">
-            <div class="summary-stat-label">Race</div>
-            <div class="summary-stat-value" style="font-size:0.9rem;">${race.name || '—'}</div>
-        </div>
-        ${bestMove ? `
-        <div class="summary-stat">
-            <div class="summary-stat-label">Top Transfer</div>
-            <div class="summary-stat-value" style="font-size:0.85rem;">
-                <span style="color:var(--accent-danger)">▼ ${bestMove.out}</span> → <span style="color:#00FF41">▲ ${bestMove.in}</span>
-            </div>
-        </div>` : `
-        <div class="summary-stat">
-            <div class="summary-stat-label">Transfers</div>
-            <div class="summary-stat-value dim-text" style="font-size:0.85rem;">Hold team</div>
-        </div>`}
-        <div class="summary-stat">
-            <div class="summary-stat-label">Top Dream Pick</div>
-            <div class="summary-stat-value" style="font-size:0.85rem;">${dreamDrivers || '—'}</div>
-        </div>
-        ${chipText}
-        <button class="btn btn-primary" style="width:100%; margin-top:12px;" onclick="
-            document.getElementById('nav-results').click()
-        ">View Full Results →</button>
-    `;
+    if (!available.length) {
+        summaryEl.textContent = 'Weather unavailable for this race weekend.';
+        listEl.innerHTML = '<div class="dim-text">No session forecast returned.</div>';
+        notesEl.innerHTML = '<p class="dim-text">Race-impact notes appear when a forecast is available.</p>';
+        return;
+    }
+
+    const race = sessions.Race || {};
+    const raceRisk = String(race.rain_risk || (weather && weather.rain_risk) || 'unknown').toLowerCase();
+
+    const parts = [];
+    if (race.temp_day_c != null) parts.push(`${race.temp_day_c}°C`);
+    if (race.pop_pct != null) parts.push(`${race.pop_pct}% precip chance`);
+    if (race.wind_speed_max_kph != null) parts.push(`${race.wind_speed_max_kph} kph`);
+    const qualityNote = (weather && weather.quality === 'climatology')
+        ? ' <span class="dim-text">(climatology estimate)</span>'
+        : '';
+    summaryEl.innerHTML = `<span class="wx-icon">${_WX_ICONS[raceRisk] || '❓'}</span>` +
+        `<span>Race day: <strong>${raceRisk}</strong> rain risk${parts.length ? ' · ' + parts.join(' · ') : ''}</span>${qualityNote}`;
+
+    listEl.innerHTML = available.map(s => {
+        const d = sessions[s] || {};
+        const risk = String(d.rain_risk || 'unknown').toLowerCase();
+        const temp = d.temp_day_c != null ? `${d.temp_day_c}°C` : '—';
+        const rain = d.pop_pct != null ? `${d.pop_pct}%` : '—';
+        const wind = d.wind_speed_max_kph != null ? `${d.wind_speed_max_kph} kph` : '—';
+        return `<div class="wx-session-row">
+            <span class="wx-session-name">${_WX_SESSION_LABELS[s] || s}</span>
+            <span class="wx-session-icon" title="${risk}">${_WX_ICONS[risk] || '❓'}</span>
+            <span class="wx-session-temp">${temp}</span>
+            <span class="wx-session-rain">${rain}</span>
+            <span class="wx-session-wind">${wind}</span>
+        </div>`;
+    }).join('');
+
+    notesEl.innerHTML = _weatherImpactNotes(raceRisk, sessions)
+        .map(n => `<p class="wx-note">${n}</p>`)
+        .join('');
 }
 
 // ---- TOAST NOTIFICATIONS ----

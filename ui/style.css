@@ -3936,5 +3936,113 @@ td.number, td.numeric, td[class*="num"] {
     animation: none;
 }
 
+/* ── D4: Dashboard weekend weather panel ── */
+.weather-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.wx-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 0.95rem;
+    color: var(--text-main);
+}
+
+.wx-summary .wx-icon {
+    font-size: 1.6rem;
+    line-height: 1;
+}
+
+.wx-session-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.wx-session-row {
+    display: grid;
+    grid-template-columns: minmax(52px, 1fr) auto minmax(56px, auto) minmax(52px, auto) minmax(72px, auto);
+    gap: var(--space-3);
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.82rem;
+}
+
+.wx-session-name {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+.wx-session-icon {
+    font-size: 1rem;
+    text-align: center;
+}
+
+.wx-session-temp,
+.wx-session-rain,
+.wx-session-wind {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-main);
+    white-space: nowrap;
+}
+
+.wx-notes-header {
+    font-family: var(--font-heading);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-top: var(--space-2);
+}
+
+.wx-impact-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wx-note {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--text-dim);
+    padding-left: 12px;
+    border-left: 2px solid var(--f1-red);
+}
+
+/* D4: the full race name wraps instead of truncating */
+#dash-race-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.hero-text {
+    min-width: 0;
+}
+
+.hero-panel {
+    background: linear-gradient(180deg, var(--surface-hi), var(--surface-lo));
+}
+
+/* D4: System Status values wrap instead of clipping */
+.status-val {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    max-width: 62%;
+}
+
 
 

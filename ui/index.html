@@ -174,12 +174,15 @@
 
         <!-- Right Panel -->
         <div class="panel col-right">
-            <div class="panel-header">AI INSIGHTS & TOP MOVE</div>
-            <div class="summary-content empty-state" id="quick-summary-content">
-                <div style="text-align: center; margin-top: 50px; padding: 0 20px;">
-                    <div class="insights-icon">⚡</div>
-                    <p class="dim-text">Run analysis to view projections and chip recommendations.</p>
-                    <button class="btn btn-primary" style="margin-top: 16px; width: 100%;" onclick="startAnalysis()">Run Analysis</button>
+            <div class="panel-header">WEEKEND WEATHER</div>
+            <div id="weekend-weather-panel" class="weather-panel">
+                <div id="weather-summary" class="wx-summary">Loading forecast...</div>
+                <div id="weather-session-list" class="wx-session-list">
+                    <div class="dim-text">Loading session forecast...</div>
+                </div>
+                <div class="wx-notes-header">RACE IMPACT</div>
+                <div id="weather-impact-notes" class="wx-impact-notes">
+                    <p class="dim-text">Impact notes appear once the forecast is ready.</p>
                 </div>
             </div>
         </div>

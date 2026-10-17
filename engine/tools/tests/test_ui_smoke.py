@@ -128,6 +128,15 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("setAnalysisIdleState", js)
         self.assertIn("setAnalysisRunningState", js)
 
+    def test_dashboard_weather_panel_and_no_dead_call(self):
+        """Verify the dashboard shows a weather panel and the dead insights call is gone."""
+        html = self.client.get("/").text
+        js = self.client.get("/static/app.js").text
+        self.assertIn('id="weekend-weather-panel"', html)
+        self.assertNotIn("AI INSIGHTS & TOP MOVE", html)
+        self.assertNotIn("renderInsightsPanel", js)
+        self.assertIn("renderWeekendWeather", js)
+
     def test_f1_sync_ui_elements(self):
         """Verify index.html and app.js include F1 sync button and modal handlers."""
         res_html = self.client.get("/")
