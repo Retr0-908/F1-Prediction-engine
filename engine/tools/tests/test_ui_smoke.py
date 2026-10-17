@@ -114,6 +114,11 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn(".table-responsive-container", css)
         self.assertIn(".card-title", css)
 
+    def test_single_primary_button_definition(self):
+        """Verify .btn-primary is defined exactly once (no cyan override duplicate)."""
+        css = self.client.get("/static/style.css").text
+        self.assertEqual(css.count(".btn-primary {"), 1)
+
     def test_f1_sync_ui_elements(self):
         """Verify index.html and app.js include F1 sync button and modal handlers."""
         res_html = self.client.get("/")
