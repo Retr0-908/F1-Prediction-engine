@@ -77,15 +77,38 @@ from engine.core.paths import PROJECT_ROOT, OUTPUT_DIR, API_CACHE_DIR, MODEL_CAC
 UI_DIR = PROJECT_ROOT / "ui"
 UI_DIR.mkdir(exist_ok=True)
 
+
+class _NoCacheStaticFiles(StaticFiles):
+    """Serve UI assets with ``Cache-Control: no-cache``.
+
+    Without an explicit header a browser applies heuristic freshness to
+    ``/static/app.js`` and ``/static/style.css``. index.html carries ``?v=N``
+    cache-buster tokens, but a build that forgets to bump them leaves the
+    browser running an old app.js against new HTML. The symptoms are confusing:
+    the Weekend Weather panel stays on "Loading session forecast..." forever
+    (old JS has no renderWeekendWeather) and the Analysis screen never enters
+    its running state (old JS never adds the class the new CSS gates on).
+
+    ``no-cache`` still permits an efficient 304 — the browser only has to
+    revalidate before reusing a file, so a plain reload always reflects what is
+    actually on disk.
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Mount the UI directory as static files
-app.mount("/static", StaticFiles(directory=str(UI_DIR)), name="static")
+app.mount("/static", _NoCacheStaticFiles(directory=str(UI_DIR)), name="static")
 
 @app.get("/")
 def read_index():
     index_path = UI_DIR / "index.html"
     if not index_path.exists():
         return {"error": "UI not built yet."}
-    return FileResponse(index_path)
+    return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
 @app.get("/favicon.ico")
 def favicon():

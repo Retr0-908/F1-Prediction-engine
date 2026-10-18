@@ -116,7 +116,7 @@ body {
 }
 
 /* Enforce Tabular Numerals for Telemetry Data */
-.telemetry-num, .lap-time, .delta-val, .metric-pill-val, .status-val {
+.telemetry-num, .lap-time, .delta-val, .metric-pill-val {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
@@ -605,9 +605,16 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     gap: 8px;
 }
 .status-row {
+    /* Adaptive row: the label is sized to its content (never truncated), and
+       the value sits beside it when there is room or drops to its own
+       full-width line when there is not. The old flex row starved the label
+       ("Predictive Engine" -> "Pre...") and then shattered the value into
+       2-3 character fragments in the narrow dashboard column. */
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 12px;
+    row-gap: 2px;
     padding: 12px 14px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
     background: rgba(0,0,0,0.08);
@@ -615,7 +622,9 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     min-width: 0;
 }
 .status-indicator {
-    width: 10px; height: 10px; border-radius: 50%; margin-right: 14px; margin-top: 0; flex-shrink: 0;
+    width: 10px; height: 10px; border-radius: 50%; margin-right: 0; margin-top: 0;
+    flex: 0 0 auto;
+    align-self: center;
 }
 .status-indicator.grey   { background: var(--color-grey); }
 .status-indicator.yellow { background: var(--color-yellow); }
@@ -637,22 +646,22 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     }
 }
 .status-label {
-    flex: 1;
     font-weight: 500;
-    font-size: 0.95rem;
-    min-width: 0;
+    font-size: 0.9rem;
+    flex: 0 0 auto;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 .status-val {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     text-align: right;
     min-width: 0;
-    max-width: 60%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    /* break-word (not anywhere) so words wrap whole and only split when a
+       single word genuinely cannot fit. */
+    overflow-wrap: break-word;
+    /* Below ~120px of remaining width the value moves to its own line rather
+       than breaking mid-word. */
+    flex: 1 1 120px;
 }
 
 /* Utilities */
@@ -2698,7 +2707,11 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 /* Tier 3 — Desktop (≥ 1200px) */
 @media (min-width: 1200px) {
     .main-layout {
-        grid-template-columns: 1.8fr 1fr 1.2fr;
+        /* Weekend Hub keeps its 1.8fr so "SESSION TIMES" stays on one line; the
+           extra width for System Status comes from the weather column. At the
+           old 1fr the status panel was ~260px and truncated "Predictive
+           Engine" to "Pre...". */
+        grid-template-columns: 1.8fr 1.1fr 1.1fr;
         gap: 24px;
         padding: 24px;
     }
@@ -3937,14 +3950,10 @@ td.number, td.numeric, td[class*="num"] {
     background: linear-gradient(180deg, var(--surface-hi), var(--surface-lo));
 }
 
-/* D4: System Status values wrap instead of clipping */
-.status-val {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-    overflow-wrap: anywhere;
-    max-width: 62%;
-}
+/* D4: System Status values wrap instead of clipping.
+   The row is an adaptive `dot | label | value` flex line now (see .status-row):
+   the label keeps its width and the value moves to its own line when narrow, so
+   no max-width or ellipsis truncation is needed. */
 
 /* ── D5: merged Driver Analysis panel ── */
 .analysis-subsection + .analysis-subsection {

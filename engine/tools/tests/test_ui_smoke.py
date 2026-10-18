@@ -28,6 +28,49 @@ class UISmokeTests(unittest.TestCase):
         res_springs = self.client.get("/static/apple-springs.js")
         self.assertEqual(res_springs.status_code, 200)
 
+    def test_ui_assets_are_never_served_stale(self):
+        """Guard against the stale-asset bug.
+
+        index.html references app.js/style.css with ?v=N cache-busters, and both
+        the shell and the assets must be revalidated on every load. When the
+        version token was not bumped the browser kept running the OLD app.js
+        against the NEW html: the Weekend Weather panel never left "Loading
+        session forecast..." and the Analysis screen never showed its running
+        state.
+        """
+        index = self.client.get("/")
+        self.assertEqual(index.headers.get("cache-control"), "no-cache")
+        self.assertIn("/static/style.css?v=", index.text)
+        self.assertIn("/static/app.js?v=", index.text)
+
+        self.assertEqual(
+            self.client.get("/static/app.js").headers.get("cache-control"), "no-cache"
+        )
+        self.assertEqual(
+            self.client.get("/static/style.css").headers.get("cache-control"), "no-cache"
+        )
+
+    def test_status_board_rows_do_not_truncate_labels(self):
+        """System Status must stay legible in the narrow dashboard column.
+
+        The middle column is only ~220-440px wide. The old flex row squeezed
+        "Predictive Engine" down to "Pre..." and shattered the value into 2-3
+        character fragments. The row is an adaptive flex line now: the label
+        keeps its full width and never ellipsises, and the value drops to its
+        own full-width line when there is not enough room beside the label.
+        """
+        css = self.client.get("/static/style.css").text
+        row = re.search(r"\.status-row\s*\{[^}]*\}", css).group(0)
+        self.assertIn("flex-wrap: wrap", row)
+
+        label = re.search(r"\.status-label\s*\{[^}]*\}", css).group(0)
+        self.assertNotIn("text-overflow: ellipsis", label)
+        self.assertIn("flex: 0 0 auto", label)
+
+        val = re.search(r"\.status-val\s*\{[^}]*\}", css).group(0)
+        self.assertIn("flex: 1 1 120px", val)
+        self.assertIn("overflow-wrap: break-word", val)
+
     def test_sepang_track_map_asset(self):
         res = self.client.get("/static/images/tracks/sepang.svg")
         self.assertEqual(res.status_code, 200)
