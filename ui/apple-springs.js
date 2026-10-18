@@ -329,7 +329,7 @@
       width: 3px;
       background: var(--neon-cyan);
       border-radius: 0 3px 3px 0;
-      box-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+      box-shadow: 0 0 10px rgba(225, 6, 0, 0.55);
       pointer-events: none;
       transition: none;
     `;

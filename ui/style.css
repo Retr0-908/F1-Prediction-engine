@@ -180,15 +180,6 @@ body {
 h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing: -0.02em; }
 .dim-text { color: var(--text-dim); }
 
-/* Insights Icon Visibility */
-.insights-icon {
-    color: var(--neon-cyan);
-    font-size: 2rem;
-    display: block;
-    text-align: center;
-    margin-bottom: var(--space-3);
-}
-
 /* Phase 1 + 5: Buttons — Phase 1 pointer-down feedback, Phase 5 consistent radius */
 .btn {
     font-family: var(--font-heading);
@@ -417,9 +408,9 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 
 .nav-links a.active {
-    color: var(--neon-cyan);
-    background: rgba(0, 240, 255, 0.09);
-    border: 1px solid rgba(0, 240, 255, 0.25);
+    color: var(--accent-primary);
+    background: rgba(225, 6, 0, 0.10);
+    border: 1px solid rgba(225, 6, 0, 0.30);
 }
 
 .nav-btn {
@@ -681,8 +672,8 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .input-field:focus {
-    border-color: var(--neon-cyan);
-    background: rgba(0,240,255,0.05);
+    border-color: var(--accent-primary);
+    background: rgba(225, 6, 0, 0.05);
     box-shadow: var(--shadow-focus-ring);
 }
 .input-field option { background-color: #0e1420; color: white; }
@@ -719,7 +710,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 .card.selected {
     border-color: var(--f1-red);
-    background: linear-gradient(180deg, rgba(0,240,255,0.10) 0%, rgba(5,8,16,0.92) 100%);
+    background: linear-gradient(180deg, rgba(225, 6, 0, 0.10) 0%, rgba(5,8,16,0.92) 100%);
 }
 
 /* Coloured team stripe at card top */
@@ -1060,6 +1051,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     object-fit: cover;
     border-radius: 50%;
     margin-bottom: 10px;
+    background: rgba(255, 255, 255, 0.04);
     border: 2px solid rgba(255, 255, 255, 0.1);
 }
 .dt-name {
@@ -1084,19 +1076,12 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     color: var(--text-dim);
 }
 .dt-explanation {
-    font-size: 0.78rem;
-    line-height: 1.35;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-dim);
 }
-
-/* Quick Summary */
-.summary-content { flex: 1; display: flex; flex-direction: column; gap: 12px; }
-.summary-content.empty-state { justify-content: flex-start; }
-.summary-stat { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(0,0,0,0.2); border-radius: 0; border: 1px solid var(--border-dim); }
-.summary-stat-label { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-.summary-stat-value { font-weight: 600; font-size: 1rem; }
-.summary-alert { font-size: 0.88rem; padding: 10px 14px; border-radius: 0; font-weight: 600; }
-.summary-alert.play-now { background: rgba(225, 6, 0,0.1); border: 1px solid rgba(225, 6, 0,0.3); color: #ff6b6b; }
-.summary-alert.hold { background: rgba(81,207,102,0.08); border: 1px solid rgba(81,207,102,0.2); color: #51cf66; }
 
 /* ── Results Tabs ── */
 .results-tabs {
@@ -1230,16 +1215,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     border: 1px solid currentColor;
 }
 .price-name { flex: 1; font-size: 0.9rem; }
-
-/* ── Dream Team Enhancements ────────────────────────────────────── */
-.dt-thumb {
-    width: 48px; height: 48px; object-fit: contain; border-radius: 0;
-    background: rgba(255,255,255,0.04); margin-bottom: 8px;
-}
-.dt-explanation {
-    font-size: 0.72rem; margin-top: 8px; line-height: 1.4;
-    padding-top: 8px; border-top: 1px solid var(--border-dim);
-}
 
 /* ── Predicted Race / Sprint Order Table ───────────────────────── */
 .race-order-table { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
@@ -1435,7 +1410,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     background: rgba(10, 16, 28, 0.82);
     backdrop-filter: blur(18px) saturate(160%);
     -webkit-backdrop-filter: blur(18px) saturate(160%);
-    border: 1px solid rgba(0, 240, 255, 0.3);
+    border: 1px solid rgba(225, 6, 0, 0.30);
     border-radius: var(--radius-md);  /* Phase 5 */
     padding: 16px;
     z-index: 9999;
@@ -1945,7 +1920,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 /* --- Diagnostics HUD --- */
 .hud-panel {
     background: rgba(8, 12, 24, 0.5);
-    border: 1px solid rgba(0, 210, 190, 0.14);
+    border: 1px solid rgba(225, 6, 0, 0.16);
     border-radius: var(--radius-md);  /* Phase 5 */
     padding: 18px;
     box-shadow: none !important;
@@ -1956,16 +1931,16 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(0, 210, 190, 0.4), transparent);
+    background: linear-gradient(90deg, transparent, rgba(225, 6, 0, 0.4), transparent);
 }
 .hud-header {
     font-family: var(--font-heading);
     font-size: 0.85rem;
     font-weight: 700;
-    color: var(--color-green);
+    color: var(--accent-primary);
     letter-spacing: 2px;
     margin-bottom: 14px;
-    border-bottom: 1px solid rgba(0, 210, 190, 0.15);
+    border-bottom: 1px solid rgba(225, 6, 0, 0.15);
     padding-bottom: 6px;
 }
 .hud-grid {
@@ -1978,11 +1953,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     padding: 10px 14px;
     border-radius: var(--radius-sm);  /* Phase 5 */
     border: 1px solid rgba(255, 255, 255, 0.03);
-    border-left: 3px solid var(--color-green);
-    transition: border-left-color 0.3s ease;
-}
-.engine-running .hud-item {
-    border-left-color: var(--f1-red);
+    border-left: 3px solid var(--accent-primary);
 }
 .hud-label {
     font-size: 0.68rem;
@@ -2252,7 +2223,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .driver-compact-card:hover {
     /* Phase 2: x translation managed by GSAP — only color state here */
     background: rgba(22, 32, 58, 0.95) !important;
-    border-color: rgba(0, 240, 255, 0.28) !important;
+    border-color: rgba(225, 6, 0, 0.28) !important;
     box-shadow: inset 3px 0 0 var(--accent-primary);
 }
 
@@ -3781,8 +3752,15 @@ td.number, td.numeric, td[class*="num"] {
 /* ── D3: Analysis standby — idle means idle ── */
 #analysis-screen:not(.running) #pipeline-visualizer,
 #analysis-screen:not(.running) #animation-status-text,
-#analysis-screen:not(.running) .analysis-subnote {
+#analysis-screen:not(.running) .analysis-subnote,
+#analysis-screen:not(.running) .hud-panel,
+#analysis-screen:not(.running) .analysis-right {
     display: none;
+}
+
+/* With the live columns hidden, the standby panel takes the full width. */
+#analysis-screen:not(.running) .analysis-split-layout {
+    grid-template-columns: 1fr;
 }
 
 #analysis-screen.running #analysis-standby {

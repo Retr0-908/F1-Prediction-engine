@@ -1220,6 +1220,11 @@ function setAnalysisIdleState() {
     const screen = document.getElementById('analysis-screen');
     if (screen) screen.classList.remove('running');
 
+    // The standby panel is a child of this container, so it must be visible at idle
+    // (the run-only pipeline/HUD inside it are hidden by CSS under :not(.running)).
+    const anim = document.getElementById('analysis-animation-container');
+    if (anim) anim.style.display = 'flex';
+
     const visualizer = document.getElementById('pipeline-visualizer');
     if (visualizer) {
         visualizer.classList.remove('active');
@@ -1584,15 +1589,6 @@ function connectStream(runId) {
             statusTextEl.innerText = data.stage.replace('_', ' ');
         }
         
-        const animContainer = document.getElementById('analysis-animation-container');
-        if (animContainer && data.stage) {
-            if (['ML_MODEL', 'PREDICTIONS', 'ANALYSIS'].includes(data.stage)) {
-                animContainer.classList.add('engine-running');
-            } else {
-                animContainer.classList.remove('engine-running');
-            }
-        }
-        
         // Update Track
         stages.forEach((s, idx) => {
             const node = document.getElementById(`node-${s}`);
@@ -1693,8 +1689,9 @@ function connectStream(runId) {
             evtSource.close();
             setPipelineActivePhase('Pipeline Complete — Synthesizing Strategy Recommendations');
             stopPipelineVisualizer();
-            const anim = document.getElementById('analysis-animation-container');
-            if (anim) anim.style.display = 'none';
+            // Do NOT hide #analysis-animation-container here — the standby panel lives
+            // inside it, so hiding it would leave a blank screen after a run. The
+            // container's idle/run visibility is owned by setAnalysisIdleState().
             lastResults = data.data;
             _currentRaceInfo = data.data.race || null;
             setTimeout(() => displayResults(data.data), 800);
@@ -1709,8 +1706,7 @@ function connectStream(runId) {
             evtSource.close();
             setPipelineActivePhase('Simulation Encountered Error');
             stopPipelineVisualizer();
-            const anim = document.getElementById('analysis-animation-container');
-            if (anim) anim.style.display = 'none';
+            // Leave #analysis-animation-container visible so the standby panel shows.
             showToast('Analysis failed: ' + data.message, 'error');
             _isPipelineRunning = false;
             const runBtn = document.getElementById('btn-run-analysis');
@@ -3571,11 +3567,11 @@ function renderSeasonTrendChart(accuracyLog) {
                 {
                     label: 'Spearman Correlation (ρ)',
                     data: spearmanData,
-                    borderColor: '#00F0FF',
-                    backgroundColor: 'rgba(0, 240, 255, 0.1)',
+                    borderColor: '#FF9500',
+                    backgroundColor: 'rgba(255, 149, 0, 0.1)',
                     borderWidth: 3,
                     pointRadius: 5,
-                    pointBackgroundColor: '#00F0FF',
+                    pointBackgroundColor: '#FF9500',
                     yAxisID: 'y1',
                     tension: 0.15
                 }
@@ -3599,7 +3595,7 @@ function renderSeasonTrendChart(accuracyLog) {
                 },
                 y1: {
                     position: 'right',
-                    title: { display: true, text: 'Spearman Correlation (ρ)', color: '#00F0FF', font: { family: 'Inter', weight: 'bold' } },
+                    title: { display: true, text: 'Spearman Correlation (ρ)', color: '#FF9500', font: { family: 'Inter', weight: 'bold' } },
                     grid: { drawOnChartArea: false },
                     ticks: { color: '#5c647b' },
                     min: -1.0,

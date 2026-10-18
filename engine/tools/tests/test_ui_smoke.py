@@ -1,3 +1,4 @@
+import re
 import unittest
 
 try:
@@ -120,6 +121,46 @@ class UISmokeTests(unittest.TestCase):
         css = self.client.get("/static/style.css").text
         self.assertEqual(css.count(".btn-primary {"), 1)
 
+    def test_dream_team_single_definition(self):
+        """Verify the consolidated dream-team thumb/explanation rules are defined once."""
+        css = self.client.get("/static/style.css").text
+        self.assertEqual(css.count(".dt-thumb {"), 1)
+        self.assertEqual(css.count(".dt-explanation {"), 1)
+
+    def test_no_undefined_custom_properties(self):
+        """Every var(--token) must resolve to a :root definition (except runtime ones).
+
+        Guards the class of defect where a renamed/removed token is still referenced,
+        which silently renders an element unstyled.
+        """
+        css = self.client.get("/static/style.css").text
+        blob = css + self.client.get("/").text + self.client.get("/static/app.js").text
+        defined = set(re.findall(r"(?m)^\s*(--[a-z0-9-]+)\s*:", css))
+        used = set(re.findall(r"var\(\s*(--[a-z0-9-]+)", blob))
+        # --team-color is assigned per-element from JS at runtime, not in :root.
+        missing = used - defined - {"--team-color"}
+        self.assertEqual(missing, set(), f"undefined custom properties: {sorted(missing)}")
+
+    def test_no_cyan_chrome_literals(self):
+        """Verify the retired cyan accent no longer appears as UI chrome."""
+        css = self.client.get("/static/style.css").text
+        js = self.client.get("/static/app.js").text
+        self.assertNotIn("rgba(0, 240, 255", css)
+        self.assertNotIn("#00F0FF", js)
+
+    def test_analysis_idle_hides_run_only_chrome(self):
+        """Idle hides the run-only HUD/right column and keeps the standby container visible."""
+        css = self.client.get("/static/style.css").text
+        js = self.client.get("/static/app.js").text
+        # Run-only chrome is gated off while idle (CSS owns the run/idle switch).
+        self.assertIn("#analysis-screen:not(.running) .hud-panel", css)
+        self.assertIn("#analysis-screen:not(.running) .analysis-right", css)
+        # The standby panel lives inside #analysis-animation-container, so idle must
+        # restore it and nothing may hide the container again (that blanked the screen
+        # after every run).
+        self.assertIn("anim.style.display = 'flex'", js)
+        self.assertNotIn("anim.style.display = 'none'", js)
+
     def test_analysis_idle_standby_contract(self):
         """Verify the analysis screen ships a standby state and honest run-state functions."""
         html = self.client.get("/").text
@@ -229,6 +270,10 @@ class UISmokeTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         js = res.text
         self.assertIn("nav-spring-indicator", js)
+        # Indicator must stay a vertical bar (not regress to a rogue underline).
+        self.assertIn("width: 3px", js)
+        self.assertNotIn("bottom: 0", js)
+        self.assertNotIn("height: 2px", js)
         html = self.client.get("/").text
         self.assertIn('id="nav-toggle"', html)
         self.assertIn('id="nav-backdrop"', html)
