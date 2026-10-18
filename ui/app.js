@@ -434,7 +434,7 @@ function renderCircuitMap(container, mapUrl, race) {
     const circuitLabel = (race && (race.circuit || race.circuit_name || race.name)) ? (race.circuit || race.circuit_name || race.name) : 'Circuit Layout';
     const fallbackHtml = `
         <div class="circuit-fallback-card" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px;text-align:center;background:radial-gradient(ellipse at center, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0) 70%);">
-            <svg width="56" height="56" viewBox="0 0 64 64" fill="none" style="opacity:0.4;stroke:var(--telemetry-cyan, #00f3ff);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px rgba(0,243,255,0.25));">
+            <svg width="56" height="56" viewBox="0 0 64 64" fill="none" style="opacity:0.4;stroke:var(--accent-primary);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px rgba(225,6,0,0.25));">
                 <path d="M12 46 C 8 46 6 40 10 36 L 18 20 C 22 12 30 10 38 12 L 48 15 C 56 17 58 24 54 30 L 46 44 C 42 50 34 52 26 50 Z" />
                 <circle cx="13" cy="42" r="2.5" fill="#E10600" />
             </svg>
@@ -744,7 +744,7 @@ function renderF1TeamCards(teams, cardsEl) {
         }).join('');
 
         const ctorItemsHtml = (t.constructors || []).map(c => `
-            <div class="f1-team-lineup-item" style="color:var(--telemetry-cyan);">
+            <div class="f1-team-lineup-item" style="color:var(--accent-primary);">
                 <span>🏎️ ${c}</span>
             </div>
         `).join('');
@@ -782,7 +782,7 @@ function renderCookieStatusBadge(statusInfo) {
     if (statusInfo.status === 'active') {
         badge.style.display = 'inline-block';
         badge.style.background = 'rgba(0, 210, 190, 0.15)';
-        badge.style.color = 'var(--telemetry-cyan, #00D2BE)';
+        badge.style.color = 'var(--color-green)';
         badge.style.border = '1px solid rgba(0, 210, 190, 0.35)';
         badge.innerText = `🟢 Active (${statusInfo.days_remaining}d left)`;
         badge.title = statusInfo.message;
@@ -795,9 +795,9 @@ function renderCookieStatusBadge(statusInfo) {
         badge.title = statusInfo.message;
     } else if (statusInfo.status === 'expired') {
         badge.style.display = 'inline-block';
-        badge.style.background = 'rgba(232, 0, 45, 0.15)';
+        badge.style.background = 'rgba(225, 6, 0, 0.15)';
         badge.style.color = '#ff4d6a';
-        badge.style.border = '1px solid rgba(232, 0, 45, 0.4)';
+        badge.style.border = '1px solid rgba(225, 6, 0, 0.4)';
         badge.innerText = `🔴 Expired`;
         badge.title = statusInfo.message;
     } else {
@@ -861,7 +861,7 @@ async function pasteF1CookieFromClipboard() {
         const cleaned = cleanF1CookieInput(text);
         if (cleaned) {
             inputEl.value = cleaned;
-            inputEl.style.borderColor = 'var(--telemetry-cyan, #00D2BE)';
+            inputEl.style.borderColor = 'var(--accent-primary)';
             if (btn) {
                 const orig = btn.innerHTML;
                 btn.innerHTML = '<span>✓</span> Cookie Pasted!';
@@ -2533,7 +2533,7 @@ function renderPracticeChart(sortedData) {
     
     const labels = sortedData.map(d => d[0].split(' ').pop());
     const deltas = sortedData.map(d => d[1]);
-    const colors = deltas.map(v => v <= 0 ? 'rgba(0, 210, 190, 0.6)' : 'rgba(232, 0, 45, 0.6)');
+    const colors = deltas.map(v => v <= 0 ? 'rgba(0, 210, 190, 0.6)' : 'rgba(225, 6, 0, 0.6)');
     
     _charts.practice = new Chart(ctx, {
         type: 'bar',
@@ -4296,7 +4296,7 @@ function renderStageComparisonTable(data, filter) {
                 </td>
                 <td class="col-actual">
                     <span class="pred-pos-text">${actualPosText}</span>
-                    <span class="stage-sub-delta" style="color:var(--telemetry-cyan); font-weight:600;">${actualPts}</span>
+                    <span class="stage-sub-delta" style="color:var(--color-green); font-weight:600;">${actualPts}</span>
                 </td>
                 <td class="col-evolution">
                     <span class="trajectory-spark">${trajectory}</span>
