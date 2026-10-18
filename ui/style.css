@@ -2717,18 +2717,6 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     margin-bottom: 28px;
 }
 
-/* ── Phase 8: Sliding nav indicator ── */
-#nav-spring-indicator {
-    position: absolute;
-    bottom: 0;
-    height: 2px;
-    background: var(--neon-cyan);
-    border-radius: 2px 2px 0 0;
-    pointer-events: none;
-    opacity: 0;
-    transform-origin: left center;
-}
-
 /* ── Phase 5: Mode selector styled to match new radius system ── */
 #mode-selector {
     font-family: var(--font-body) !important;

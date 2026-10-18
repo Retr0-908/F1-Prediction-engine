@@ -142,11 +142,22 @@ class UISmokeTests(unittest.TestCase):
         self.assertEqual(missing, set(), f"undefined custom properties: {sorted(missing)}")
 
     def test_no_cyan_chrome_literals(self):
-        """Verify the retired cyan accent no longer appears as UI chrome."""
-        css = self.client.get("/static/style.css").text
-        js = self.client.get("/static/app.js").text
-        self.assertNotIn("rgba(0, 240, 255", css)
-        self.assertNotIn("#00F0FF", js)
+        """Verify the retired cyan accent no longer appears as UI chrome anywhere in the UI."""
+        blobs = {
+            "style.css": self.client.get("/static/style.css").text,
+            "index.html": self.client.get("/").text,
+            "app.js": self.client.get("/static/app.js").text,
+            "apple-springs.js": self.client.get("/static/apple-springs.js").text,
+        }
+        for label, blob in blobs.items():
+            self.assertIsNone(
+                re.search(r"(?<![\d.])0\s*,\s*240\s*,\s*255", blob),
+                f"cyan rgba literal reintroduced in {label}",
+            )
+            self.assertIsNone(
+                re.search(r"#00f0ff", blob, re.IGNORECASE),
+                f"cyan hex literal reintroduced in {label}",
+            )
 
     def test_analysis_idle_hides_run_only_chrome(self):
         """Idle hides the run-only HUD/right column and keeps the standby container visible."""
@@ -158,8 +169,10 @@ class UISmokeTests(unittest.TestCase):
         # The standby panel lives inside #analysis-animation-container, so idle must
         # restore it and nothing may hide the container again (that blanked the screen
         # after every run).
-        self.assertIn("anim.style.display = 'flex'", js)
         self.assertNotIn("anim.style.display = 'none'", js)
+        idle = re.search(r"function setAnalysisIdleState\(\) \{(.*?)\n\}", js, re.DOTALL)
+        self.assertIsNotNone(idle, "setAnalysisIdleState() not found")
+        self.assertIn("style.display = 'flex'", idle.group(1))
 
     def test_analysis_idle_standby_contract(self):
         """Verify the analysis screen ships a standby state and honest run-state functions."""
