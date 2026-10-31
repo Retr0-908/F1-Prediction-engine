@@ -1873,13 +1873,22 @@ function displayResults(data) {
         if (sprintView) sprintView.style.display = 'none';
         if (sprintBanner) sprintBanner.style.display = 'none';
         
-        // Render standard table split into exactly half left and half right
+        // Dynamic telemetry subtitle update (Issue U-01)
+        const subElem = document.getElementById('race-order-subtitle');
+        if (subElem) {
+            if (data.practice_data && data.practice_data.session && data.practice_data.session !== 'N/A') {
+                subElem.textContent = `Practice session pace (${data.practice_data.session}) is factored into these predictions.`;
+            } else {
+                subElem.textContent = 'Pre-practice mode: historical circuit pace & simulation models applied.';
+            }
+        }
+
+        // Render standard table split at official FIA points cutoff (P10 / P11) (Issue U-03)
         const raceOrder = [...(preds.race_order || [])].sort((a, b) => (a.predicted_rank || 99) - (b.predicted_rank || 99));
-        const half = Math.ceil(raceOrder.length / 2);
-        const leftSide = raceOrder.slice(0, half);
-        const rightSide = raceOrder.slice(half);
-        renderRaceOrder(leftSide, 'res-race-order-left');
-        renderRaceOrder(rightSide, 'res-race-order-right');
+        const leftSide = raceOrder.slice(0, 10);   // P1 to P10: Points Finishers
+        const rightSide = raceOrder.slice(10);     // P11 to P22: Non-Points Classification
+        renderRaceOrder(leftSide, 'res-race-order-left', false, 'POINTS FINISHERS (P1 – P10)');
+        renderRaceOrder(rightSide, 'res-race-order-right', false, 'NON-POINTS CLASSIFICATION (P11 – P22)');
     }
 
     // ── Qualifying Projections View ──
@@ -1974,7 +1983,7 @@ function renderChipCards(chips) {
     });
 }
 
-function renderRaceOrder(order, containerId, isSprint = false) {
+function renderRaceOrder(order, containerId, isSprint = false, zoneTitle = '') {
     const el = document.getElementById(containerId);
     if (!el) return;
     if (!order || order.length === 0) {
@@ -1988,12 +1997,19 @@ function renderRaceOrder(order, containerId, isSprint = false) {
     // Sort by rank
     const sorted = [...order].sort((a, b) => (a[rankKey] || a.predicted_rank || 99) - (b[rankKey] || b.predicted_rank || 99));
 
-    el.innerHTML = `
+    const zoneHeaderHtml = zoneTitle ? `
+        <div class="ro-zone-header ${zoneTitle.includes('P10') ? 'ro-zone-points' : 'ro-zone-nonpoints'}">
+            <span>${zoneTitle}</span>
+            <span style="font-size:0.68rem;opacity:0.8;">${sorted.length} DRIVERS</span>
+        </div>` : '';
+
+    el.innerHTML = zoneHeaderHtml + `
         <div class="race-order-header">
             <span class="ro-col-pos">POS</span>
             <span class="ro-col-driver">DRIVER</span>
             <span class="ro-col-team">TEAM</span>
-            <span class="ro-col-telemetry">STATUS</span>
+            <span class="ro-col-form">FORM</span>
+            <span class="ro-col-dnf">DNF RISK</span>
             <span class="ro-col-pred">PRED</span>
             <span class="ro-col-conf">CONFIDENCE</span>
         </div>
@@ -2008,13 +2024,18 @@ function renderRaceOrder(order, containerId, isSprint = false) {
         const teamColor  = teamColors[team] || '#FF003C';
         const imgUrl     = driverHeadshots[name];
         const thumbHtml  = imgUrl ? `<img class="ro-thumb" src="${imgUrl}" alt="" onerror="this.style.visibility='hidden'">` : '';
-        const isRookie   = d.is_rookie ? '<span class="telemetry-mini-pill pill-rookie" title="Rookie Driver">ROOKIE</span>' : '';
+        const isRookie   = d.is_rookie ? '<span class="telemetry-mini-pill pill-rookie" title="Rookie Driver">R</span>' : '';
+        
+        // Universal DNF risk pill (Issue U-02: always visible for all drivers)
         const dnf        = d.dnf_prob_pct || 0;
-        const dnfHtml    = dnf >= 15 ? `<span class="telemetry-mini-pill pill-dnf" title="DNF Risk: ${dnf.toFixed(0)}%">⚠ ${dnf.toFixed(0)}%</span>` : '';
+        const dnfClass   = dnf >= 20 ? 'pill-dnf-high' : dnf >= 12 ? 'pill-dnf-med' : 'pill-dnf-low';
+        const dnfHtml    = `<span class="telemetry-mini-pill ${dnfClass}" title="DNF Risk: ${dnf.toFixed(1)}%">${dnf.toFixed(0)}%</span>`;
+
+        // Form trend badge
         const momentum   = d.momentum || 0;
         const mClass     = momentum > 0.5 ? 'pill-momentum-up' : momentum < -0.5 ? 'pill-momentum-down' : 'pill-momentum-flat';
         const mArrow     = momentum > 0.5 ? '▲' : momentum < -0.5 ? '▼' : '–';
-        const momentumHtml = `<span class="telemetry-mini-pill ${mClass}" title="Momentum: ${momentum > 0 ? '+' : ''}${momentum.toFixed(1)}">${mArrow}</span>`;
+        const momentumHtml = `<span class="telemetry-mini-pill ${mClass}" title="EWMA Momentum: ${momentum > 0 ? '+' : ''}${momentum.toFixed(2)}">${mArrow}</span>`;
         const posClass   = rank <= 3 ? 'ro-pos-top3' : rank <= 10 ? 'ro-pos-points' : 'ro-pos-out';
 
         return `<div class="race-order-row">
@@ -2024,10 +2045,12 @@ function renderRaceOrder(order, containerId, isSprint = false) {
                 <span class="ro-name" title="${name}">${name}</span>
             </span>
             <span class="ro-col-team" style="color:${teamColor}" title="${team}">${team}</span>
-            <span class="ro-col-telemetry">
+            <span class="ro-col-form">
                 ${isRookie}
-                ${dnfHtml}
                 ${momentumHtml}
+            </span>
+            <span class="ro-col-dnf">
+                ${dnfHtml}
             </span>
             <span class="ro-col-pred">P${pred}</span>
             <span class="ro-col-conf">

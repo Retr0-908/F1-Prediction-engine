@@ -1,3 +1,26 @@
+# ─────────────────────────────────────────────
+# CANONICAL CONSTRUCTOR EV CONSERVATION HELPER (Issues F-02 & F-04)
+# ─────────────────────────────────────────────
+def compute_canonical_constructor_ev(
+    ctor: str,
+    active_driver_teams: dict,
+    driver_ev_pts: dict,
+    driver_pts_list: list[dict],
+) -> float:
+    '''
+    Enforces exact bottom-up conservation:
+    Constructor EV = sum_{d in team} (Driver EV_d - DoTD_d) + PitStopEV_team
+    '''
+    from engine.core.config import AVG_PIT_STOP_TEAM_POINTS
+    drv_list = [d for d, c in active_driver_teams.items() if c == ctor]
+    driver_dotd_lookup = {
+        d["driver"]: d.get("breakdown", {}).get("driver_of_day", 0.0)
+        for d in driver_pts_list
+    }
+    pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
+    ctor_ev = sum(driver_ev_pts.get(d, 0.0) - driver_dotd_lookup.get(d, 0.0) for d in drv_list) + pit_pts
+    return round(float(ctor_ev), 1)
+
 import logging
 import time
 from pathlib import Path
@@ -280,16 +303,13 @@ def run_full_pipeline(
             grid_penalties=getattr(predictor, "_grid_penalties", {})
         )
         mc_ev_pts = get_expected_value_pts(mc_results)
-        from engine.core.config import DRIVER_TEAMS_2026, DRIVER_TEAMS_2025, AVG_PIT_STOP_TEAM_POINTS
-        driver_dotd_lookup = {d["driver"]: d["breakdown"].get("driver_of_day", 0.0) for d in driver_pts}
         active_driver_teams = dict(DRIVER_TEAMS_2026 if CURRENT_SEASON >= 2026 else DRIVER_TEAMS_2025)
         if dynamic_roster:
             active_driver_teams.update(dynamic_roster)
         for ctor in active_ctors:
-            drv_list = [d for d, c in active_driver_teams.items() if c == ctor]
-            pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
-            ctor_ev = sum(mc_ev_pts.get(d, 0.0) - driver_dotd_lookup.get(d, 0.0) for d in drv_list) + pit_pts
-            mc_ev_pts[ctor] = ctor_ev
+            mc_ev_pts[ctor] = compute_canonical_constructor_ev(
+                ctor, active_driver_teams, mc_ev_pts, driver_pts
+            )
         progress_callback(run_id, "PREDICTIONS", "done", "Predictions complete", data={
             "sims": sims,
             "sc_prob": int(SC_PROBABILITY.get(circuit_cfg.get("key"), 0.40) * 100)
@@ -330,14 +350,14 @@ def run_full_pipeline(
 
         progress_callback(run_id, "ANALYSIS", "done", "Analysis complete")
 
-        # Chip advisor
+        # Chip advisor (Issue C-06 Fix: pass live mc_results!)
         chip_state = load_chip_state()
         chip_scores = advise_chips(
             race_info=race,
             circuit_config=circuit_cfg,
             weather=weather,
             driver_pts=driver_pts,
-            mc_results=None,  # pass mc_results if DistributionStats serializable
+            mc_results=mc_results,
             current_drivers=my_drivers,
             free_transfers=transfers,
             chip_state=chip_state,
@@ -558,23 +578,15 @@ def calculate_lookahead_ev(
                 total_ev[name] = total_ev.get(name, 0.0) + points * weight
                 
             # Calculate constructor expected values for this round.
-            # ev_pts already contains MC-integrated driver points (including sprint when is_sprint=True).
-            # Constructor points = sum of both drivers' EV minus DOTD (driver-only bonus) + pit stop bonus.
+            # Unify constructor EV using canonical bottom-up conservation (Issue F-04)
+            lookahead_driver_pts = [
+                predictor.estimate_fantasy_points(d["driver"], race_order, quali_order, is_sprint, sprint_order)
+                for d in race_order
+            ]
             for ctor in constructors:
-                drv_list = [d for d, c in base_driver_teams.items() if c == ctor]
-                pit_pts = AVG_PIT_STOP_TEAM_POINTS.get(ctor, 7)
-                ctor_ev = 0.0
-                for d in drv_list:
-                    d_race = next((x for x in race_order if x["driver"] == d), None)
-                    if d_race:
-                        rank = d_race["predicted_rank"]
-                        dnf_prob = d_race["dnf_prob_pct"] / 100.0
-                        dotd_prob = max(0.0, 0.12 - (rank - 1) * 0.01) * (1.0 - dnf_prob)
-                        dotd_ev = DRIVER_OF_DAY_BONUS * dotd_prob
-                    else:
-                        dotd_ev = 0.0
-                    ctor_ev += ev_pts.get(d, 0.0) - dotd_ev
-                ctor_ev += pit_pts
+                ctor_ev = compute_canonical_constructor_ev(
+                    ctor, base_driver_teams, ev_pts, lookahead_driver_pts
+                )
                 total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev * weight
     finally:
         # Restore snapshot with deep copies to leave predictor clean for subsequent requests

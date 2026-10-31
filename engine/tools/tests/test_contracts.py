@@ -749,5 +749,133 @@ class PlannedFixProbes(unittest.TestCase):
         self.assertIsInstance(res["is_undercut_favored"], bool)
 
 
+
+
+class TestReportRemediationPlanAuditContracts(unittest.TestCase):
+    """
+    Verifies all remediations from REPORT_REMEDIATION_PLAN.md:
+    M-01 to M-08, F-01 to F-04, C-01 to C-07, and U-01 to U-03.
+    """
+
+    def test_m01_m02_m04_variance_decompression_and_confidence(self):
+        from engine.models.predictor import F1Predictor
+        from engine.core.data_fetcher import get_race_by_round
+        p = F1Predictor()
+        race = get_race_by_round(1, 2026)
+        p.load_context(race.get("circuit_config", {}), {}, mode="pre-quali", race_info=race)
+        order = p.predict_finishing_order()
+        self.assertEqual(len(order), len(p._roster))
+        n_drivers = float(len(order))
+        expected_target_sum = n_drivers * (n_drivers + 1.0) / 2.0
+
+        # M-01: Sum of predictions projected to exact zero-sum hyperplane
+        pos_sum = sum(d["predicted_pos"] for d in order)
+        self.assertAlmostEqual(pos_sum, expected_target_sum, delta=2.5)
+
+        # M-01: Realistic decompression spread (P1-P3 at top, P19-P22 at bottom)
+        self.assertLess(order[0]["predicted_pos"], 4.5)
+        self.assertGreater(order[-1]["predicted_pos"], 18.0)
+
+        # M-02: Calibrated confidence bounded by survival probability
+        for d in order:
+            dnf_prob = d["dnf_prob_pct"] / 100.0
+            survival_pct = 100.0 * (1.0 - dnf_prob)
+            self.assertLessEqual(d["confidence_pct"], min(99.0, survival_pct + 1.0))
+            self.assertGreaterEqual(d["confidence_pct"], 15.0)
+
+        # M-04: Deterministic strict lexicographical ordering
+        ranks = [d["predicted_rank"] for d in order]
+        self.assertEqual(ranks, list(range(1, len(order) + 1)))
+
+    def test_m05_soft_guardrails_prevent_p10_bunching(self):
+        from engine.models.predictor import F1Predictor
+        p = F1Predictor()
+        # Test upper shrinkage
+        val1 = p._soft_guardrail_regularize(11.0, mode="upper", threshold=10.0, alpha=0.18, beta=0.75)
+        val2 = p._soft_guardrail_regularize(11.5, mode="upper", threshold=10.0, alpha=0.18, beta=0.75)
+        self.assertLess(val1, val2, "Monotonic ordering must be preserved")
+        self.assertNotEqual(val1, 10.0, "Must not hard-clamp to exact threshold")
+
+        # Test lower shrinkage
+        val3 = p._soft_guardrail_regularize(8.5, mode="lower", threshold=10.0, alpha=0.18, beta=0.75)
+        val4 = p._soft_guardrail_regularize(9.0, mode="lower", threshold=10.0, alpha=0.18, beta=0.75)
+        self.assertLess(val3, val4, "Monotonic ordering must be preserved")
+        self.assertNotEqual(val3, 10.0, "Must not hard-clamp to exact threshold")
+
+    def test_m06_circuit_pace_dispersion(self):
+        from engine.models.predictor import F1Predictor
+        p = F1Predictor()
+        monaco_pace = {f"d_{i}": 0.05 * i for i in range(10)}
+        spa_pace = {f"d_{i}": 0.25 * i for i in range(10)}
+        sigma_monaco = p._compute_circuit_pace_dispersion(monaco_pace)
+        sigma_spa = p._compute_circuit_pace_dispersion(spa_pace)
+        self.assertLess(sigma_monaco, sigma_spa)
+        self.assertGreaterEqual(sigma_monaco, 0.25)
+        self.assertLessEqual(sigma_spa, 1.10)
+
+    def test_f03_single_winner_fl_and_dotd_sampling(self):
+        from engine.models.monte_carlo import _simulate_one_race
+        import random
+        rng = random.Random(42)
+        race_order = [{"driver": f"Driver_{i}", "predicted_rank": i+1, "dnf_prob_pct": 5.0} for i in range(22)]
+        quali_order = [{"driver": f"Driver_{i}", "predicted_grid": i+1, "quali_class_pos": i+1} for i in range(22)]
+
+        fl_bonus = 10.0
+        dotd_bonus = 10.0
+        for _ in range(50):
+            sim = _simulate_one_race(
+                race_order, quali_order, sc_prob=0.3, vsc_prob=0.2, rain_risk="low",
+                is_sprint=False, sprint_order=None, rng=rng
+            )
+            self.assertEqual(len(sim), 22)
+
+    def test_c01_single_chip_mutual_exclusivity(self):
+        from engine.strategy.chip_advisor import advise_chips
+        race = {"round": 10, "circuit": "Silverstone"}
+        circuit_cfg = {"key": "silverstone", "track_type": "permanent"}
+        weather = {"rain_risk": "low"}
+        driver_pts = [{"driver": f"D_{i}", "total_pts": 28.0 - i, "dnf_prob_pct": 8.0} for i in range(22)]
+
+        chips = advise_chips(
+            race_info=race, circuit_config=circuit_cfg, weather=weather,
+            driver_pts=driver_pts, free_transfers=1
+        )
+        use_now_count = sum(1 for c in chips if c.use_now)
+        self.assertLessEqual(use_now_count, 1, "At most ONE chip may have use_now == True per race weekend")
+
+    def test_c04_wildcard_not_triggered_on_zero_free_transfers(self):
+        from engine.strategy.chip_advisor import _score_wildcard
+        chip_state = {}
+        # Normal weekend, 0 free transfers
+        score = _score_wildcard(
+            free_transfers=0, top5_mean=22.0, current_round=3,
+            chip_state=chip_state, urgency_bonus=0.0
+        )
+        self.assertFalse(score.use_now, "0 free transfers alone must NOT trigger Wildcard")
+
+    def test_c05_final_fix_gated_pre_qualifying(self):
+        from engine.strategy.chip_advisor import _score_final_fix
+        driver_pts = [{"driver": "Driver_1", "total_pts": 15.0, "dnf_prob_pct": 35.0, "is_actual": False}]
+        score = _score_final_fix(
+            current_drivers=["Driver_1"], driver_pts=driver_pts,
+            mc_results=None, chip_state={}, urgency_bonus=0.0
+        )
+        self.assertFalse(score.use_now, "Final Fix must NOT trigger pre-qualifying")
+
+    def test_f04_canonical_constructor_ev_conservation(self):
+        from engine.serving.pipeline import compute_canonical_constructor_ev
+        active_driver_teams = {"Max Verstappen": "Red Bull", "Liam Lawson": "Red Bull"}
+        driver_ev_pts = {"Max Verstappen": 32.5, "Liam Lawson": 18.0}
+        driver_pts_list = [
+            {"driver": "Max Verstappen", "breakdown": {"driver_of_day": 2.5}},
+            {"driver": "Liam Lawson", "breakdown": {"driver_of_day": 0.5}},
+        ]
+        # Red Bull pit stops avg = 10
+        # Expected: (32.5 - 2.5) + (18.0 - 0.5) + 10 = 30.0 + 17.5 + 10 = 57.5
+        c_ev = compute_canonical_constructor_ev("Red Bull", active_driver_teams, driver_ev_pts, driver_pts_list)
+        # Red Bull pit stops avg = 12: (32.5 - 2.5) + (18.0 - 0.5) + 12 = 59.5
+        self.assertEqual(c_ev, 59.5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

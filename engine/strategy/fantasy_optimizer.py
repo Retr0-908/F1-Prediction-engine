@@ -323,20 +323,29 @@ def suggest_team_changes(
                 # is always #1 and any funding downgrade appears after with clear context.
                 combo_swaps.sort(key=lambda s: (s["pts_gain"], -s["cost_diff"]), reverse=True)
 
+                from engine.core.config import AVG_PIT_STOP_TEAM_POINTS
                 primary_upgrade_target = combo_swaps[0]["in"] if combo_swaps else ""
                 for idx, s in enumerate(combo_swaps):
+                    pit_note = ""
+                    if s.get("type") == "constructor":
+                        pit_in = AVG_PIT_STOP_TEAM_POINTS.get(s["in"], 7)
+                        pit_out = AVG_PIT_STOP_TEAM_POINTS.get(s["out"], 7)
+                        p_diff = pit_in - pit_out
+                        if p_diff != 0:
+                            pit_note = f" (incl. {p_diff:+.0f} pts pit-stop delta)"
+
                     if s["pts_gain"] < 0 and s["cost_diff"] < 0:
                         s["role"] = "funding_downgrade"
                         s["role_label"] = "BUDGET ENABLER"
-                        s["reason"] = f"Frees ${abs(s['cost_diff']):.1f}M to fund {primary_upgrade_target}"
+                        s["reason"] = f"Frees ${abs(s['cost_diff']):.1f}M to fund {primary_upgrade_target}{pit_note}"
                     elif idx == 0:
                         s["role"] = "primary_upgrade"
                         s["role_label"] = "PRIMARY UPGRADE"
-                        s["reason"] = f"Primary scoring upgrade (+{s['pts_gain']:.1f} pts)"
+                        s["reason"] = f"Primary scoring upgrade (+{s['pts_gain']:.1f} pts){pit_note}"
                     else:
                         s["role"] = "value_upgrade"
                         s["role_label"] = "UPGRADE"
-                        s["reason"] = f"Secondary scoring upgrade (+{s['pts_gain']:.1f} pts)"
+                        s["reason"] = f"Secondary scoring upgrade (+{s['pts_gain']:.1f} pts){pit_note}"
 
                 best_swaps = combo_swaps
 

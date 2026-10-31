@@ -10,6 +10,7 @@
     --telemetry-purple: #B138DD;
     --telemetry-green: #00D2BE;
     --telemetry-amber: #FF9500;
+    --telemetry-yellow: #FFB300;
     --telemetry-danger: #FF3B30;
     --telemetry-cyan: #00E5FF;
     --color-green: #00D2BE;
@@ -1231,21 +1232,44 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 /* ── Predicted Race / Sprint Order Table ───────────────────────── */
 .race-order-table { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
 
+.ro-zone-header {
+    font-family: var(--font-heading);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 6px 12px;
+    margin-bottom: 6px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.ro-zone-points {
+    background: rgba(0, 210, 190, 0.08);
+    color: var(--telemetry-green);
+    border: 1px solid rgba(0, 210, 190, 0.25);
+}
+.ro-zone-nonpoints {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-dim);
+    border: 1px solid var(--border-subtle);
+}
+
 .race-order-header {
     display: grid;
-    grid-template-columns: 46px minmax(130px, 1.4fr) minmax(100px, 1fr) 95px 50px minmax(75px, 105px);
-    gap: 8px; padding: 6px 12px;
-    font-family: var(--font-heading); font-size: 0.72rem; font-weight: 700;
-    color: var(--text-dim); letter-spacing: 1px; border-bottom: 1px solid var(--border-dim);
+    grid-template-columns: 44px minmax(115px, 1.3fr) minmax(85px, 1fr) 38px 56px 48px minmax(70px, 95px);
+    gap: 6px; padding: 6px 10px;
+    font-family: var(--font-heading); font-size: 0.70rem; font-weight: 700;
+    color: var(--text-dim); letter-spacing: 0.8px; border-bottom: 1px solid var(--border-dim);
     margin-bottom: 4px;
     align-items: center;
 }
 
 .race-order-row {
     display: grid;
-    grid-template-columns: 46px minmax(130px, 1.4fr) minmax(100px, 1fr) 95px 50px minmax(75px, 105px);
-    gap: 8px; align-items: center;
-    padding: 7px 12px;
+    grid-template-columns: 44px minmax(115px, 1.3fr) minmax(85px, 1fr) 38px 56px 48px minmax(70px, 95px);
+    gap: 6px; align-items: center;
+    padding: 6px 10px;
     border-radius: var(--radius-sm);
     background: linear-gradient(90deg, rgba(14, 19, 32, 0.85) 0%, rgba(6, 10, 18, 0.45) 100%);
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1286,10 +1310,16 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 }
 
 /* ── Dedicated Risk & Form Pill Group ── */
-.ro-col-telemetry {
+.ro-col-telemetry,
+.ro-col-form {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.ro-col-dnf {
+    display: flex;
+    align-items: center;
     flex-shrink: 0;
 }
 .telemetry-mini-pill {
@@ -1301,7 +1331,9 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     white-space: nowrap;
 }
 .pill-rookie { background: rgba(177, 56, 221, 0.2); color: var(--telemetry-purple); border: 1px solid rgba(177, 56, 221, 0.4); }
-.pill-dnf    { background: rgba(255, 59, 48, 0.2);  color: var(--telemetry-danger); border: 1px solid rgba(255, 59, 48, 0.4); }
+.pill-dnf-low  { background: rgba(0, 210, 190, 0.12); color: var(--telemetry-green); border: 1px solid rgba(0, 210, 190, 0.25); }
+.pill-dnf-med  { background: rgba(255, 179, 0, 0.15); color: var(--telemetry-yellow); border: 1px solid rgba(255, 179, 0, 0.35); }
+.pill-dnf-high { background: rgba(255, 59, 48, 0.2);  color: var(--telemetry-danger); border: 1px solid rgba(255, 59, 48, 0.4); }
 .pill-momentum-up   { color: var(--telemetry-green); }
 .pill-momentum-down { color: var(--telemetry-danger); }
 .pill-momentum-flat { color: var(--text-dim); }

@@ -314,6 +314,43 @@ def _simulate_one_race(
     for i, drv in enumerate(dnf_drivers):
         final_pos[drv] = len(active_sorted) + 1 + i
 
+    # ── Mutually Exclusive Single-Winner Categorical Draws for FL & DOTD (Issue F-03) ──
+    # Exactly ONE active top-10 finisher is eligible to win Fastest Lap
+    fl_winner = None
+    top10_active = [drv for drv in active_sorted if final_pos.get(drv, 99) <= 10]
+    if top10_active:
+        fl_weights = [max(0.01, 0.16 - 0.014 * (final_pos[drv] - 1)) for drv in top10_active]
+        total_fl_w = sum(fl_weights)
+        fl_probs = [w / total_fl_w for w in fl_weights]
+        r_val = rng.random()
+        cum = 0.0
+        for drv, prob in zip(top10_active, fl_probs):
+            cum += prob
+            if r_val <= cum:
+                fl_winner = drv
+                break
+
+    # Exactly ONE active finisher wins Driver of the Day, weighted by finish rank + positions gained
+    dotd_winner = None
+    if active_sorted:
+        dotd_weights = []
+        for drv in active_sorted:
+            r_p = final_pos[drv]
+            g_p = grid.get(drv, 10)
+            pos_gained = max(0, g_p - r_p)
+            base_w = max(0.005, 0.14 - 0.011 * (r_p - 1))
+            comeback_w = 0.025 * pos_gained if r_p <= 12 else 0.006 * pos_gained
+            dotd_weights.append(base_w + comeback_w)
+        total_dotd_w = sum(dotd_weights)
+        dotd_probs = [w / total_dotd_w for w in dotd_weights]
+        r_val = rng.random()
+        cum = 0.0
+        for drv, prob in zip(active_sorted, dotd_probs):
+            cum += prob
+            if r_val <= cum:
+                dotd_winner = drv
+                break
+
     # ── 6. Compute fantasy points for this simulation ──
     sim_pts: dict[str, float] = {}
 
@@ -347,14 +384,10 @@ def _simulate_one_race(
             else:
                 pts += abs(delta) * POSITIONS_LOST_PER
 
-            # Fastest lap — only top-10 finishers are eligible
-            fl_threshold = max(0.0, 0.09 - (race_p - 1) * 0.006)
-            if race_p <= 10 and rng.random() < fl_threshold:
+            # Mutually exclusive single-winner bonuses (Issue F-03)
+            if drv == fl_winner:
                 pts += FASTEST_LAP_BONUS
-
-            # Driver of the Day (random ~10% for top finishers)
-            dotd_threshold = max(0.0, 0.10 - (race_p - 1) * 0.008)
-            if rng.random() < dotd_threshold:
+            if drv == dotd_winner:
                 pts += DRIVER_OF_DAY_BONUS
 
         # Sprint weekend bonus (simplified)

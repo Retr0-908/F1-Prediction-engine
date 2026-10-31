@@ -1,3 +1,4 @@
+import numpy as np
 """
 chip_advisor.py — F1 Fantasy Chip Strategy Recommendation Engine (v2)
 
@@ -340,6 +341,18 @@ def advise_chips(
     )
     recommendations.append(cs_final_fix)
 
+    # ── Arbitrate mutual exclusivity (Issue C-01) ──────────────────────
+    # F1 Fantasy allows at most ONE chip per race weekend.
+    # If multiple chips have use_now=True, keep only the highest-scoring primary chip.
+    use_now_candidates = [cs for cs in recommendations if cs.use_now]
+    if len(use_now_candidates) > 1:
+        # Sort candidates by raw_score descending, then expected_gain descending
+        use_now_candidates.sort(key=lambda cs: (cs.raw_score, cs.expected_gain), reverse=True)
+        primary_chip = use_now_candidates[0]
+        for cs in use_now_candidates[1:]:
+            cs.use_now = False
+            cs.reason += f" · Downgraded to ALTERNATIVE because {primary_chip.chip} is recommended as PRIMARY"
+
     return recommendations
 
 
@@ -505,7 +518,18 @@ def _score_no_negative(
             hold_until = f"{best_chaos['circuit_name']} (R{best_chaos['round']}, SC {best_chaos['sc_prob']:.0%})"
             hold_round = best_chaos["round"]
 
-    expected_gain = 14.0 if score >= 7 else (10.0 if score >= 4 else 4.0)
+    # Dynamic downside tail expectation E[max(0, -S_a)] (Issue C-07)
+    incident_factor = 1.0 + 0.45 * (1.0 if rain_risk == "high" else (0.5 if rain_risk == "medium" else 0.0)) + 0.3 * sc_prob
+    downside_sum = 0.0
+    if mc_results:
+        for d_name, stat in mc_results.items():
+            if getattr(stat, "p10_pts", 0.0) < 0:
+                downside_sum += abs(stat.p10_pts) * 0.35
+            downside_sum += (getattr(stat, "p_dnf", 7.0) / 100.0) * 15.0 * 0.4
+    else:
+        downside_sum = score * 2.2 * incident_factor
+
+    expected_gain = round(float(np.clip(downside_sum, 3.5, 28.0)), 1)
 
     return ChipScore(
         chip="No Negative",
@@ -599,29 +623,31 @@ def _score_wildcard(
     score = 0.0
     reasons = []
 
-    if free_transfers == 0:
-        score += 3.0
-        reasons.append("No free transfers — Wildcard removes all penalties")
-    elif free_transfers < 0:
-        score += 4.0
-        reasons.append(f"In transfer debt ({free_transfers}) — Wildcard clears penalties")
+    # Issue C-04 Fix: Having 0 free transfers is standard routine gameplay!
+    # Wildcard only scores heavily when multiple structural transfers are needed or in penalty debt
+    if free_transfers < 0:
+        score += 4.5
+        reasons.append(f"In transfer debt ({free_transfers}) — Wildcard eliminates -{abs(free_transfers)*10} pts penalties")
+    elif free_transfers == 0:
+        score += 0.5
+        reasons.append("0 free transfers left — save Wildcard for a full squad rebuild")
 
-    if top5_mean >= 25:
-        score += 2.0
+    if top5_mean >= 26:
+        score += 1.5
         reasons.append(f"High-scoring weekend projected ({top5_mean:.0f} pts avg)")
-    elif top5_mean >= 20:
-        score += 1.0
 
     if current_round <= 5:
-        score += 2.0
-        reasons.append("Early season — good time to reset around the true pecking order")
+        score += 1.5
+        reasons.append("Early season — consider holding until price moves settle")
 
-    # Season urgency — a Wildcard held past round 16 is basically wasted
+    # Season urgency — a Wildcard held past round 18 must be utilized
     score += urgency_bonus
     if urgency_bonus >= 2.0:
-        reasons.append("Late season — Wildcard must be used soon or it's wasted")
+        score += 2.0
+        reasons.append("Late season urgency — Wildcard must be deployed soon")
 
-    use_now = score >= 3.0
+    # Wildcard requires a high threshold (>= 5.0) to prevent accidental burning
+    use_now = score >= 5.0
 
     return ChipScore(
         chip="Wildcard",
@@ -646,15 +672,26 @@ def _score_final_fix(
     reasons = []
     use_now = False
 
-    if current_drivers:
+    # Issue C-05 Fix: Final Fix is strictly an emergency POST-QUALIFYING chip
+    # Pre-qualifying DNF risk does not justify burning Final Fix before seeing qualifying results
+    is_post_quali = bool(driver_pts and any(d.get("is_actual", False) for d in driver_pts))
+
+    if is_post_quali and current_drivers:
         high_risk = [
             d["driver"] for d in driver_pts
             if d["driver"] in current_drivers and d.get("dnf_prob_pct", 0) > 20
         ]
         if high_risk:
-            score += 2.0
-            reasons.append(f"High DNF risk in your team: {', '.join(high_risk)}")
-            use_now = True  # genuine reason to use it this weekend
+            score += 3.0
+            reasons.append(f"Qualifying disaster in your team: {', '.join(high_risk)}")
+            use_now = True
+    elif current_drivers:
+        high_risk = [
+            d["driver"] for d in driver_pts
+            if d["driver"] in current_drivers and d.get("dnf_prob_pct", 0) > 20
+        ]
+        if high_risk:
+            reasons.append(f"Drivers at risk ({', '.join(high_risk)}) — wait for qualifying results before playing Final Fix")
 
     # Late season urgency — Final Fix is least valuable but still shouldn't be wasted
     score += urgency_bonus * 0.5  # half-weight for Final Fix

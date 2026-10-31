@@ -1491,6 +1491,51 @@ class F1Predictor:
         parts.append(f"confidence: {conf_label}")
         return f"Predicted P{pred_pos:.0f}: " + ", ".join(parts) + "."
 
+    @staticmethod
+    def _soft_guardrail_regularize(
+        pred: float,
+        mode: str,
+        threshold: float = 10.0,
+        alpha: float = 0.18,
+        beta: float = 0.75,
+    ) -> float:
+        '''
+        Smooth C^infinity Bayesian softplus regularization for guardrail boundaries (Issue M-05).
+        Replaces hard min/max boundary clamps, eliminating artificial P10 bunching while strictly
+        preserving monotonic rank order: y1 < y2 => Psi(y1) < Psi(y2).
+        '''
+        if mode == "upper":
+            tau = threshold - 0.5
+            z = (pred - tau) / max(beta, 1e-6)
+            sp = z + math.log1p(math.exp(-abs(z))) if z > 0 else math.log1p(math.exp(z))
+            return float(pred - (1.0 - alpha) * beta * sp)
+        elif mode == "lower":
+            tau = threshold + 0.5
+            z = (tau - pred) / max(beta, 1e-6)
+            sp = z + math.log1p(math.exp(-abs(z))) if z > 0 else math.log1p(math.exp(z))
+            return float(pred + (1.0 - alpha) * beta * sp)
+        return float(pred)
+
+    @staticmethod
+    def _compute_circuit_pace_dispersion(
+        pace_dict: Optional[dict],
+        fallback_sigma: float = 0.55,
+    ) -> float:
+        '''
+        Track-calibrated pace dispersion sigma_circuit across the field (Issue M-06).
+        Uses hybrid IQR / standard deviation estimator bounded to [0.25s, 1.10s].
+        '''
+        if pace_dict:
+            valid_deltas = [float(v) for v in pace_dict.values() if abs(float(v)) > 1e-4]
+            if len(valid_deltas) >= 4:
+                arr = np.asarray(valid_deltas, dtype=float)
+                q75, q25 = np.percentile(arr, [75, 25])
+                sigma_iqr = float((q75 - q25) / 1.34898)
+                sigma_std = float(np.std(arr, ddof=1))
+                sigma = 0.5 * sigma_iqr + 0.5 * sigma_std
+                return float(np.clip(sigma, 0.25, 1.10))
+        return float(np.clip(fallback_sigma, 0.30, 0.95))
+
     def predict_finishing_order(self) -> list[dict]:
         """Predict race finishing order for all drivers in current roster."""
         drivers = list(self._roster.keys())
@@ -1499,11 +1544,17 @@ class F1Predictor:
         for drv in drivers:
             pred, std = self._predict_position(drv, mode="race")
 
-            # Apply FastF1 heuristics as deterministic modifiers (soft-clamped to prevent boundary collapse)
+            # Track-calibrated pace dispersion (Issue M-06)
+            sigma_fp = self._compute_circuit_pace_dispersion(self._practice_pace)
             fp_delta = self._practice_pace.get(drv, 0.0) if self._practice_pace else 0.0
-            heur_delta = fp_delta * 2.0
+            # At baseline sigma=0.55s: 1.10 / 0.55 = 2.0 pos/s
+            heur_delta = fp_delta * (1.10 / sigma_fp)
             if self._quali_sectors and drv in self._quali_sectors:
-                heur_delta += self._quali_sectors[drv].get("q_lap_delta", 0.0) * 1.5
+                sigma_q = self._compute_circuit_pace_dispersion(
+                    {d: v.get("q_lap_delta", 0.0) for d, v in self._quali_sectors.items()}
+                )
+                heur_delta += self._quali_sectors[drv].get("q_lap_delta", 0.0) * (1.38 / sigma_q)
+
             max_heur_shift = 2.0
             bounded_heur = max_heur_shift * math.tanh(heur_delta / max_heur_shift) if abs(heur_delta) > 1e-6 else 0.0
             pred = max(1.0, min(float(len(drivers)), pred + bounded_heur))
@@ -1511,27 +1562,27 @@ class F1Predictor:
             ctor = self._roster.get(drv, "")
             dnf_prob = self._estimate_dnf_prob(drv, ctor)
             rd = self._elo.get_rd(drv) if self._elo else 350.0
-            confidence = max(20.0, min(99.0, 100.0 - std * 8.0))
-            confidence *= max(0.7, min(1.0, 1.0 - (rd - 100) / 500.0))
-            confidence = max(15.0, min(99.0, confidence))
 
-            # — Sensibility guardrails —
+            # Calibrated Confidence: strictly bounded by driver survival probability (Issue M-02)
+            survival_ceiling = 100.0 * (1.0 - dnf_prob)
+            raw_conf = 100.0 - std * 8.0
+            raw_conf *= max(0.7, min(1.0, 1.0 - (rd - 100) / 500.0))
+            confidence = max(15.0, min(99.0, min(raw_conf, survival_ceiling)))
+
+            # — Smooth Bayesian Guardrails (Issue M-05) —
             form = self._driver_form.get(drv, {})
             races_counted = form.get("races_counted", 0)
             form_avg = form.get("avg_position", 11.0)
             is_rookie = bool(races_counted < 4)
             ctor_pos_val = next((c["position"] for c in self._ctor_standings if c["constructor"] == ctor), 99)
 
-            # Guardrail 1: Top-3 constructor + recent top-6 form => can't predict below P10
-            if ctor_pos_val <= 3 and form_avg <= 6.5 and pred > 10.0:
-                pred = min(pred, 10.0)
+            # Guardrail 1: Top-3 constructor + recent top-6 form (smooth upper shrinkage near 10.0)
+            if ctor_pos_val <= 3 and form_avg <= 6.5:
+                pred = self._soft_guardrail_regularize(pred, mode="upper", threshold=10.0, alpha=0.18, beta=0.75)
 
-            # Guardrail 2: Rookie floor (REMOVED to allow fair weighting)
-
-            # Guardrail 3: Last-place constructor — floor weak predictions for
-            # backmarker teams at P10 (unless current form justifies better)
-            if ctor_pos_val >= 9 and pred < 10.0 and not (form_avg <= 9):
-                pred = max(pred, 10.0)
+            # Guardrail 3: Last-place constructor (smooth lower shrinkage near 10.0 unless form <= 9.0)
+            if ctor_pos_val >= 9 and not (form_avg <= 9.0):
+                pred = self._soft_guardrail_regularize(pred, mode="lower", threshold=10.0, alpha=0.18, beta=0.75)
 
             pred = max(1.0, min(22.0, pred))
 
@@ -1573,7 +1624,30 @@ class F1Predictor:
                 "explanation":    explanation,
             })
 
-        predictions.sort(key=lambda x: x["predicted_pos"])
+        # Variance Decompression & Zero-Sum Hyperplane Projection (Issue M-01)
+        if len(predictions) >= 18:
+            n = float(len(predictions))
+            mu = (n + 1.0) / 2.0
+            target_sum = n * (n + 1.0) / 2.0
+            raw_vals = [p["predicted_pos"] for p in predictions]
+            # Affine expansion around field center mu (expansion factor gamma = 1.35)
+            expanded = [mu + 1.35 * (v - mu) for v in raw_vals]
+            current_sum = sum(expanded)
+            diff = (target_sum - current_sum) / n
+            projected = [round(max(1.0, min(n, v + diff)), 2) for v in expanded]
+            for p, cal_v in zip(predictions, projected):
+                p["predicted_pos"] = float(cal_v)
+
+        # Deterministic 5-key lexicographical tie-breaking (Issue M-04)
+        predictions.sort(
+            key=lambda x: (
+                round(x["predicted_pos"], 2),
+                x.get("dnf_prob_pct", 0.0),
+                -x.get("confidence_pct", 0.0),
+                -x.get("elo_rating", 0.0),
+                x["driver"],
+            )
+        )
         for i, p in enumerate(predictions, 1):
             p["predicted_rank"] = i
         return predictions
@@ -1586,13 +1660,26 @@ class F1Predictor:
         for drv in drivers:
             pred, std = self._predict_position(drv, mode="quali")
             
-            # Apply FastF1 Heuristics as deterministic modifiers
+            # Track-calibrated lap delta scaling (Issue M-06)
+            sigma_fp = self._compute_circuit_pace_dispersion(self._practice_pace)
             fp_delta = self._practice_pace.get(drv, 0.0) if self._practice_pace else 0.0
-            pred += (fp_delta * 2.0)
-            q_delta = 0.0
+            pred += fp_delta * (1.10 / sigma_fp)
             if self._quali_sectors and drv in self._quali_sectors:
+                sigma_q = self._compute_circuit_pace_dispersion(
+                    {d: v.get("q_lap_delta", 0.0) for d, v in self._quali_sectors.items()}
+                )
                 q_delta = self._quali_sectors[drv].get("q_lap_delta", 0.0)
-            pred += (q_delta * 2.5)  # stronger weight in quali
+                pred += q_delta * (1.38 / sigma_q)
+
+            # Smooth Bayesian guardrails for qualifying (Issue M-05)
+            ctor = self._roster.get(drv, "")
+            ctor_pos_val = next((c["position"] for c in getattr(self, "_ctor_standings", []) if c["constructor"] == ctor), 99)
+            form = self._driver_form.get(drv, {})
+            form_avg = form.get("avg_position", 11.0)
+            if ctor_pos_val <= 3 and form_avg <= 6.5:
+                pred = self._soft_guardrail_regularize(pred, mode="upper", threshold=10.0, alpha=0.18, beta=0.75)
+            if ctor_pos_val >= 9 and not (form_avg <= 9.0):
+                pred = self._soft_guardrail_regularize(pred, mode="lower", threshold=10.0, alpha=0.18, beta=0.75)
             pred = max(1.0, min(22.0, pred))
 
             ctor = self._roster.get(drv, "")
@@ -1686,14 +1773,28 @@ class F1Predictor:
         for drv in drivers:
             race_pred, race_std   = self._predict_position(drv, mode="race")
             quali_pred, quali_std = self._predict_position(drv, mode="quali")
-            sprint_pred = 0.6 * race_pred + 0.4 * quali_pred
-            sprint_std  = (race_std + quali_std) / 2
 
-            # Apply FastF1 heuristics as deterministic modifiers
+            # Hierarchical Sprint Modeling (Issue M-07):
+            # If actual Sprint Shootout results are available, anchor on them;
+            # otherwise blend race pace (0.65) and single-lap quali pace (0.35) with 100km stint scaling
+            actual_sq = getattr(self, "_actual_sprint_results", None)
+            if actual_sq and drv in actual_sq:
+                sq_grid = float(actual_sq[drv].get("grid", quali_pred))
+                sprint_pred = 0.70 * sq_grid + 0.30 * race_pred
+                sprint_std = race_std * 0.75
+            else:
+                sprint_pred = 0.65 * race_pred + 0.35 * quali_pred
+                sprint_std  = (race_std + quali_std) / 2
+
+            # Apply track-calibrated dispersion deltas (Issue M-06)
+            sigma_fp = self._compute_circuit_pace_dispersion(getattr(self, "_practice_pace", None))
             fp_delta = self._practice_pace.get(drv, 0.0) if getattr(self, "_practice_pace", None) else 0.0
-            sprint_pred += fp_delta * 1.5
+            sprint_pred += fp_delta * (0.85 / sigma_fp)
             if getattr(self, "_quali_sectors", None) and drv in self._quali_sectors:
-                sprint_pred += self._quali_sectors[drv].get("q_lap_delta", 0.0) * 1.0
+                sigma_q = self._compute_circuit_pace_dispersion(
+                    {d: v.get("q_lap_delta", 0.0) for d, v in self._quali_sectors.items()}
+                )
+                sprint_pred += self._quali_sectors[drv].get("q_lap_delta", 0.0) * (0.95 / sigma_q)
             sprint_pred = max(1.0, min(22.0, sprint_pred))
 
             ctor = self._roster.get(drv, "")
@@ -1710,13 +1811,11 @@ class F1Predictor:
             is_rookie = bool(races_counted < 4)
             ctor_pos_val = next((c["position"] for c in getattr(self, "_ctor_standings", []) if c["constructor"] == ctor), 99)
 
-            # Guardrail 1: Top-3 constructor + recent top-6 form => can't predict below P10
-            if ctor_pos_val <= 3 and form_avg <= 6.5 and sprint_pred > 10.0:
-                sprint_pred = min(sprint_pred, 10.0)
-
-            # Guardrail 3: Last-place constructor — floor weak predictions for backmarker teams at P10
-            if ctor_pos_val >= 9 and sprint_pred < 10.0 and not (form_avg <= 9):
-                sprint_pred = max(sprint_pred, 10.0)
+            # Smooth Bayesian guardrails for sprint (Issue M-05)
+            if ctor_pos_val <= 3 and form_avg <= 6.5:
+                sprint_pred = self._soft_guardrail_regularize(sprint_pred, mode="upper", threshold=10.0, alpha=0.18, beta=0.75)
+            if ctor_pos_val >= 9 and not (form_avg <= 9.0):
+                sprint_pred = self._soft_guardrail_regularize(sprint_pred, mode="lower", threshold=10.0, alpha=0.18, beta=0.75)
 
             sprint_pred = max(1.0, min(22.0, sprint_pred))
 
@@ -1835,9 +1934,19 @@ class F1Predictor:
         rp_clean = float(RACE_POSITION_POINTS.get(race_pos, 0))
         delta = effective_grid - race_pos
         pos_pts_clean = float(delta * POSITIONS_GAINED_PER if delta > 0 else abs(delta) * POSITIONS_LOST_PER)
-        fl_prob_clean = max(0.0, (0.09 - (race_pos - 1) * 0.005)) if race_pos <= 10 else 0.0
+        # Conserved Fastest Lap & Driver of the Day expectations (Issue F-03)
+        # FL restricted to top-10 finishers with normalized probability distribution
+        if race_pos <= 10:
+            fl_prob_clean = max(0.01, 0.16 - 0.014 * (race_pos - 1)) / 0.95
+        else:
+            fl_prob_clean = 0.0
         fl_pts_clean = float(FASTEST_LAP_BONUS * fl_prob_clean)
-        dotd_prob_clean = max(0.0, 0.12 - (race_pos - 1) * 0.01)
+
+        # DOTD incorporating starting position / positions gained comeback signal
+        pos_gained = max(0, effective_grid - race_pos)
+        base_dotd_w = max(0.005, 0.14 - 0.011 * (race_pos - 1))
+        comeback_w = 0.025 * pos_gained if race_pos <= 12 else 0.006 * pos_gained
+        dotd_prob_clean = min(0.35, (base_dotd_w + comeback_w) / 1.05)
         dotd_pts_clean = float(DRIVER_OF_DAY_BONUS * dotd_prob_clean)
 
         # Sprint weekend
@@ -2022,14 +2131,22 @@ def _train_meta_learner(
         xgb_clone.fit(X_train, y_train_inv, group=train_groups)
         lgb_clone.fit(X_train, y_train_inv, group=train_groups)
 
-        # Convert ALL THREE models' OOF scores to per-field normalized ranks —
-        # identical to _ensemble_rank_predictions at inference.
+        # Convert ALL THREE models' OOF scores to per-field normalized ranks
+        # SLICED PER RACE (Issue M-08) — exactly identical to single-race inference!
         s_rf  = np.asarray(rf_clone.predict(X_test), dtype=float)
         s_xgb = np.asarray(xgb_clone.predict(X_test), dtype=float)
         s_lgb = np.asarray(lgb_clone.predict(X_test), dtype=float)
-        oof_preds[test_start_idx:test_end_idx, 0] = to_rank(s_rf, higher_is_better=False)
-        oof_preds[test_start_idx:test_end_idx, 1] = to_rank(s_xgb, higher_is_better=True)
-        oof_preds[test_start_idx:test_end_idx, 2] = to_rank(s_lgb, higher_is_better=True)
+
+        test_groups = groups[test_start_group:test_end_group]
+        cursor = test_start_idx
+        for g_size in test_groups:
+            g_end = cursor + g_size
+            rel_start = cursor - test_start_idx
+            rel_end = g_end - test_start_idx
+            oof_preds[cursor:g_end, 0] = to_rank(s_rf[rel_start:rel_end], higher_is_better=False)
+            oof_preds[cursor:g_end, 1] = to_rank(s_xgb[rel_start:rel_end], higher_is_better=True)
+            oof_preds[cursor:g_end, 2] = to_rank(s_lgb[rel_start:rel_end], higher_is_better=True)
+            cursor = g_end
 
     first_test_start = group_boundaries[total_groups - n_splits * test_size]
     if first_test_start < len(y):

@@ -2130,7 +2130,17 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
         weights = [FORM_DECAY_LAMBDA ** (n - 1 - i) for i in range(n)]
         total_w = sum(weights)
 
-        positions = [r["position"] for r in records]
+        eff_positions = []
+        for r in records:
+            pos = float(r["position"])
+            grid = float(r.get("grid", pos) or pos)
+            # Winsorize mechanical DNFs from high grid (Issue M-03)
+            if r.get("dnf") and grid < pos and grid <= 10 and pos >= 16:
+                eff_positions.append(0.75 * grid + 0.25 * pos)
+            else:
+                eff_positions.append(pos)
+
+        positions = eff_positions
         points    = [r["points"]   for r in records]
         dnfs      = [r["dnf"]      for r in records]
         fantasy_points = [

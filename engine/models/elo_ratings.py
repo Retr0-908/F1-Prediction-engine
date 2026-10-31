@@ -53,6 +53,30 @@ BETWEEN_PERIOD_PHI_INCREASE = 50.0   # how much RD grows over a full off-season
 ROOKIE_INITIAL_PHI          = 350.0  # full uncertainty for first-timers
 VETERAN_PHI_FLOOR           = 80.0   # minimum RD a stable veteran can reach
 
+MECHANICAL_DNF_KEYWORDS = (
+    "engine", "power unit", "hydraulics", "gearbox", "transmission",
+    "electrical", "electronics", "cooling", "radiator", "exhaust",
+    "fuel", "oil", "water", "turbo", "battery", "ers", "mgu",
+    "brakes", "suspension", "driveshaft", "mechanical", "wheel",
+)
+
+
+def _is_mechanical_or_external_dnf(entry: dict) -> bool:
+    '''Return True if the race entry represents a non-pace mechanical/external DNF (Issue M-03).'''
+    classification = str(entry.get("classification", "")).strip().lower()
+    pos = int(entry.get("position", 20) or 20)
+    grid = int(entry.get("grid", pos) or pos)
+    dnf_flag = bool(entry.get("dnf", False))
+
+    if classification and classification not in ("finished", "lapped") and not classification.isdigit():
+        if any(kw in classification for kw in MECHANICAL_DNF_KEYWORDS):
+            return True
+        if classification in ("retired", "dnf", "did not finish") and grid <= 10 and pos >= 16:
+            return True
+    if dnf_flag and grid <= 10 and pos >= 16:
+        return True
+    return False
+
 
 # ─────────────────────────────────────────────
 # GLICKO-2 MATH HELPERS
@@ -232,6 +256,22 @@ class Glicko2RatingSystem:
             snap[f["name"]] = (d.mu_internal, d.phi_internal)
 
         # ── Step 2: compute new ratings driver by driver ──
+        # Build effective pace positions & reliability weights so mechanical DNFs
+        # do not masquerade as slow pace (Issue M-03)
+        effective_positions: dict[str, float] = {}
+        reliability_weights: dict[str, float] = {}
+        for f in finishers:
+            raw_pos = float(f.get("position", 99))
+            grid_pos = float(f.get("grid", raw_pos) or raw_pos)
+            name = f["name"]
+            if _is_mechanical_or_external_dnf(f) and grid_pos < raw_pos:
+                # Mechanical / external failure: preserve 75% of grid pace signal
+                effective_positions[name] = 0.75 * grid_pos + 0.25 * raw_pos
+                reliability_weights[name] = 0.35
+            else:
+                effective_positions[name] = raw_pos
+                reliability_weights[name] = 1.0
+
         updates: dict[str, Glicko2Driver] = {}
         for i, drv_a in enumerate(finishers):
             name_a = drv_a["name"]
@@ -254,11 +294,20 @@ class Glicko2RatingSystem:
                 g_b = _g(phi_b)
                 E_ab = _E(mu_a, mu_b, phi_b)
 
-                # A beats B if i < j (lower index = better finish)
-                s = 1.0 if i < j else 0.0
+                pos_a = effective_positions[name_a]
+                pos_b = effective_positions[name_b]
+                pair_weight = min(reliability_weights[name_a], reliability_weights[name_b])
 
-                v_sum     += g_b ** 2 * E_ab * (1.0 - E_ab)
-                delta_sum += g_b * (s - E_ab)
+                # Effective pace outcome
+                if abs(pos_a - pos_b) < 0.25:
+                    s = 0.5
+                elif pos_a < pos_b:
+                    s = 1.0
+                else:
+                    s = 0.0
+
+                v_sum     += pair_weight * (g_b ** 2 * E_ab * (1.0 - E_ab))
+                delta_sum += pair_weight * (g_b * (s - E_ab))
 
             # Multi-car field composite-likelihood scaling (gamma_field = 1 / sqrt(N - 1))
             # Driver i participates in (N - 1) pairwise comparisons which carry O(1) independent
