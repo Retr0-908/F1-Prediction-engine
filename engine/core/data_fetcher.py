@@ -2006,6 +2006,66 @@ def get_qualifying_sector_times(year: int, gp_name: str) -> dict[str, dict]:
 # form computed under a different formula.
 FORM_DECAY_LAMBDA = 1.0
 
+
+def _estimate_historical_fantasy_pts(
+    position: int,
+    grid: int,
+    dnf: bool,
+    fastest_lap: bool = False,
+    fia_points: float = 0.0,
+) -> float:
+    """
+    Reconstruct historical F1 Fantasy points for a single race result on the exact
+    same scale as F1Predictor.estimate_fantasy_points() (Quali classification +
+    Q2/Q3/Pole bonuses + Race finish + Grid-to-finish delta + FL + DOTD proxy).
+
+    DUAL-TRACK INVARIANT:
+    This is used exclusively to populate `fantasy_points_list` and `avg_fantasy_points`
+    for the Fantasy Bayesian EV refiner, leaving `points_list`, `avg_points`, and
+    `form_score` 100% untouched on the FIA World Championship scale for ML features.
+    """
+    from engine.core.config import (
+        RACE_POSITION_POINTS, QUALI_POSITION_POINTS,
+        QUALI_Q3_BONUS, QUALI_Q2_BONUS, POLE_BONUS,
+        POSITIONS_GAINED_PER, POSITIONS_LOST_PER,
+        FASTEST_LAP_BONUS, DRIVER_OF_DAY_BONUS, DNF_PENALTY,
+    )
+    pos = int(position or 20)
+    q_pos = int(grid) if (grid and int(grid) > 0) else pos
+
+    # 1. Qualifying points (Saturday classification proxy from grid)
+    if q_pos <= 10:
+        quali_pts = float(QUALI_POSITION_POINTS.get(q_pos, 0) + QUALI_Q3_BONUS)
+        if q_pos == 1:
+            quali_pts += float(POLE_BONUS)
+    elif q_pos <= 15:
+        quali_pts = float(QUALI_Q2_BONUS)
+    else:
+        quali_pts = 0.0
+
+    # 2. DNF weekend retains Saturday qualifying points plus DNF penalty
+    if dnf:
+        return round(float(quali_pts + DNF_PENALTY), 2)
+
+    # 3. Clean Sunday race finish points
+    rp = float(RACE_POSITION_POINTS.get(pos, int(fia_points)))
+
+    # 4. Positions gained / lost (grid vs finish, bounded [-10, +10] places)
+    delta = max(-10, min(10, q_pos - pos))
+    pos_pts = float(
+        delta * POSITIONS_GAINED_PER if delta > 0 else abs(delta) * POSITIONS_LOST_PER
+    )
+
+    # 5. Fastest lap & Driver of the Day expectation
+    fl_pts = float(FASTEST_LAP_BONUS) if (fastest_lap and pos <= 10) else (
+        float(FASTEST_LAP_BONUS * max(0.0, 0.09 - (pos - 1) * 0.005)) if pos <= 10 else 0.0
+    )
+    dotd_prob = max(0.0, 0.12 - (pos - 1) * 0.01)
+    dotd_pts = float(DRIVER_OF_DAY_BONUS * dotd_prob)
+
+    return round(float(quali_pts + rp + pos_pts + fl_pts + dotd_pts), 2)
+
+
 def compute_driver_form(year: int, num_races: int = 10, until_round: int = None) -> dict[str, dict]:
     """
     Returns per-driver form dict with recency-weighted positions.
@@ -2020,7 +2080,7 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
     )
     _cache_age_form = 0 if year < CURRENT_SEASON else 3   # 0 = permanent
     _cached_form = _load_cache(_cache_key_form, _cache_age_form)
-    if _cached_form is not None:
+    if _cached_form is not None and all("fantasy_points_list" in v for v in _cached_form.values()):
         normalized_form = {}
         for k, v in _cached_form.items():
             if " " in k:
@@ -2047,10 +2107,12 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
                 if name not in driver_records:
                     driver_records[name] = []
                 driver_records[name].append({
-                    "position": r["position"],
-                    "points":   r["points"],
-                    "dnf":      r["dnf"],
-                    "round":    race["round"],
+                    "position":    r["position"],
+                    "grid":        r.get("grid", r["position"]),
+                    "points":      r["points"],
+                    "dnf":         r["dnf"],
+                    "fastest_lap": r.get("fastest_lap", False),
+                    "round":       race["round"],
                 })
         except Exception:
             logger.warning("Suppressed error", exc_info=True)
@@ -2071,10 +2133,21 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
         positions = [r["position"] for r in records]
         points    = [r["points"]   for r in records]
         dnfs      = [r["dnf"]      for r in records]
+        fantasy_points = [
+            _estimate_historical_fantasy_pts(
+                position=r["position"],
+                grid=r.get("grid", r["position"]),
+                dnf=bool(r["dnf"]),
+                fastest_lap=bool(r.get("fastest_lap", False)),
+                fia_points=float(r["points"]),
+            )
+            for r in records
+        ]
 
-        avg_pos  = sum(p * w for p, w in zip(positions, weights)) / total_w
-        avg_pts  = sum(p * w for p, w in zip(points,    weights)) / total_w
-        dnf_rate = sum(d * w for d, w in zip(dnfs,      weights)) / total_w
+        avg_pos         = sum(p * w for p, w in zip(positions,      weights)) / total_w
+        avg_pts         = sum(p * w for p, w in zip(points,         weights)) / total_w
+        avg_fantasy_pts = sum(p * w for p, w in zip(fantasy_points, weights)) / total_w
+        dnf_rate        = sum(d * w for d, w in zip(dnfs,           weights)) / total_w
 
         # Momentum trend: slope of position (lower = better) over last n races
         if n >= 2:
@@ -2092,15 +2165,17 @@ def compute_driver_form(year: int, num_races: int = 10, until_round: int = None)
 
         form_score = (avg_pts * 2) - (avg_pos * 0.5) - (dnf_rate * 20)
         form_data[drv] = {
-            "avg_position":    round(avg_pos, 2),
-            "avg_points":      round(avg_pts, 2),
-            "dnf_rate":        round(dnf_rate, 3),
-            "form_score":      round(form_score, 2),
-            "momentum_trend":  round(momentum_trend, 3),  # NEW: +ve = improving
-            "races_counted":   n,
-            "points_list":     points,
-            "dnf_list":        [bool(d) for d in dnfs],
-            "source":          f"current_sma_lam{FORM_DECAY_LAMBDA}",
+            "avg_position":        round(avg_pos, 2),
+            "avg_points":          round(avg_pts, 2),
+            "avg_fantasy_points":  round(avg_fantasy_pts, 2),
+            "dnf_rate":            round(dnf_rate, 3),
+            "form_score":          round(form_score, 2),
+            "momentum_trend":      round(momentum_trend, 3),  # NEW: +ve = improving
+            "races_counted":       n,
+            "points_list":         points,
+            "fantasy_points_list": fantasy_points,
+            "dnf_list":            [bool(d) for d in dnfs],
+            "source":              f"current_sma_lam{FORM_DECAY_LAMBDA}",
         }
     _save_cache(_cache_key_form, form_data)
     return form_data

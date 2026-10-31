@@ -599,6 +599,10 @@ def display_suggestions(result: dict):
         console.print("No beneficial changes found within budget.")
         return
 
+    trade_summary = result.get("trade_summary")
+    if trade_summary and trade_summary.get("narrative"):
+        console.print(f"[bold cyan]Package Summary:[/bold cyan] {trade_summary['narrative']}")
+
     table = Table(
         title=" Suggested Team Changes",
         box=box.ROUNDED, header_style="bold green", border_style="green",
@@ -613,14 +617,21 @@ def display_suggestions(result: dict):
 
     for i, c in enumerate(changes, 1):
         cost_color = "red" if c["cost_diff"] > 0 else "green"
+        gain_val = c.get("pts_gain", 0.0)
+        gain_str = (
+            f"[bold green]+{gain_val:.1f}[/bold green]"
+            if gain_val >= 0
+            else f"[bold yellow]{gain_val:.1f}[/bold yellow]"
+        )
+        new_tot = c.get("new_total", 0.0)
         table.add_row(
             str(i),
             c["type"].capitalize(),
             f"{c['out']} (${c['out_price']}M | {c['out_pts']:.0f}pts)",
             f"[green]{c['in']}[/green] (${c['in_price']}M | {c['in_pts']:.0f}pts)",
-            f"[bold green]+{c['pts_gain']:.1f}[/bold green]",
+            gain_str,
             f"[{cost_color}]{'+' if c['cost_diff']>0 else ''}{c['cost_diff']:.1f}M[/{cost_color}]",
-            f"${c['new_total']:.1f}M",
+            f"${new_tot:.1f}M",
         )
     console.print(table)
 
@@ -1539,6 +1550,8 @@ def main():
     # (Suggestions and Projections are now displayed in the HTML Dashboard)
     if suggestions.get("using_mc_pts"):
         _print_slow("  [MC] Transfer rankings powered by Monte Carlo expected values")
+    if suggestions.get("trade_summary") and suggestions["trade_summary"].get("narrative"):
+        _print_slow(f"  [Strategy] {suggestions['trade_summary']['narrative']}")
 
     # ══════════════════════════════════════════════════════════
     # CHIP STRATEGY ADVISOR

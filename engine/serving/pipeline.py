@@ -308,13 +308,20 @@ def run_full_pipeline(
 
         progress_callback(run_id, "ANALYSIS", "loading", "Running LP solver to find globally optimal team combinations...")
         if detected_mode in ["post-quali", "race-day"]:
-            current_team_pts = sum(mc_ev_pts.get(d, 0.0) for d in my_drivers) + sum(mc_ev_pts.get(c, 0.0) for c in my_constructors)
+            current_team_pts = round(sum(mc_ev_pts.get(d, 0.0) for d in my_drivers) + sum(mc_ev_pts.get(c, 0.0) for c in my_constructors), 1)
             suggestions = {
                 "suggested_changes": [],
+                "all_swaps_ranked": [],
                 "locked": True,
                 "using_mc_pts": True,
                 "projected_pts_new": current_team_pts,
                 "projected_pts_current": current_team_pts,
+                "points_gain": 0.0,
+                "points_gain_with_turbo": 0.0,
+                "transfers_used": 0,
+                "transfers_free": transfers,
+                "warnings": [],
+                "trade_summary": None,
             }
         else:
             suggestions = suggest_team_changes(my_drivers, my_constructors, driver_pts, ctor_pts, driver_prices, constructor_prices, transfers, budget, mc_pts=lookahead_ev_pts)

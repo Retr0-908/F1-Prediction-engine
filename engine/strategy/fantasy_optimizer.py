@@ -18,9 +18,64 @@ from engine.core.config import (
     CONSTRUCTORS_2025, DRIVER_TEAMS_2025, DRIVER_TEAMS_2026, CURRENT_SEASON,
 )
 
-# A top-5 driver / top-3 constructor may only be swapped out for a replacement
-# projected to score at least this much MORE than the star (30%).
+# Legacy constant retained for backward-compatibility imports.
 TOP_PERFORMER_GAIN_THRESHOLD = 0.30
+
+# Minimum net point gain required per transfer executed to prevent low-value churn.
+MIN_GAIN_PER_TRANSFER = 1.5
+
+
+def _compute_team_score_with_turbo(
+    drivers: list[str],
+    ctors: list[str],
+    d_pts_map: dict[str, float],
+    c_pts_map: dict[str, float],
+) -> tuple[float, str, float]:
+    """
+    Compute team score including the mandatory 2x Turbo Driver boost on the
+    highest-scoring driver in the 5-driver lineup.
+
+    Returns:
+        (total_pts_with_turbo, best_turbo_driver, base_pts_without_turbo)
+    """
+    base_d = sum(d_pts_map.get(d, 0.0) for d in drivers)
+    base_c = sum(c_pts_map.get(c, 0.0) for c in ctors)
+    base_total = base_d + base_c
+    if not drivers:
+        return round(base_total, 2), "", round(base_total, 2)
+    best_turbo = max(drivers, key=lambda d: d_pts_map.get(d, 0.0))
+    turbo_bonus = max(0.0, d_pts_map.get(best_turbo, 0.0))
+    return round(base_total + turbo_bonus, 2), best_turbo, round(base_total, 2)
+
+
+def _resolve_max_spend(
+    total_current_cost: float,
+    budget_remaining: Optional[float],
+) -> tuple[float, float]:
+    """
+    Normalize caller budget semantics across CLI, FastAPI pipeline, and UI.
+
+    - If budget_remaining is None or >= 50.0, caller passed a total budget cap
+      (e.g., 100.0M default). Effective cap is max(budget_remaining, total_current_cost).
+    - If 0.0 <= budget_remaining < 50.0, caller passed spare cash in bank
+      (e.g., 1.8M spare). Effective cap is total_current_cost + budget_remaining.
+
+    Returns:
+        (effective_total_cap, spare_bank_cash)
+    """
+    curr = float(total_current_cost)
+    if budget_remaining is None:
+        effective_total_cap = max(float(FANTASY_BUDGET), curr)
+        bank_cash = max(0.0, effective_total_cap - curr)
+    else:
+        b_val = float(budget_remaining)
+        if b_val >= 50.0:
+            effective_total_cap = max(b_val, curr)
+            bank_cash = max(0.0, effective_total_cap - curr)
+        else:
+            bank_cash = max(0.0, b_val)
+            effective_total_cap = curr + bank_cash
+    return round(effective_total_cap, 2), round(bank_cash, 2)
 
 
 def get_current_team_value(
@@ -84,23 +139,18 @@ def suggest_team_changes(
     current_d_price = {d: _get_driver_price(d, driver_prices)    for d in current_drivers}
     current_c_price = {c: _get_ctor_price(c, constructor_prices) for c in current_constructors}
 
-    total_current_pts  = sum(current_d_pts.values()) + sum(current_c_pts.values())
-    total_current_cost = sum(current_d_price.values()) + sum(current_c_price.values())
+    all_d_pts_map = {d["driver"]: effective_pts(d["driver"], d["total_pts"]) for d in driver_pts}
+    for d in current_drivers:
+        all_d_pts_map.setdefault(d, current_d_pts[d])
+    all_c_pts_map = {c["constructor"]: effective_pts(c["constructor"], c["total_pts"]) for c in constructor_pts}
+    for c in current_constructors:
+        all_c_pts_map.setdefault(c, current_c_pts[c])
 
-    # --- Top-performer protection ---
-    # If a current player is in the top 5 drivers / top 3 constructors by predicted pts,
-    # only allow dropping them if the replacement has >30% more expected points.
-    # This prevents absurd suggestions like "drop Mercedes for Audi".
-    all_d_pts_sorted = sorted(
-        [(d["driver"], effective_pts(d["driver"], d["total_pts"])) for d in driver_pts],
-        key=lambda x: x[1], reverse=True
+    base_total_with_turbo, current_turbo, total_current_pts = _compute_team_score_with_turbo(
+        current_drivers, current_constructors, all_d_pts_map, all_c_pts_map
     )
-    all_c_pts_sorted = sorted(
-        [(c["constructor"], effective_pts(c["constructor"], c["total_pts"])) for c in constructor_pts],
-        key=lambda x: x[1], reverse=True
-    )
-    top_driver_names = {name for name, _ in all_d_pts_sorted[:5]}
-    top_ctor_names   = {name for name, _ in all_c_pts_sorted[:3]}
+    total_current_cost = sum(current_d_price.values()) + sum(current_c_price.values())
+    effective_total_cap, bank_cash = _resolve_max_spend(total_current_cost, budget_remaining)
 
     # Prepare candidate pools (players NOT currently in team)
     d_candidates = []
@@ -128,6 +178,10 @@ def suggest_team_changes(
 
     best_swaps = []
     best_net_gain = 0.0
+    best_turbo_net_gain = 0.0
+    best_effective_gain = 0.0
+    best_k = 0
+    best_new_turbo = current_turbo
 
     max_k = max(3, free_transfers + 2)
 
@@ -136,6 +190,7 @@ def suggest_team_changes(
 
     for k in range(1, max_k + 1):
         penalty = max(0, k - free_transfers) * 10
+        best_k_candidate = None
 
         for out_combo in itertools.combinations(current_players, k):
             out_d = [p["name"] for p in out_combo if p["type"] == "driver"]
@@ -146,13 +201,13 @@ def suggest_team_changes(
             pts_lost   = sum(current_d_pts.get(d, 0) for d in out_d) + \
                          sum(current_c_pts.get(c, 0) for c in out_c)
 
-            budget_for_in = budget_remaining + cash_freed
+            budget_for_in = bank_cash + cash_freed
 
             in_d_combos = itertools.combinations(d_candidates, len(out_d)) if len(out_d) > 0 else [()]
 
             for in_d in in_d_combos:
                 in_d_cost = sum(d["price"] for d in in_d)
-                if in_d_cost > budget_for_in:
+                if in_d_cost > budget_for_in + 1e-6:
                     continue
 
                 remaining_drivers = [d for d in current_drivers if d not in out_d]
@@ -165,77 +220,125 @@ def suggest_team_changes(
 
                 for in_c in in_c_combos:
                     total_in_cost = in_d_cost + sum(c["price"] for c in in_c)
-                    if total_in_cost > budget_for_in:
+                    if total_in_cost > budget_for_in + 1e-6:
                         continue
                     final_ctors = remaining_ctors + [c["name"] for c in in_c]
                     if max(_count_team_assets(trial_drivers, final_ctors).values(), default=0) > 2:
                         continue
                     new_team_total = total_current_cost - cash_freed + total_in_cost
-                    if new_team_total > FANTASY_BUDGET:
+                    if new_team_total > effective_total_cap + 1e-6:
                         continue
 
                     pts_gained = sum(d["pts"] for d in in_d) + sum(c["pts"] for c in in_c)
-                    net_gain = pts_gained - pts_lost - penalty
-
-                    # Top-performer protection: a star may only be swapped out
-                    # for a replacement projected to score (1+THRESHOLD)x more.
-                    justified = True
-                    for od in out_d:
-                        if od in top_driver_names:
-                            od_idx = list(out_d).index(od)
-                            replacement = list(in_d)[od_idx] if od_idx < len(in_d) else None
-                            if replacement:
-                                repl_pts = replacement["pts"]
-                                star_pts = current_d_pts.get(od, 0)
-                                if repl_pts < star_pts * (1.0 + TOP_PERFORMER_GAIN_THRESHOLD):
-                                    justified = False
-                                    break
-                    for oc in out_c:
-                        if oc in top_ctor_names and justified:
-                            oc_idx = list(out_c).index(oc)
-                            replacement = list(in_c)[oc_idx] if oc_idx < len(in_c) else None
-                            if replacement:
-                                repl_pts = replacement["pts"]
-                                star_pts = current_c_pts.get(oc, 0)
-                                if repl_pts < star_pts * (1.0 + TOP_PERFORMER_GAIN_THRESHOLD):
-                                    justified = False
-                                    break
-
-                    if not justified:
+                    raw_net_gain = pts_gained - pts_lost - penalty
+                    if raw_net_gain <= 0:
                         continue
 
-                    if net_gain > best_net_gain:
-                        best_net_gain = net_gain
+                    new_total_with_turbo, new_turbo, _ = _compute_team_score_with_turbo(
+                        trial_drivers, final_ctors, all_d_pts_map, all_c_pts_map
+                    )
+                    turbo_net_gain = (new_total_with_turbo - base_total_with_turbo) - penalty
 
-                        combo_swaps = []
-                        d_in_list = list(in_d)
-                        for idx, od in enumerate(out_d):
-                            idrv = d_in_list[idx]
-                            combo_swaps.append({
-                                "type": "driver", "out": od,
-                                "out_pts": round(current_d_pts.get(od, 0), 1),
-                                "out_price": round(current_d_price.get(od, 0), 1),
-                                "in": idrv["name"],
-                                "in_pts": round(idrv["pts"], 1),
-                                "in_price": round(idrv["price"], 1),
-                                "pts_gain": round(idrv["pts"] - current_d_pts.get(od, 0), 1),
-                                "cost_diff": round(idrv["price"] - current_d_price.get(od, 0), 1),
-                            })
-                        c_in_list = list(in_c)
-                        for idx, oc in enumerate(out_c):
-                            ictor = c_in_list[idx]
-                            combo_swaps.append({
-                                "type": "constructor", "out": oc, "out_pts": round(current_c_pts.get(oc,0),1),
-                                "out_price": round(current_c_price.get(oc,0),1), "in": ictor["name"],
-                                "in_pts": round(ictor["pts"],1), "in_price": round(ictor["price"],1),
-                                "pts_gain": round(ictor["pts"] - current_c_pts.get(oc,0), 1),
-                                "cost_diff": round(ictor["price"] - current_c_price.get(oc,0), 1)
-                            })
-                        
-                        # Order: do fund-freeing swaps first (negative cost_diff = sell expensive → buy cheap).
-                        # This ensures subsequent transfers in a multi-transfer plan have the budget they need.
-                        combo_swaps.sort(key=lambda s: s["cost_diff"])
-                        best_swaps = combo_swaps
+                    # Package must be net positive both raw and with Turbo, and clear the hurdle rate
+                    effective_gain = max(raw_net_gain, turbo_net_gain) if turbo_net_gain > 0 else raw_net_gain
+                    if turbo_net_gain <= 0 or effective_gain < k * MIN_GAIN_PER_TRANSFER:
+                        continue
+
+                    if (
+                        best_k_candidate is None
+                        or effective_gain > best_k_candidate["effective_gain"] + 1e-6
+                        or (
+                            abs(effective_gain - best_k_candidate["effective_gain"]) <= 1e-6
+                            and raw_net_gain > best_k_candidate["raw_net_gain"]
+                        )
+                    ):
+                        best_k_candidate = {
+                            "out_d": out_d,
+                            "out_c": out_c,
+                            "in_d": list(in_d),
+                            "in_c": list(in_c),
+                            "raw_net_gain": raw_net_gain,
+                            "turbo_net_gain": turbo_net_gain,
+                            "effective_gain": effective_gain,
+                            "new_team_total": new_team_total,
+                            "new_turbo": new_turbo,
+                            "k": k,
+                        }
+
+        if best_k_candidate is not None:
+            # Marginal efficiency check: adding (k - best_k) extra transfers must
+            # contribute at least (k - best_k) * MIN_GAIN_PER_TRANSFER additional net points.
+            extra_transfers = k - best_k if best_k > 0 else k
+            required_marginal = extra_transfers * MIN_GAIN_PER_TRANSFER
+            if best_k == 0 or (best_k_candidate["effective_gain"] - best_effective_gain >= required_marginal - 1e-6):
+                best_effective_gain = best_k_candidate["effective_gain"]
+                best_net_gain = best_k_candidate["raw_net_gain"]
+                best_turbo_net_gain = best_k_candidate["turbo_net_gain"]
+                best_k = k
+                best_new_turbo = best_k_candidate["new_turbo"]
+
+                # Semantic pairing:
+                # Pair lowest-scoring outgoing asset with highest-scoring incoming asset
+                # so the headline upgrade leg is maximized and any cap-enabler leg is isolated.
+                out_d_sorted = sorted(best_k_candidate["out_d"], key=lambda d: (current_d_pts.get(d, 0.0), current_d_price.get(d, 0.0)))
+                in_d_sorted  = sorted(best_k_candidate["in_d"],  key=lambda d: (d["pts"], d["price"]), reverse=True)
+                out_c_sorted = sorted(best_k_candidate["out_c"], key=lambda c: (current_c_pts.get(c, 0.0), current_c_price.get(c, 0.0)))
+                in_c_sorted  = sorted(best_k_candidate["in_c"],  key=lambda c: (c["pts"], c["price"]), reverse=True)
+
+                combo_swaps = []
+                for idx, od in enumerate(out_d_sorted):
+                    idrv = in_d_sorted[idx]
+                    leg_gain = round(idrv["pts"] - current_d_pts.get(od, 0.0), 1)
+                    leg_cost = round(idrv["price"] - current_d_price.get(od, 0.0), 1)
+                    combo_swaps.append({
+                        "type": "driver",
+                        "out": od,
+                        "out_pts": round(current_d_pts.get(od, 0.0), 1),
+                        "out_price": round(current_d_price.get(od, 0.0), 1),
+                        "in": idrv["name"],
+                        "in_pts": round(idrv["pts"], 1),
+                        "in_price": round(idrv["price"], 1),
+                        "pts_gain": leg_gain,
+                        "cost_diff": leg_cost,
+                        "new_total": round(best_k_candidate["new_team_total"], 1),
+                    })
+                for idx, oc in enumerate(out_c_sorted):
+                    ictor = in_c_sorted[idx]
+                    leg_gain = round(ictor["pts"] - current_c_pts.get(oc, 0.0), 1)
+                    leg_cost = round(ictor["price"] - current_c_price.get(oc, 0.0), 1)
+                    combo_swaps.append({
+                        "type": "constructor",
+                        "out": oc,
+                        "out_pts": round(current_c_pts.get(oc, 0.0), 1),
+                        "out_price": round(current_c_price.get(oc, 0.0), 1),
+                        "in": ictor["name"],
+                        "in_pts": round(ictor["pts"], 1),
+                        "in_price": round(ictor["price"], 1),
+                        "pts_gain": leg_gain,
+                        "cost_diff": leg_cost,
+                        "new_total": round(best_k_candidate["new_team_total"], 1),
+                    })
+
+                # Sort upgrades FIRST (highest pts_gain descending) so the primary upgrade
+                # is always #1 and any funding downgrade appears after with clear context.
+                combo_swaps.sort(key=lambda s: (s["pts_gain"], -s["cost_diff"]), reverse=True)
+
+                primary_upgrade_target = combo_swaps[0]["in"] if combo_swaps else ""
+                for idx, s in enumerate(combo_swaps):
+                    if s["pts_gain"] < 0 and s["cost_diff"] < 0:
+                        s["role"] = "funding_downgrade"
+                        s["role_label"] = "BUDGET ENABLER"
+                        s["reason"] = f"Frees ${abs(s['cost_diff']):.1f}M to fund {primary_upgrade_target}"
+                    elif idx == 0:
+                        s["role"] = "primary_upgrade"
+                        s["role_label"] = "PRIMARY UPGRADE"
+                        s["reason"] = f"Primary scoring upgrade (+{s['pts_gain']:.1f} pts)"
+                    else:
+                        s["role"] = "value_upgrade"
+                        s["role_label"] = "UPGRADE"
+                        s["reason"] = f"Secondary scoring upgrade (+{s['pts_gain']:.1f} pts)"
+
+                best_swaps = combo_swaps
 
     actual_transfers = len(best_swaps)
     penalties = max(0, actual_transfers - free_transfers) * 10
@@ -244,16 +347,57 @@ def suggest_team_changes(
     elif free_transfers == 0 and not best_swaps:
         warnings_list.append("⚠️  No free transfers remaining — any further changes will cost -10 pts.")
 
+    trade_summary = None
+    if best_swaps:
+        gross_gain = round(sum(s["pts_gain"] for s in best_swaps), 1)
+        total_cost_diff = round(sum(s["cost_diff"] for s in best_swaps), 1)
+        enablers = [s for s in best_swaps if s.get("role") == "funding_downgrade"]
+        upgrades = [s for s in best_swaps if s.get("role") != "funding_downgrade"]
+        if enablers and upgrades:
+            enabler_desc = ", ".join(
+                f"downgrade {e['out']} → {e['in']} (saves ${abs(e['cost_diff']):.1f}M, {e['pts_gain']:+.1f} pts)"
+                for e in enablers
+            )
+            upgrade_desc = ", ".join(
+                f"upgrade {u['out']} → {u['in']} ({u['pts_gain']:+.1f} pts)"
+                for u in upgrades
+            )
+            narrative = f"Linked {actual_transfers}-transfer package: {enabler_desc} to fund {upgrade_desc}. Combined net gain: +{best_net_gain:.1f} pts."
+        elif actual_transfers > 1:
+            legs_desc = ", ".join(f"{s['out']} → {s['in']} ({s['pts_gain']:+.1f} pts)" for s in best_swaps)
+            narrative = f"Combined {actual_transfers}-transfer package ({legs_desc}) for +{best_net_gain:.1f} net pts."
+        else:
+            s0 = best_swaps[0]
+            narrative = f"Direct upgrade: {s0['out']} → {s0['in']} ({s0['pts_gain']:+.1f} pts)."
+
+        trade_summary = {
+            "num_transfers":          actual_transfers,
+            "is_package":             actual_transfers > 1,
+            "gross_pts_gain":         gross_gain,
+            "penalty_pts":            penalties,
+            "net_pts_gain":           round(best_net_gain, 1),
+            "net_pts_gain_with_turbo": round(best_turbo_net_gain, 1),
+            "total_cost_diff":        total_cost_diff,
+            "current_turbo_driver":   current_turbo,
+            "new_turbo_driver":       best_new_turbo,
+            "narrative":              narrative,
+        }
+
     return {
-        "suggested_changes":     best_swaps,
-        "all_swaps_ranked":      [],
-        "projected_pts_current": round(total_current_pts, 1),
-        "projected_pts_new":     round(total_current_pts + best_net_gain, 1),
-        "points_gain":           round(best_net_gain, 1),
-        "transfers_used":        actual_transfers,
-        "transfers_free":        free_transfers,
-        "warnings":              warnings_list,
-        "using_mc_pts":          mc_pts is not None,
+        "suggested_changes":          best_swaps,
+        "all_swaps_ranked":           [],
+        "projected_pts_current":      round(total_current_pts, 1),
+        "projected_pts_new":          round(total_current_pts + best_net_gain, 1),
+        "projected_pts_current_turbo": round(base_total_with_turbo, 1),
+        "projected_pts_new_turbo":     round(base_total_with_turbo + best_turbo_net_gain, 1),
+        "points_gain":                round(best_net_gain, 1),
+        "points_gain_with_turbo":     round(best_turbo_net_gain, 1),
+        "transfers_used":             actual_transfers,
+        "transfers_free":             free_transfers,
+        "warnings":                   warnings_list,
+        "using_mc_pts":               mc_pts is not None,
+        "turbo_recommendation":       best_new_turbo,
+        "trade_summary":              trade_summary,
     }
 
 

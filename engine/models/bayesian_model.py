@@ -30,6 +30,10 @@ class BayesianPointsModel:
 
     # Fantasy points typically retained on a DNF weekend (quali bonus etc.)
     DNF_QUALI_POINTS_RETAINED = 2.0
+    # Minimum observation variance (sigma_obs >= 6.0 Fantasy pts) so a small
+    # low-variance sample never degenerates into a point-mass override.
+    MIN_OBS_VARIANCE: float = 36.0
+    MAX_EFFECTIVE_N: float = 3.0
 
     def __init__(self):
         self.evs = {}
@@ -43,6 +47,7 @@ class BayesianPointsModel:
         circuit_key: str = None,
         dnf_flags: list[bool] = None,
         retained_non_sunday_pts: float = None,
+        observations_are_fantasy_scale: bool = True,
     ) -> float:
         """
         Fit the model for a single driver with track-informed priors.
@@ -55,6 +60,8 @@ class BayesianPointsModel:
         circuit_key: Optional circuit key to load track-specific DNF and variance priors
         dnf_flags: Optional per-race DNF flags aligned with historical_points.
         retained_non_sunday_pts: Saturday qualifying + sprint points retained even on a Sunday DNF
+        observations_are_fantasy_scale: Explicit flag; if False or if heuristic detects
+            legacy FIA Championship scale contamination, observations are rescaled.
         """
         # Raw historical fantasy points without artificial non-negative clamping
         points_data = np.array([float(p) for p in historical_points])
@@ -74,11 +81,17 @@ class BayesianPointsModel:
             except Exception as e:
                 logger.warning("Track-feature priors unavailable for %s: %s", circuit_key, e)
 
-        # Dynamic Prior Mean for DNF probability
-        mu_dnf_prior = 0.05 + 0.18 * sc_prob + 0.22 * fli_risk + 0.12 * max(0.0, 1.0 - track_width / 16.0) + 0.06 * (alt_m / 2250.0)
-        mu_dnf_prior = float(np.clip(mu_dnf_prior, 0.02, 0.45))
+        # Dynamic Prior Mean for DNF probability (calibrated to realistic per-driver F1 DNF rates)
+        mu_dnf_prior = (
+            0.04
+            + 0.08 * sc_prob
+            + 0.12 * fli_risk
+            + 0.05 * max(0.0, 1.0 - track_width / 16.0)
+            + 0.03 * (alt_m / 2250.0)
+        )
+        mu_dnf_prior = float(np.clip(mu_dnf_prior, 0.03, 0.25))
 
-        N0 = 10.0
+        N0 = 6.0
         alpha0 = N0 * mu_dnf_prior
         beta0 = N0 * (1.0 - mu_dnf_prior)
 
@@ -118,17 +131,43 @@ class BayesianPointsModel:
 
         # 2. Update mean scoring-race points μ via known-variance Normal conjugate
         # (all non-DNF races count toward μ, including low-scoring ones)
-        var_prior = 100.0 * (1.0 + 0.25 * (weather_var - 1.0) + 0.18 * (tire_deg - 3.0) + 0.20 * max(0.0, 1.0 - track_width / 16.0))
+        var_prior = 25.0 * (
+            1.0
+            + 0.15 * max(0.0, weather_var - 1.0)
+            + 0.10 * max(0.0, tire_deg - 3.0)
+            + 0.10 * max(0.0, 1.0 - track_width / 16.0)
+        )
         weight_prior = 1.0 / max(10.0, var_prior)
 
         non_dnf_points = [
-            p for p, f in zip(points_data, (dnf_flags or [False] * num_races))
+            float(p) for p, f in zip(points_data, (dnf_flags or [False] * num_races))
             if not f
         ]
         if non_dnf_points:
+            # Safeguard: Detect legacy FIA Championship points scale (e.g., midfield all 0s
+            # or podium finishers with FIA points 10-15 when Fantasy prior is 22-35).
+            zero_ratio = sum(1 for p in non_dnf_points if p == 0.0) / len(non_dnf_points)
+            emp_mean_raw = float(np.mean(non_dnf_points))
+            if not observations_are_fantasy_scale or (
+                ensemble_pred_pts >= 6.0
+                and (
+                    zero_ratio >= 0.50
+                    or (
+                        ensemble_pred_pts >= 16.0
+                        and emp_mean_raw < 0.52 * ensemble_pred_pts
+                        and max(non_dnf_points) <= 26.0
+                    )
+                )
+            ):
+                non_dnf_points = [
+                    (p * 1.45 + 6.5) if p > 0 else max(3.5, float(ensemble_pred_pts) * 0.65)
+                    for p in non_dnf_points
+                ]
+
             emp_mu = float(np.mean(non_dnf_points))
-            emp_var = float(np.var(non_dnf_points)) if len(non_dnf_points) > 1 else 25.0
-            weight_data = len(non_dnf_points) / max(5.0, emp_var)
+            emp_var = max(self.MIN_OBS_VARIANCE, float(np.var(non_dnf_points))) if len(non_dnf_points) > 1 else 49.0
+            n_eff = min(float(len(non_dnf_points)), self.MAX_EFFECTIVE_N)
+            weight_data = n_eff / emp_var
             mu_post = float((ensemble_pred_pts * weight_prior + emp_mu * weight_data) / (weight_prior + weight_data))
         else:
             mu_post = float(ensemble_pred_pts)

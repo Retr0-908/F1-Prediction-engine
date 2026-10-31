@@ -611,7 +611,7 @@ async function loadDashboardData() {
         const teamRes = await fetch('/api/team');
         currentTeam = await teamRes.json();
         currentTeam.transfers = currentTeam.transfers || 1;
-        document.getElementById('team-budget').value = currentTeam.budget_remaining || 100.0;
+        document.getElementById('team-budget').value = (currentTeam.budget_remaining !== undefined && currentTeam.budget_remaining !== null && Number.isFinite(Number(currentTeam.budget_remaining))) ? Number(currentTeam.budget_remaining) : 100.0;
         document.getElementById('team-points').value = currentTeam.current_points || 0.0;
         if (currentTeam.drivers && currentTeam.drivers.length > 0) {
             updateStatusRow('status-team', 'green', `${currentTeam.drivers.length} drivers selected`);
@@ -1118,7 +1118,7 @@ async function importF1Team(teamNo) {
             currentTeam = data.imported;
             currentTeam.transfers = currentTeam.transfers || 1;
 
-            document.getElementById('team-budget').value = currentTeam.budget_remaining || 0.0;
+            document.getElementById('team-budget').value = (currentTeam.budget_remaining !== undefined && currentTeam.budget_remaining !== null && Number.isFinite(Number(currentTeam.budget_remaining))) ? Number(currentTeam.budget_remaining) : 0.0;
             document.getElementById('team-points').value = currentTeam.current_points || 0.0;
             document.getElementById('team-transfers').value = currentTeam.transfers;
 
@@ -1460,7 +1460,7 @@ async function startAnalysis() {
             body: JSON.stringify({
                 drivers: currentTeam.drivers,
                 constructors: currentTeam.constructors,
-                budget: currentTeam.budget_remaining || 100.0,
+                budget: (currentTeam.budget_remaining !== undefined && currentTeam.budget_remaining !== null && Number.isFinite(Number(currentTeam.budget_remaining))) ? Number(currentTeam.budget_remaining) : 100.0,
                 points: currentTeam.current_points || 0.0,
                 transfers: currentTeam.transfers || 1,
                 options: {
@@ -1799,20 +1799,47 @@ function displayResults(data) {
             </div>
         </div>${basisNote}`;
     } else {
-        transfers.forEach((t, i) => {
-            const gain = t.pts_gain || 0;
+        const ts = sugg.trade_summary || null;
+        if (ts && transfers.length > 1) {
+            const netGain = Number(ts.net_pts_gain ?? sugg.points_gain ?? 0);
+            const totalCostDiff = Number(ts.total_cost_diff ?? 0);
+            const penaltyPts = Number(ts.penalty_pts ?? 0);
             tList.innerHTML += `
-                <div class="res-card transfer-card">
+                <div class="package-summary-banner">
+                    <div class="package-summary-header">
+                        <span class="package-summary-title">🔗 LINKED ${transfers.length}-TRANSFER PACKAGE</span>
+                        <span class="package-summary-net">${netGain >= 0 ? '+' : ''}${netGain.toFixed(1)} NET PTS</span>
+                    </div>
+                    <div class="package-summary-narrative">${ts.narrative || ''}</div>
+                    <div class="package-summary-meta">
+                        Net Budget Impact: ${totalCostDiff > 0 ? '+' : ''}$${totalCostDiff.toFixed(1)}M
+                        ${penaltyPts > 0 ? ` · Includes -${penaltyPts} pts extra transfer penalty` : ' · Covered by free transfers'}
+                    </div>
+                </div>
+            `;
+        }
+        transfers.forEach((t, i) => {
+            const gain = Number(t.pts_gain || 0);
+            const costDiff = Number(t.cost_diff || 0);
+            const isFunding = t.role === 'funding_downgrade' || gain < 0;
+            const gainColor = isFunding ? 'var(--color-amber, #f59e0b)' : 'var(--color-green)';
+            const gainStr = `${gain >= 0 ? '+' : ''}${gain.toFixed(1)} pts ${isFunding ? 'leg delta (frees budget)' : 'projected gain'}`;
+            const roleLabel = t.role_label || (isFunding ? 'BUDGET ENABLER' : 'UPGRADE');
+            const roleClass = isFunding ? 'role-enabler' : 'role-upgrade';
+            tList.innerHTML += `
+                <div class="res-card transfer-card ${isFunding ? 'transfer-card-enabler' : 'transfer-card-upgrade'}">
                     <div class="transfer-badge">#${i+1}</div>
                     <div class="transfer-body">
                         <div class="transfer-players">
                             <span class="player-out">▼ ${t.out}</span>
                             <span class="transfer-arrow">→</span>
                             <span class="player-in">▲ ${t.in}</span>
+                            <span class="transfer-role-badge ${roleClass}">${roleLabel}</span>
                         </div>
                         <div class="transfer-meta dim-text">
-                            Budget impact: ${t.cost_diff > 0 ? '+' : ''}$${(t.cost_diff || 0).toFixed(1)}M &nbsp;·&nbsp;
-                            <span style="color:var(--color-green)">+${gain.toFixed(1)} pts projected gain</span>
+                            Budget impact: ${costDiff > 0 ? '+' : ''}$${costDiff.toFixed(1)}M &nbsp;·&nbsp;
+                            <span style="color:${gainColor}">${gainStr}</span>
+                            ${t.reason ? `<div class="transfer-reason-note">${t.reason}</div>` : ''}
                         </div>
                     </div>
                     <button class="btn btn-primary btn-sm" style="font-size:0.8rem; padding:4px 12px;" onclick="showToast('Auto-transfer feature coming soon!', 'info')">QUICK APPLY</button>

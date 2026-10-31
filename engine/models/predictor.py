@@ -1867,7 +1867,13 @@ class F1Predictor:
             try:
                 bm = _get_bayesian_model()
                 form_entry = self._driver_form.get(driver_name, {})
-                pts_history = form_entry.get("points_list", [])
+                fantasy_hist = form_entry.get("fantasy_points_list")
+                if fantasy_hist:
+                    pts_history = fantasy_hist
+                    is_fantasy_scale = True
+                else:
+                    pts_history = form_entry.get("points_list", [])
+                    is_fantasy_scale = False
                 dnf_flags = form_entry.get("dnf_list") or None
 
                 if pts_history:
@@ -1879,6 +1885,7 @@ class F1Predictor:
                         dnf_flags=dnf_flags,
                         circuit_key=self._circuit_config.get("key", "") or None,
                         retained_non_sunday_pts=retained_non_sunday,
+                        observations_are_fantasy_scale=is_fantasy_scale,
                     )
                     post = bm.get_posterior(driver_name)
                     psi = post.get("psi", dnf_prob)
@@ -1900,9 +1907,13 @@ class F1Predictor:
                         current_sunday_sum = survived_rp + survived_delta + survived_fl + survived_dotd
                         residual = target_sunday_sum - current_sunday_sum
 
-                        new_rp = max(0.0, survived_rp + 0.75 * residual)
-                        allocated_to_rp = new_rp - survived_rp
-                        rem_residual = residual - allocated_to_rp
+                        if survived_delta == 0.0 and survived_rp + residual >= 0.0:
+                            new_rp = survived_rp + residual
+                            rem_residual = 0.0
+                        else:
+                            new_rp = max(0.0, survived_rp + 0.85 * residual)
+                            allocated_to_rp = new_rp - survived_rp
+                            rem_residual = residual - allocated_to_rp
 
                         breakdown["qualifying"] = q_b
                         breakdown["race_position"] = round(new_rp, 2)
