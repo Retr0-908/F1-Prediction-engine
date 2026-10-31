@@ -308,7 +308,14 @@ def run_full_pipeline(
 
         progress_callback(run_id, "ANALYSIS", "loading", "Running LP solver to find globally optimal team combinations...")
         if detected_mode in ["post-quali", "race-day"]:
-            suggestions = {"suggested_changes": [], "locked": True, "using_mc_pts": True}
+            current_team_pts = sum(mc_ev_pts.get(d, 0.0) for d in my_drivers) + sum(mc_ev_pts.get(c, 0.0) for c in my_constructors)
+            suggestions = {
+                "suggested_changes": [],
+                "locked": True,
+                "using_mc_pts": True,
+                "projected_pts_new": current_team_pts,
+                "projected_pts_current": current_team_pts,
+            }
         else:
             suggestions = suggest_team_changes(my_drivers, my_constructors, driver_pts, ctor_pts, driver_prices, constructor_prices, transfers, budget, mc_pts=lookahead_ev_pts)
         optimal = find_optimal_team(driver_pts, ctor_pts, driver_prices, constructor_prices, mc_pts=lookahead_ev_pts)
@@ -462,19 +469,28 @@ def calculate_lookahead_ev(
     total_weight = 0.0
     gamma = 0.75  # Exponential temporal discount factor per race lookahead step
 
+    import copy
     # Snapshot current predictor context to restore after lookahead simulations
     _ctx_snapshot = {
-        "_circuit_config": getattr(predictor, "_circuit_config", {}),
-        "_weather": getattr(predictor, "_weather", {}),
+        "_circuit_config": copy.deepcopy(getattr(predictor, "_circuit_config", {})),
+        "_weather": copy.deepcopy(getattr(predictor, "_weather", {})),
         "_mode": getattr(predictor, "_mode", "auto"),
-        "_race_info": getattr(predictor, "_race_info", {}),
-        "_grid_overrides": getattr(predictor, "_grid_overrides", {}),
-        "_actual_grid": getattr(predictor, "_actual_grid", []),
-        "_practice_pace": getattr(predictor, "_practice_pace", {}),
+        "_race_info": copy.deepcopy(getattr(predictor, "_race_info", {})),
+        "_grid_overrides": copy.deepcopy(getattr(predictor, "_grid_overrides", {})),
+        "_actual_grid": copy.deepcopy(getattr(predictor, "_actual_grid", [])),
+        "_practice_pace": copy.deepcopy(getattr(predictor, "_practice_pace", {})),
         "_practice_session_name": getattr(predictor, "_practice_session_name", "N/A"),
-        "_quali_sectors": getattr(predictor, "_quali_sectors", {}),
-        "_grid_penalties": getattr(predictor, "_grid_penalties", {}),
-        "_circuit_history": getattr(predictor, "_circuit_history", pd.DataFrame()),
+        "_quali_sectors": copy.deepcopy(getattr(predictor, "_quali_sectors", {})),
+        "_grid_penalties": copy.deepcopy(getattr(predictor, "_grid_penalties", {})),
+        "_circuit_history": getattr(predictor, "_circuit_history", pd.DataFrame()).copy() if hasattr(getattr(predictor, "_circuit_history", None), "copy") else pd.DataFrame(),
+        "_roster": copy.deepcopy(getattr(predictor, "_roster", None)),
+        "_actual_quali_results": copy.deepcopy(getattr(predictor, "_actual_quali_results", [])),
+        "_actual_sprint_results": copy.deepcopy(getattr(predictor, "_actual_sprint_results", [])),
+        "_recent_race_results": copy.deepcopy(getattr(predictor, "_recent_race_results", [])),
+        "_tire_data_by_round": copy.deepcopy(getattr(predictor, "_tire_data_by_round", {})),
+        "_tire_allocs_by_round": copy.deepcopy(getattr(predictor, "_tire_allocs_by_round", {})),
+        "_bias_corrections": copy.deepcopy(getattr(predictor, "_bias_corrections", {})),
+        "_weight_adjustments": copy.deepcopy(getattr(predictor, "_weight_adjustments", {})),
     }
 
     try:
@@ -510,10 +526,13 @@ def calculate_lookahead_ev(
             
             # Load context for this future race.
             # Future rounds do NOT inherit current-round grid penalties/overrides.
+            # Future rounds (r > current_race_round) have not happened yet; use mode="pre-practice"
+            # to prevent looking for unrun practice pace or weekend tire allocations.
+            round_mode = "pre-practice" if r > current_race_round else "pre-quali"
             round_grid_overrides = grid_overrides if r == current_race_round else None
             predictor.load_context(
                 circuit_cfg, weather, roster=roster,
-                mode="pre-quali", race_info=race, grid_overrides=round_grid_overrides,
+                mode=round_mode, race_info=race, grid_overrides=round_grid_overrides,
             )
             
             race_order = predictor.predict_finishing_order()
@@ -551,9 +570,9 @@ def calculate_lookahead_ev(
                 ctor_ev += pit_pts
                 total_ev[ctor] = total_ev.get(ctor, 0.0) + ctor_ev * weight
     finally:
-        # Restore snapshot to leave predictor clean for subsequent requests
+        # Restore snapshot with deep copies to leave predictor clean for subsequent requests
         for k, v in _ctx_snapshot.items():
-            setattr(predictor, k, v)
+            setattr(predictor, k, copy.deepcopy(v) if k != "_circuit_history" else (v.copy() if hasattr(v, "copy") else v))
         if hasattr(predictor, "_rank_cache"):
             predictor._rank_cache = {}
 

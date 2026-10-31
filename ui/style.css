@@ -133,6 +133,8 @@ body {
     padding: 24px;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    overflow-x: hidden;
     /* Phase 2: CSS transition removed for panels — GSAP handles hover via apple-springs.js */
     /* Keep border-color transition only (not transform — GSAP owns that) */
     transition: border-color 0.25s ease;
@@ -503,16 +505,16 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
 .main-layout {
     padding: 30px;
     display: grid;
-    grid-template-columns: 2fr 1.2fr;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
     grid-auto-rows: min-content;
     gap: 24px;
     overflow-y: auto;
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
 }
-.col-left { grid-column: 1 / 2; grid-row: 1 / 3; }
-.col-center { grid-column: 2 / 3; grid-row: 1 / 2; }
-.col-right { grid-column: 2 / 3; grid-row: 2 / 3; }
+.col-left { grid-column: 1 / 2; grid-row: 1 / 2; min-width: 0; }
+.col-center { grid-column: 2 / 3; grid-row: 1 / 2; min-width: 0; }
+.col-right { grid-column: 2 / 3; grid-row: 1 / 2; min-width: 0; }
 
 .race-info h2 {
     font-size: 2.5rem;
@@ -1127,7 +1129,7 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     font-weight: 700;
 }
 .tab-content { display: none; }
-.tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+.tab-content.active { display: block; animation: none; }
 
 /* ── Archive & Analytics Subtabs ── */
 .archive-analytics-tabs {
@@ -2657,6 +2659,30 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     }
 }
 
+/* Merged Dashboard Layout Enhancements */
+.dashboard-merged-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.status-board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+    gap: 10px;
+    min-width: 0;
+}
+
+.status-board-grid .status-row {
+    margin-bottom: 0;
+}
+
+.dashboard-merged-col .wx-session-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    min-width: 0;
+}
+
 /* Tier 2 — Tablet (600px – 1199px) */
 @media (min-width: 600px) and (max-width: 1199px) {
     .content-padding {
@@ -2664,14 +2690,17 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     }
 
     .main-layout {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
         padding: 20px;
         gap: 16px;
     }
 
-    .col-left { grid-column: 1 / 3; }
-    .col-center { grid-column: 1 / 2; }
-    .col-right { grid-column: 2 / 3; }
+    .col-left,
+    .col-center,
+    .col-right {
+        grid-column: 1 / -1;
+        grid-row: auto;
+    }
 }
 
 /* Tier 1 — Phone (≤ 599px) */
@@ -2702,23 +2731,24 @@ h1, h2, h3 { font-family: var(--font-heading); font-weight: 600; letter-spacing:
     .race-columns {
         gap: 16px;
     }
+
+    .status-board-grid,
+    .dashboard-merged-col .wx-session-list {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Tier 3 — Desktop (≥ 1200px) */
 @media (min-width: 1200px) {
     .main-layout {
-        /* Weekend Hub keeps its 1.8fr so "SESSION TIMES" stays on one line; the
-           extra width for System Status comes from the weather column. At the
-           old 1fr the status panel was ~260px and truncated "Predictive
-           Engine" to "Pre...". */
-        grid-template-columns: 1.8fr 1.1fr 1.1fr;
+        grid-template-columns: 1.15fr 1fr;
         gap: 24px;
         padding: 24px;
+        align-items: start;
     }
 
     .col-left { grid-column: 1 / 2; grid-row: 1 / 2; }
-    .col-center { grid-column: 2 / 3; grid-row: 1 / 2; }
-    .col-right { grid-column: 3 / 4; grid-row: 1 / 2; }
+    .col-right { grid-column: 2 / 3; grid-row: 1 / 2; }
 }
 
 /* ── Phase 5: Brand title optical typography ── */
@@ -2784,6 +2814,7 @@ button, a, [role="button"], select, input, .card, .driver-compact-card,
 /* ── Phase 4: Tab transition placeholder (GSAP-driven, CSS display only) ── */
 .tab-content.active {
     display: block;
+    animation: none;
     /* No fadeIn animation — GSAP handles tab transitions via apple-springs.js */
 }
 
@@ -3856,14 +3887,22 @@ td.number, td.numeric, td[class*="num"] {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    min-width: 0;
 }
 
 .wx-summary {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--space-3);
     font-size: 0.95rem;
     color: var(--text-main);
+    min-width: 0;
+    overflow-wrap: break-word;
+}
+
+.wx-summary > span {
+    min-width: 0;
 }
 
 .wx-summary .wx-icon {
@@ -3878,12 +3917,14 @@ td.number, td.numeric, td[class*="num"] {
 
 .wx-session-row {
     display: grid;
-    grid-template-columns: minmax(52px, 1fr) auto minmax(56px, auto) minmax(52px, auto) minmax(72px, auto);
-    gap: var(--space-3);
+    grid-template-columns: minmax(44px, 1fr) auto minmax(46px, auto) minmax(44px, auto) minmax(62px, auto);
+    gap: var(--space-2);
     align-items: center;
     padding: 8px 0;
     border-bottom: 1px solid var(--border-subtle);
     font-size: 0.82rem;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .wx-session-name {
@@ -3922,6 +3963,7 @@ td.number, td.numeric, td[class*="num"] {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-width: 0;
 }
 
 .wx-note {
@@ -3931,6 +3973,9 @@ td.number, td.numeric, td[class*="num"] {
     color: var(--text-dim);
     padding-left: 12px;
     border-left: 2px solid var(--f1-red);
+    min-width: 0;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 /* D4: the full race name wraps instead of truncating */

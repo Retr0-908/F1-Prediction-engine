@@ -153,6 +153,9 @@ function setupTabs() {
             if (!targetTab) return;
             const parent = btn.closest('.screen');
             if (!parent) return;
+
+            const contentEl = document.getElementById(targetTab);
+            if (!contentEl || contentEl.classList.contains('active')) return;
             
             // Toggle buttons
             parent.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
@@ -160,11 +163,16 @@ function setupTabs() {
             
             // Toggle content
             parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            const contentEl = document.getElementById(targetTab);
-            if (contentEl) contentEl.classList.add('active');
+            contentEl.classList.add('active');
             
-            // Force chart resize if needed
-            window.dispatchEvent(new Event('resize'));
+            // Resize charts inside the newly active tab
+            if (typeof Chart !== 'undefined' && Chart.instances) {
+                Object.values(Chart.instances).forEach(chart => {
+                    if (chart && chart.canvas && contentEl.contains(chart.canvas)) {
+                        chart.resize();
+                    }
+                });
+            }
         });
     });
 }

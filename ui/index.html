@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="F1 Fantasy Predictor — AI-powered race predictions, chip strategy, and dream team optimization for Formula 1 Fantasy.">
     <title>F1 Fantasy Predictor</title>
-    <link rel="stylesheet" href="/static/style.css?v=13">
+    <link rel="stylesheet" href="/static/style.css?v=15">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Phase 5: Inter with full optical-size range, Space Grotesk, JetBrains Mono for telemetry -->
@@ -13,7 +13,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <!-- Phase 2-10: Apple-grade spring animation system (loaded before app.js) -->
-    <script src="/static/apple-springs.js?v=3" defer></script>
+    <script src="/static/apple-springs.js?v=4" defer></script>
 </head>
 <body>
     <!-- Screen 1: Launch Screen — Phase 9: GSAP stagger reveal -->
@@ -140,10 +140,10 @@
             </div>
         </div>
 
-        <!-- Center Panel -->
-        <div class="panel col-center">
+        <!-- Right Panel: Merged System Status & Weekend Weather -->
+        <div class="panel col-right dashboard-merged-col">
             <div class="panel-header">SYSTEM STATUS</div>
-            <div class="status-board">
+            <div class="status-board status-board-grid">
                 <div class="status-row" id="status-race">
                     <span class="status-indicator grey"></span>
                     <span class="status-label">Next Race</span>
@@ -170,11 +170,8 @@
                     <span class="status-val dim-text">Not set</span>
                 </div>
             </div>
-        </div>
 
-        <!-- Right Panel -->
-        <div class="panel col-right">
-            <div class="panel-header">WEEKEND WEATHER</div>
+            <div class="panel-header" style="margin-top: 1.75rem;">WEEKEND WEATHER</div>
             <div id="weekend-weather-panel" class="weather-panel">
                 <div id="weather-summary" class="wx-summary">Loading forecast...</div>
                 <div id="weather-session-list" class="wx-session-list">
@@ -468,7 +465,7 @@
             </div>
         </div>
 
-        <div id="res-tab-qualifying" class="tab-content" style="display:none;">
+        <div id="res-tab-qualifying" class="tab-content">
             <div class="panel">
                 <div class="panel-header">QUALIFYING ORDER</div>
                 <p class="dim-text" style="font-size:0.85rem;margin-bottom:14px;">
@@ -1035,6 +1032,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=37"></script>
+    <script src="/static/app.js?v=38"></script>
 </body>
 </html>

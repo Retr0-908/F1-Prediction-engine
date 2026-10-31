@@ -677,6 +677,55 @@ class PlannedFixProbes(unittest.TestCase):
         # Verify grid overrides were cleared after the first round
         self.assertEqual(p._grid_overrides, {}, "Future lookahead rounds must not retain previous grid overrides")
 
+    @patch("engine.serving.pipeline.get_race_weekend_weather")
+    def test_lookahead_never_influences_race_predictions_or_predictor_state(self, mock_weather):
+        """Verify 3-race lookahead EV strictly isolates predictor state and does not alter race predictions."""
+        import copy
+        mock_weather.return_value = {
+            "summary_condition": "dry",
+            "sessions": {
+                "Race": {"condition": "dry", "temp_day_c": 22.0, "pop_pct": 0.0, "rain_mm": 0.0},
+                "Qualifying": {"condition": "dry", "temp_day_c": 22.0, "pop_pct": 0.0, "rain_mm": 0.0},
+            },
+            "condition_enc": 0,
+            "rain_prob": 0.0,
+            "rain_risk": "low",
+        }
+        from engine.serving.pipeline import calculate_lookahead_ev
+        from engine.models.predictor import F1Predictor
+        from engine.core.data_fetcher import get_race_by_round
+        race = get_race_by_round(1, 2026)
+        p = F1Predictor()
+        p.load_context(race.get("circuit_config", {}), {}, mode="pre-quali", race_info=race)
+
+        # Baseline predictions before lookahead
+        order_before = p.predict_finishing_order()
+        quali_before = p.predict_qualifying_order()
+
+        # Capture pre-lookahead internal state
+        mode_before = p._mode
+        practice_pace_before = copy.deepcopy(p._practice_pace)
+        race_info_before = copy.deepcopy(p._race_info)
+        recent_results_before = copy.deepcopy(getattr(p, "_recent_race_results", []))
+        tire_allocs_before = copy.deepcopy(getattr(p, "_tire_allocs_by_round", {}))
+
+        # Run lookahead EV (evaluates R1, R2, R3)
+        lookahead_ev = calculate_lookahead_ev(p, current_race_round=1, options={}, sims=10)
+        self.assertIsInstance(lookahead_ev, dict)
+
+        # 1. State must be 100% restored to round 1 pre-quali state
+        self.assertEqual(p._mode, mode_before)
+        self.assertEqual(p._race_info.get("round"), race_info_before.get("round"))
+        self.assertEqual(p._practice_pace, practice_pace_before)
+        self.assertEqual(getattr(p, "_recent_race_results", []), recent_results_before)
+        self.assertEqual(getattr(p, "_tire_allocs_by_round", {}), tire_allocs_before)
+
+        # 2. Race and qualifying predictions after lookahead must be identical
+        order_after = p.predict_finishing_order()
+        quali_after = p.predict_qualifying_order()
+        self.assertEqual([d["driver"] for d in order_before], [d["driver"] for d in order_after])
+        self.assertEqual([d["driver"] for d in quali_before], [d["driver"] for d in quali_after])
+
     def test_track_features_24_circuits_schema_complete(self):
         from engine.core.track_features_loader import load_track_features, ALL_CIRCUIT_KEYS
         self.assertEqual(len(ALL_CIRCUIT_KEYS), 24, "Must have exactly 24 official 2026 calendar circuits")

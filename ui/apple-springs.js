@@ -90,6 +90,7 @@
   function attachCardHover() {
     // Use event delegation so dynamically-created cards also get this
     document.addEventListener('pointerenter', e => {
+      if (!e.target || typeof e.target.closest !== 'function') return;
       const card = e.target.closest('.driver-compact-card, .dt-card, .card, .standings-row, .race-order-row');
       if (!card) return;
       const isRow = card.classList.contains('standings-row') || card.classList.contains('race-order-row');
@@ -97,6 +98,7 @@
     }, true);
 
     document.addEventListener('pointerleave', e => {
+      if (!e.target || typeof e.target.closest !== 'function') return;
       const card = e.target.closest('.driver-compact-card, .dt-card, .card, .standings-row, .race-order-row');
       if (!card) return;
       springTo(card, { x: 0, scale: 1 }, SPRING.crisp);
@@ -175,12 +177,12 @@
 
   /* ─── PHASE 4: TAB SWITCHING SPRING ────────────────────────────── */
   function attachTabSprings() {
-    function triggerChartResize() {
-      window.dispatchEvent(new Event('resize'));
+    function triggerChartResize(container) {
       if (typeof Chart !== 'undefined' && Chart.instances) {
         try {
           Object.values(Chart.instances).forEach(chart => {
-            if (chart && typeof chart.resize === 'function') {
+            if (!chart || typeof chart.resize !== 'function') return;
+            if (!container || (chart.canvas && container.contains(chart.canvas))) {
               chart.resize();
             }
           });
@@ -190,57 +192,117 @@
       }
     }
 
-    // Hook into the existing setupTabs function's event listeners via delegation
+    // Intercept tab clicks in capture phase so we own the transition lifecycle
+    // without colliding with setupTabs() in app.js
     document.querySelectorAll('.results-tabs, .tab-row, .archive-analytics-tabs').forEach(tabBar => {
       tabBar.addEventListener('click', e => {
+        if (!e.target || typeof e.target.closest !== 'function') return;
         const btn = e.target.closest('.tab-btn');
         if (!btn) return;
+
+        const isSubtab = btn.hasAttribute('data-subtab');
         const targetId = btn.getAttribute('data-tab') || btn.getAttribute('data-subtab');
         if (!targetId) return;
 
         const screen = btn.closest('.screen');
         if (!screen) return;
 
-        const prevContent = screen.querySelector('.tab-content.active, .subtab-pane.active');
+        const paneSelector = isSubtab ? '.subtab-pane' : '.tab-content';
+        const btnSelector = isSubtab ? '.tab-btn[data-subtab]' : '.tab-btn[data-tab]';
+
+        const allTabs = Array.from(screen.querySelectorAll(paneSelector));
         const nextContent = document.getElementById(targetId);
+        const prevContent = allTabs.find(el => el.classList.contains('active'));
 
-        if (!nextContent || prevContent === nextContent) return;
+        if (!nextContent) return;
 
-        // Determine direction from DOM order
-        const allTabs = Array.from(screen.querySelectorAll('.tab-content, .subtab-pane'));
-        const prevIdx = allTabs.indexOf(prevContent);
-        const nextIdx = allTabs.indexOf(nextContent);
-        const dir = nextIdx > prevIdx ? 1 : -1;
+        // If clicking the already-active tab, stop duplicate work
+        if (prevContent === nextContent) {
+          e.stopImmediatePropagation();
+          return;
+        }
 
         if (reducedMotion()) {
-          triggerChartResize();
-          return; // let existing JS handle it
+          // Let app.js synchronous handler perform the instant class swap
+          requestAnimationFrame(() => triggerChartResize(nextContent));
+          return;
         }
 
-        // Intercept: animate out old, animate in new
+        // Prevent app.js bubble handler from doing an immediate competing DOM swap
+        e.stopImmediatePropagation();
+
+        // 1. Immediately update active state on tab buttons
+        tabBar.querySelectorAll(btnSelector).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // 2. If it's an archive-analytics subtab, initialize data handlers
+        if (isSubtab) {
+          if (targetId === 'tab-stage-comparison' && typeof initStageComparison === 'function') {
+            initStageComparison();
+          } else if (targetId === 'tab-model-health' && typeof initPredictionAnalysis === 'function') {
+            initPredictionAnalysis();
+          } else if (targetId === 'tab-past-predictions' && typeof initPastPredictions === 'function') {
+            initPastPredictions();
+          } else if (targetId === 'tab-past-races' && typeof initPastRaces === 'function') {
+            initPastRaces();
+          }
+        }
+
+        // 3. Determine directional vector from DOM order
+        const prevIdx = allTabs.indexOf(prevContent);
+        const nextIdx = allTabs.indexOf(nextContent);
+        const dir = (prevIdx !== -1 && nextIdx !== -1 && nextIdx < prevIdx) ? -1 : 1;
+
+        // 4. Kill any in-flight tab tweens to prevent rapid-click race conditions
+        gsap.killTweensOf(allTabs);
+        allTabs.forEach(tab => {
+          if (tab !== prevContent && tab !== nextContent) {
+            tab.classList.remove('active');
+            if (isSubtab) tab.style.display = 'none';
+            gsap.set(tab, { clearProps: 'opacity,transform' });
+          }
+        });
+
+        const animateInNext = () => {
+          if (isSubtab) nextContent.style.display = 'block';
+          nextContent.classList.add('active');
+          // Resize charts inside nextContent right after display:block so canvas
+          // dimensions are locked BEFORE the entrance tween paints frame 1
+          triggerChartResize(nextContent);
+
+          gsap.fromTo(
+            nextContent,
+            { opacity: 0, x: dir * 18 },
+            {
+              opacity: 1,
+              x: 0,
+              duration: 0.22,
+              ease: 'power3.out',
+              onComplete: () => {
+                gsap.set(nextContent, { clearProps: 'opacity,transform' });
+              }
+            }
+          );
+        };
+
+        // 5. Animate out previous tab, then animate in next tab
         if (prevContent) {
           gsap.to(prevContent, {
-            opacity: 0, x: dir * -20, duration: 0.3, ease: 'power3.out',
+            opacity: 0,
+            x: dir * -18,
+            duration: 0.14,
+            ease: 'power2.in',
             onComplete: () => {
               prevContent.classList.remove('active');
-              prevContent.style.display = 'none';
-              gsap.set(prevContent, { clearProps: 'all' });
-
-              nextContent.style.display = 'block';
-              nextContent.classList.add('active');
-              gsap.fromTo(nextContent,
-                { opacity: 0, x: dir * 20 },
-                { opacity: 1, x: 0, duration: 0.3, ease: 'power3.out',
-                  onComplete: () => {
-                    gsap.set(nextContent, { clearProps: 'all' });
-                    triggerChartResize();
-                  }
-                }
-              );
+              if (isSubtab) prevContent.style.display = 'none';
+              gsap.set(prevContent, { clearProps: 'opacity,transform' });
+              animateInNext();
             }
           });
+        } else {
+          animateInNext();
         }
-      }, true); // capture phase so we run before the existing click handler
+      }, true); // capture phase
     });
   }
 
@@ -295,6 +357,7 @@
     if (!nav) return;
 
     nav.addEventListener('click', e => {
+      if (!e.target || typeof e.target.closest !== 'function') return;
       const btn = e.target.closest('.nav-btn');
       if (!btn) return;
 
@@ -387,6 +450,7 @@
 
     // Move on nav click
     navLinks.addEventListener('click', e => {
+      if (!e.target || typeof e.target.closest !== 'function') return;
       const btn = e.target.closest('.nav-btn');
       if (btn) moveIndicator(btn);
     });

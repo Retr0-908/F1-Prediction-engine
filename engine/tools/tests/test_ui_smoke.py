@@ -71,6 +71,45 @@ class UISmokeTests(unittest.TestCase):
         self.assertIn("flex: 1 1 120px", val)
         self.assertIn("overflow-wrap: break-word", val)
 
+    def test_dashboard_weather_and_panel_overflow_containment(self):
+        """Right dashboard column and weather elements must prevent text/box overflow."""
+        css = self.client.get("/static/style.css").text
+
+        # 1. .panel must contain min-width: 0 and overflow-x: hidden
+        panel = re.search(r"\.panel\s*\{[^}]*\}", css).group(0)
+        self.assertIn("min-width: 0", panel)
+        self.assertIn("overflow-x: hidden", panel)
+
+        # 2. .dashboard-merged-col .wx-session-list must use single-column minmax(0, 1fr)
+        wx_list = re.search(r"\.dashboard-merged-col \.wx-session-list\s*\{[^}]*\}", css).group(0)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", wx_list)
+
+        # 3. .wx-summary must allow flex wrapping
+        wx_summary = re.search(r"\.wx-summary\s*\{[^}]*\}", css).group(0)
+        self.assertIn("flex-wrap: wrap", wx_summary)
+        self.assertIn("overflow-wrap: break-word", wx_summary)
+
+        # 4. .wx-session-row must enforce min-width: 0 and max-width: 100%
+        wx_row = re.search(r"\.wx-session-row\s*\{[^}]*\}", css).group(0)
+        self.assertIn("min-width: 0", wx_row)
+        self.assertIn("max-width: 100%", wx_row)
+
+    def test_dashboard_merged_status_and_weather_column(self):
+        """Dashboard must house System Status and Weekend Weather in a single merged column."""
+        html = self.client.get("/").text
+        self.assertIn("dashboard-merged-col", html)
+        self.assertIn("status-board-grid", html)
+        self.assertIn('id="weekend-weather-panel"', html)
+        self.assertIn('id="status-race"', html)
+
+    def test_results_tabs_no_inline_display_none_or_double_render(self):
+        """Qualifying tab must not use inline display:none, and apple-springs must isolate events."""
+        html = self.client.get("/").text
+        springs_js = self.client.get("/static/apple-springs.js").text
+        self.assertIn('<div id="res-tab-qualifying" class="tab-content">', html)
+        self.assertNotIn('id="res-tab-qualifying" class="tab-content" style="display:none;"', html)
+        self.assertIn("e.stopImmediatePropagation()", springs_js)
+
     def test_sepang_track_map_asset(self):
         res = self.client.get("/static/images/tracks/sepang.svg")
         self.assertEqual(res.status_code, 200)
